@@ -56,7 +56,7 @@ pub struct ErrorsInput{
     abs_errors: Vec<Vec<f64>>
 }
 
-pub fn save_stats<Item: RlstScalar + MatrixInverse + MatrixPseudoInverse + MatrixId>(kernel_mat: &mut DynamicArray<Item, 2>, rsrs_factors: &RsrsFactors<Item>, rsrs_data: &RsrsData<Item>, tol: Real<Item>, path_str: &str)
+pub fn save_stats<Item: RlstScalar + MatrixInverse + MatrixPseudoInverse + MatrixId>(_kernel_mat: &mut DynamicArray<Item, 2>, _rsrs_factors: &RsrsFactors<Item>, rsrs_data: &RsrsData<Item>, tol: Real<Item>, path_str: &str)
 where <Item as RlstScalar>::Real: for<'a> std::iter::Sum<&'a <Item as RlstScalar>::Real>{    
     fs::create_dir_all(Path::new(&path_str)).unwrap();
     let string_tol = format!("{:e}", tol);
@@ -65,7 +65,11 @@ where <Item as RlstScalar>::Real: for<'a> std::iter::Sum<&'a <Item as RlstScalar
     stats_path.push_str(&string_tol);
     stats_path.push_str(".json");
 
-    let (norm_app_inv, diag_ae_mean, skel_ae) = write_box_errors(kernel_mat, rsrs_factors,  tol, &path_str);
+    let norm_app_inv = num::Zero::zero();
+    let diag_ae_mean = num::Zero::zero();
+    let skel_ae = num::Zero::zero();
+
+    //let (norm_app_inv, diag_ae_mean, skel_ae) = write_box_errors(_kernel_mat, _rsrs_factors,  tol, &path_str);
 
     let stats = StatsOutput::<Item>{
         app_inv_norm: norm_app_inv,
