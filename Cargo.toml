@@ -1,0 +1,46 @@
+[features]
+# Treat warnings as a build error.
+strict = []
+
+[package]
+name = "bempp-rsrs"
+version = "0.0.1-dev"
+edition = "2021"
+authors = [
+    "Ignacia Fierro-Piccardo <ignaciapiccardo@gmail.com>",
+]
+description = "RSRS tests"
+
+[lib]
+name = "rsrs_exps"
+crate-type = ["cdylib", "lib"]
+
+[dependencies]
+itertools = "0.13.*"
+rand = { version = "0.8.5", features = ["alloc"] }
+rand_chacha = "0.3.*"
+num = "0.4.*"
+rlst = {git = "https://github.com/ignacia-fp/rlst.git", branch = "id_and_null_space"}
+bempp-octree = { git = "https://github.com/bempp/octree.git" }
+mpi = { version = "0.8.*", features = ["derive", "user-operations"] }
+ndarray = "0.16.1"
+ndarray-linalg = "0.16.0"
+rand_distr = "0.4"
+npy = "0.4.0"
+plotters = "0.3.7"
+paste = "1"
+bempp-rsrs = { git = "https://github.com/bempp/rsrs.git" }
+
+[profile.release]
+debug = 1
+
+[dev-dependencies]
+rand_distr = "0.4.3"
+#criterion = { version = "0.5.*", features = ["html_reports"]}
+paste = "1"
+
+[build-dependencies]
+cbindgen = "0.27.0"
+
+[lints.clippy]
+wildcard_imports = "forbid"
