@@ -1,7 +1,7 @@
-use std::{fs::{self, File}, path::Path};
+use std::{fs::{self, File}, io::Read, path::Path};
 use bempp_rsrs::rsrs::{rsrs_cycle::RsrsData, rsrs_factors::{RsrsFactors, RsrsFactorsOps}};
 use num::NumCast;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use rlst::prelude::*;
 use std::io::Write;
 
@@ -9,13 +9,13 @@ type Real<T> = <T as rlst::RlstScalar>::Real;
 
 
 #[derive(Serialize)]
-struct Stats<Item: RlstScalar>{
+struct StatsOutput<Item: RlstScalar>{
     app_inv_norm: Real<Item>,
     diag_ae_mean: Real<Item>,
     skel_ae: Real<Item>,
     tot_num_samples: usize,
     total_elapsed_time: u64,
-    extraction_time: u64,
+    extraction_time: u128,
     residual_size: usize,
     sampling_time: Vec<u128>,
     nullification_time: Vec<u128>,
@@ -26,9 +26,34 @@ struct Stats<Item: RlstScalar>{
 }
 
 #[derive(Serialize)]
-struct Errors<Item: RlstScalar>{
+struct ErrorsOutput<Item: RlstScalar>{
     rel_errors: Vec<Vec<Real<Item>>>,
     abs_errors: Vec<Vec<Real<Item>>>
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+pub struct StatsInput{
+    app_inv_norm: f64,
+    diag_ae_mean: f64,
+    skel_ae: f64,
+    tot_num_samples: usize,
+    residual_size: usize,
+    total_elapsed_time: f64,
+    pub extraction_time: f64,
+    pub sampling_time: Vec<f64>,
+    pub nullification_time: Vec<f64>,
+    pub id_time: Vec<f64>,
+    pub lu_time: Vec<f64>,
+    pub update_id_time: Vec<f64>,
+    pub update_lu_time: Vec<f64>,
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+pub struct ErrorsInput{
+    rel_errors: Vec<Vec<f64>>,
+    abs_errors: Vec<Vec<f64>>
 }
 
 pub fn save_stats<Item: RlstScalar + MatrixInverse + MatrixPseudoInverse + MatrixId>(kernel_mat: &mut DynamicArray<Item, 2>, rsrs_factors: &RsrsFactors<Item>, rsrs_data: &RsrsData<Item>, tol: Real<Item>, path_str: &str)
@@ -42,7 +67,7 @@ where <Item as RlstScalar>::Real: for<'a> std::iter::Sum<&'a <Item as RlstScalar
 
     let (norm_app_inv, diag_ae_mean, skel_ae) = write_box_errors(kernel_mat, rsrs_factors,  tol, &path_str);
 
-    let stats = Stats::<Item>{
+    let stats = StatsOutput::<Item>{
         app_inv_norm: norm_app_inv,
         diag_ae_mean: diag_ae_mean,
         skel_ae: skel_ae,
@@ -72,7 +97,7 @@ where <Item as RlstScalar>::Real: for<'a> std::iter::Sum<&'a <Item as RlstScalar
     let (rel_errs, abs_errs) = rsrs_factors.get_boxes_errors(kernel_mat, true);
     let diag_ae = rsrs_factors.get_diag_errors(kernel_mat);
 
-    let errors = Errors::<Item>{
+    let errors = ErrorsOutput::<Item>{
         rel_errors: rel_errs,
         abs_errors: abs_errs
     };
@@ -110,4 +135,52 @@ where <Item as RlstScalar>::Real: for<'a> std::iter::Sum<&'a <Item as RlstScalar
 
     (zero.view().norm_1(), diag_ae_r_mean, diag_ae_s)
 
+}
+
+pub enum FileContent {
+    Stats(StatsInput),
+    Errors(ErrorsInput),
+}
+
+pub fn read_file<Item: RlstScalar>(file_type: &str, geometry: &str, kernel: &str, npoints: usize, kappa: Item, tol: Item) -> std::io::Result<FileContent> {
+    let mut path_str = "results/".to_string();
+    let mut geometry_and_points = geometry.to_string();
+    let kappa_string = format!("{:.2}", kappa);
+    let tol_string = format!("{:e}", tol);
+    geometry_and_points.push('_');
+    geometry_and_points.push_str(kernel);
+    geometry_and_points.push('_');
+    geometry_and_points.push_str(&npoints.to_string());
+    geometry_and_points.push('_');
+    geometry_and_points.push_str(&kappa_string);
+    path_str.push_str(&geometry_and_points);
+    path_str.push_str("/");
+    path_str.push_str(file_type);
+    path_str.push_str("_");
+    path_str.push_str(&tol_string);
+    path_str.push_str(".json");
+
+    // Open the JSON file
+    let mut file = File::open(path_str)?;
+    let mut contents = String::new();
+
+    // Read the file content into a string
+    file.read_to_string(&mut contents)?;
+
+    match file_type {
+        "stats" => {
+            // Deserialize stats JSON into Rust struct
+            let stats: StatsInput = serde_json::from_str(&contents).expect("Failed to deserialize stats");
+            Ok(FileContent::Stats(stats))
+        }
+        "errors" => {
+            // Deserialize errors JSON into Rust struct
+            let errors: ErrorsInput = serde_json::from_str(&contents).expect("Failed to deserialize errors");
+            Ok(FileContent::Errors(errors))
+        }
+        _ => {
+            println!("Invalid file type");
+            Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid file type"))
+        }
+    }
 }

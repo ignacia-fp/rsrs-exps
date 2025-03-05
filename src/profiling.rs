@@ -2,13 +2,13 @@ use mpi::{topology::SimpleCommunicator, traits::Communicator};
 use bempp_rsrs::rsrs::rsrs_cycle::{Rsrs, RsrsData, RsrsOptions};
 use crate::io::geometries::{cube_surface, sphere_surface};
 use bempp_rsrs::rsrs::box_skeletonisation::Tols;
-use crate::io::outputs::save_stats;
+use crate::io::read_and_write::save_stats;
 use bempp_octree::Octree;
 use rlst::prelude::*;
 
 pub trait TestFramework: RlstScalar {
     fn test_rsrs_geometry(geometry: &str, kernel: &str, geometry_fn: fn(usize, &SimpleCommunicator) -> Vec<bempp_octree::Point> , kernel_fn: fn(&[bempp_octree::Point], <Self as RlstScalar>::Real)-> DynamicArray<Self, 2>, npoints: usize, kappa: <Self as RlstScalar>::Real, id_tols: &[<Self as RlstScalar>::Real], comm: &SimpleCommunicator);
-    fn run_test(geometry: &str, kernel: &str, kernel_fn: fn(&[bempp_octree::Point], <Self as RlstScalar>::Real) -> DynamicArray<Self, 2>, npoints: &[usize], kappa: <Self as RlstScalar>::Real);
+    fn run_test(geometry: &str, kernel: &str, kernel_fn: fn(&[bempp_octree::Point], <Self as RlstScalar>::Real) -> DynamicArray<Self, 2>, npoints: &[usize], kappa: <Self as RlstScalar>::Real, id_tols: &[<Self as RlstScalar>::Real]);
 }
 
 
@@ -54,11 +54,11 @@ macro_rules! implement_test_framework{
 
                 }
             
-                fn run_test(geometry: &str, kernel: &str, kernel_fn: fn(&[bempp_octree::Point], <Self as RlstScalar>::Real) -> DynamicArray<Self, 2>, npoints: &[usize], kappa:<Self as RlstScalar>::Real){
+                fn run_test(geometry: &str, kernel: &str, kernel_fn: fn(&[bempp_octree::Point], <Self as RlstScalar>::Real) -> DynamicArray<Self, 2>, npoints: &[usize], kappa:<Self as RlstScalar>::Real, id_tols: &[<Self as RlstScalar>::Real]){
                     let universe: mpi::environment::Universe = mpi::initialize().unwrap();
                     let comm: SimpleCommunicator = universe.world();
                     for &n in npoints{
-                        let id_tols = [1e-2, 1e-4, 1e-6, 1e-8];
+                        //let id_tols = [1e-2, 1e-4, 1e-6, 1e-8];
                         let mut geometry_fn: fn(usize, &SimpleCommunicator) -> Vec<bempp_octree::Point> = sphere_surface;
                         if geometry == "cube"{
                             geometry_fn = cube_surface;
