@@ -21,11 +21,11 @@ fn run_kernel_test(geometry: &str, kernel: &str, npoints: &[usize], kappa: f64, 
 
 fn main() {
     let geometry = "sphere";
-    let kernel = "helmholtz";
+    let kernel = "laplace";
     let npoints = [500, 1000, 3000, 5000, 10000, 20000];
     let id_tols = [1e-2, 1e-4, 1e-6, 1e-8];
     let pi =std::f64::consts::PI;
-    let kappa = pi;
+    let kappa = 0.0;
     run_kernel_test(geometry, kernel, &npoints, kappa, &id_tols);
     plot_stats(geometry, kernel, &npoints, kappa, &id_tols);
 }
