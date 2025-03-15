@@ -1,0 +1,2344 @@
+{
+  "app_inv_norm": 1.8491328214914884e-7,
+  "diag_ae_mean": 3.0832655291155245e-10,
+  "skel_ae": 9.584170007409314e-8,
+  "tot_num_samples": 2569,
+  "total_elapsed_time": 669,
+  "extraction_time": 49039,
+  "residual_size": 2446,
+  "sampling_time": [
+    534,
+    648,
+    2513,
+    8067
+  ],
+  "id_times": [
+    {
+      "nullification": 9,
+      "id": 0
+    },
+    {
+      "nullification": 8,
+      "id": 0
+    },
+    {
+      "nullification": 8,
+      "id": 0
+    },
+    {
+      "nullification": 8,
+      "id": 0
+    },
+    {
+      "nullification": 8,
+      "id": 0
+    },
+    {
+      "nullification": 10,
+      "id": 0
+    },
+    {
+      "nullification": 11,
+      "id": 0
+    },
+    {
+      "nullification": 25,
+      "id": 0
+    },
+    {
+      "nullification": 13,
+      "id": 0
+    },
+    {
+      "nullification": 15,
+      "id": 0
+    },
+    {
+      "nullification": 18,
+      "id": 0
+    },
+    {
+      "nullification": 16,
+      "id": 0
+    },
+    {
+      "nullification": 18,
+      "id": 0
+    },
+    {
+      "nullification": 20,
+      "id": 0
+    },
+    {
+      "nullification": 17,
+      "id": 0
+    },
+    {
+      "nullification": 18,
+      "id": 0
+    },
+    {
+      "nullification": 16,
+      "id": 0
+    },
+    {
+      "nullification": 17,
+      "id": 0
+    },
+    {
+      "nullification": 18,
+      "id": 0
+    },
+    {
+      "nullification": 17,
+      "id": 0
+    },
+    {
+      "nullification": 43,
+      "id": 0
+    },
+    {
+      "nullification": 24,
+      "id": 0
+    },
+    {
+      "nullification": 19,
+      "id": 0
+    },
+    {
+      "nullification": 21,
+      "id": 0
+    },
+    {
+      "nullification": 19,
+      "id": 0
+    },
+    {
+      "nullification": 22,
+      "id": 0
+    },
+    {
+      "nullification": 20,
+      "id": 0
+    },
+    {
+      "nullification": 21,
+      "id": 0
+    },
+    {
+      "nullification": 22,
+      "id": 0
+    },
+    {
+      "nullification": 22,
+      "id": 0
+    },
+    {
+      "nullification": 22,
+      "id": 0
+    },
+    {
+      "nullification": 23,
+      "id": 0
+    },
+    {
+      "nullification": 23,
+      "id": 0
+    },
+    {
+      "nullification": 20,
+      "id": 0
+    },
+    {
+      "nullification": 20,
+      "id": 0
+    },
+    {
+      "nullification": 23,
+      "id": 0
+    },
+    {
+      "nullification": 24,
+      "id": 0
+    },
+    {
+      "nullification": 25,
+      "id": 0
+    },
+    {
+      "nullification": 22,
+      "id": 0
+    },
+    {
+      "nullification": 25,
+      "id": 0
+    },
+    {
+      "nullification": 27,
+      "id": 0
+    },
+    {
+      "nullification": 25,
+      "id": 0
+    },
+    {
+      "nullification": 28,
+      "id": 0
+    },
+    {
+      "nullification": 29,
+      "id": 0
+    },
+    {
+      "nullification": 31,
+      "id": 0
+    },
+    {
+      "nullification": 34,
+      "id": 0
+    },
+    {
+      "nullification": 42,
+      "id": 0
+    },
+    {
+      "nullification": 36,
+      "id": 0
+    },
+    {
+      "nullification": 36,
+      "id": 0
+    },
+    {
+      "nullification": 38,
+      "id": 0
+    },
+    {
+      "nullification": 41,
+      "id": 0
+    },
+    {
+      "nullification": 42,
+      "id": 0
+    },
+    {
+      "nullification": 33,
+      "id": 0
+    },
+    {
+      "nullification": 44,
+      "id": 0
+    },
+    {
+      "nullification": 42,
+      "id": 0
+    },
+    {
+      "nullification": 37,
+      "id": 0
+    },
+    {
+      "nullification": 55,
+      "id": 0
+    },
+    {
+      "nullification": 3,
+      "id": 0
+    },
+    {
+      "nullification": 3,
+      "id": 0
+    },
+    {
+      "nullification": 21,
+      "id": 0
+    },
+    {
+      "nullification": 22,
+      "id": 0
+    },
+    {
+      "nullification": 24,
+      "id": 0
+    },
+    {
+      "nullification": 23,
+      "id": 0
+    },
+    {
+      "nullification": 26,
+      "id": 0
+    },
+    {
+      "nullification": 27,
+      "id": 0
+    },
+    {
+      "nullification": 26,
+      "id": 0
+    },
+    {
+      "nullification": 27,
+      "id": 0
+    },
+    {
+      "nullification": 26,
+      "id": 0
+    },
+    {
+      "nullification": 28,
+      "id": 0
+    },
+    {
+      "nullification": 31,
+      "id": 0
+    },
+    {
+      "nullification": 30,
+      "id": 0
+    },
+    {
+      "nullification": 31,
+      "id": 0
+    },
+    {
+      "nullification": 31,
+      "id": 0
+    },
+    {
+      "nullification": 30,
+      "id": 0
+    },
+    {
+      "nullification": 33,
+      "id": 0
+    },
+    {
+      "nullification": 33,
+      "id": 0
+    },
+    {
+      "nullification": 33,
+      "id": 0
+    },
+    {
+      "nullification": 36,
+      "id": 0
+    },
+    {
+      "nullification": 39,
+      "id": 0
+    },
+    {
+      "nullification": 38,
+      "id": 0
+    },
+    {
+      "nullification": 42,
+      "id": 0
+    },
+    {
+      "nullification": 43,
+      "id": 0
+    },
+    {
+      "nullification": 51,
+      "id": 0
+    },
+    {
+      "nullification": 45,
+      "id": 0
+    },
+    {
+      "nullification": 50,
+      "id": 0
+    },
+    {
+      "nullification": 50,
+      "id": 0
+    },
+    {
+      "nullification": 49,
+      "id": 0
+    },
+    {
+      "nullification": 51,
+      "id": 0
+    },
+    {
+      "nullification": 49,
+      "id": 0
+    },
+    {
+      "nullification": 57,
+      "id": 0
+    },
+    {
+      "nullification": 57,
+      "id": 0
+    },
+    {
+      "nullification": 56,
+      "id": 0
+    },
+    {
+      "nullification": 57,
+      "id": 0
+    },
+    {
+      "nullification": 56,
+      "id": 0
+    },
+    {
+      "nullification": 59,
+      "id": 0
+    },
+    {
+      "nullification": 56,
+      "id": 0
+    },
+    {
+      "nullification": 58,
+      "id": 0
+    },
+    {
+      "nullification": 57,
+      "id": 0
+    },
+    {
+      "nullification": 60,
+      "id": 0
+    },
+    {
+      "nullification": 59,
+      "id": 0
+    },
+    {
+      "nullification": 59,
+      "id": 0
+    },
+    {
+      "nullification": 65,
+      "id": 0
+    },
+    {
+      "nullification": 62,
+      "id": 0
+    },
+    {
+      "nullification": 60,
+      "id": 0
+    },
+    {
+      "nullification": 60,
+      "id": 0
+    },
+    {
+      "nullification": 60,
+      "id": 0
+    },
+    {
+      "nullification": 64,
+      "id": 0
+    },
+    {
+      "nullification": 60,
+      "id": 0
+    },
+    {
+      "nullification": 66,
+      "id": 0
+    },
+    {
+      "nullification": 63,
+      "id": 0
+    },
+    {
+      "nullification": 65,
+      "id": 0
+    },
+    {
+      "nullification": 62,
+      "id": 0
+    },
+    {
+      "nullification": 64,
+      "id": 0
+    },
+    {
+      "nullification": 64,
+      "id": 0
+    },
+    {
+      "nullification": 66,
+      "id": 0
+    },
+    {
+      "nullification": 65,
+      "id": 0
+    },
+    {
+      "nullification": 70,
+      "id": 0
+    },
+    {
+      "nullification": 69,
+      "id": 0
+    },
+    {
+      "nullification": 67,
+      "id": 0
+    },
+    {
+      "nullification": 64,
+      "id": 0
+    },
+    {
+      "nullification": 65,
+      "id": 0
+    },
+    {
+      "nullification": 70,
+      "id": 0
+    },
+    {
+      "nullification": 70,
+      "id": 0
+    },
+    {
+      "nullification": 63,
+      "id": 0
+    },
+    {
+      "nullification": 65,
+      "id": 0
+    },
+    {
+      "nullification": 64,
+      "id": 0
+    },
+    {
+      "nullification": 67,
+      "id": 0
+    },
+    {
+      "nullification": 71,
+      "id": 0
+    },
+    {
+      "nullification": 73,
+      "id": 0
+    },
+    {
+      "nullification": 71,
+      "id": 0
+    },
+    {
+      "nullification": 66,
+      "id": 0
+    },
+    {
+      "nullification": 72,
+      "id": 0
+    },
+    {
+      "nullification": 67,
+      "id": 0
+    },
+    {
+      "nullification": 68,
+      "id": 0
+    },
+    {
+      "nullification": 70,
+      "id": 0
+    },
+    {
+      "nullification": 68,
+      "id": 0
+    },
+    {
+      "nullification": 70,
+      "id": 0
+    },
+    {
+      "nullification": 68,
+      "id": 0
+    },
+    {
+      "nullification": 69,
+      "id": 0
+    },
+    {
+      "nullification": 74,
+      "id": 0
+    },
+    {
+      "nullification": 71,
+      "id": 0
+    },
+    {
+      "nullification": 71,
+      "id": 0
+    },
+    {
+      "nullification": 75,
+      "id": 0
+    },
+    {
+      "nullification": 74,
+      "id": 0
+    },
+    {
+      "nullification": 76,
+      "id": 0
+    },
+    {
+      "nullification": 73,
+      "id": 0
+    },
+    {
+      "nullification": 67,
+      "id": 0
+    },
+    {
+      "nullification": 74,
+      "id": 0
+    },
+    {
+      "nullification": 70,
+      "id": 0
+    },
+    {
+      "nullification": 74,
+      "id": 0
+    },
+    {
+      "nullification": 73,
+      "id": 0
+    },
+    {
+      "nullification": 69,
+      "id": 0
+    },
+    {
+      "nullification": 72,
+      "id": 0
+    },
+    {
+      "nullification": 79,
+      "id": 0
+    },
+    {
+      "nullification": 80,
+      "id": 0
+    },
+    {
+      "nullification": 83,
+      "id": 0
+    },
+    {
+      "nullification": 80,
+      "id": 0
+    },
+    {
+      "nullification": 73,
+      "id": 0
+    },
+    {
+      "nullification": 74,
+      "id": 0
+    },
+    {
+      "nullification": 75,
+      "id": 0
+    },
+    {
+      "nullification": 79,
+      "id": 0
+    },
+    {
+      "nullification": 74,
+      "id": 0
+    },
+    {
+      "nullification": 75,
+      "id": 0
+    },
+    {
+      "nullification": 79,
+      "id": 0
+    },
+    {
+      "nullification": 71,
+      "id": 0
+    },
+    {
+      "nullification": 77,
+      "id": 0
+    },
+    {
+      "nullification": 81,
+      "id": 0
+    },
+    {
+      "nullification": 75,
+      "id": 0
+    },
+    {
+      "nullification": 75,
+      "id": 0
+    },
+    {
+      "nullification": 81,
+      "id": 0
+    },
+    {
+      "nullification": 73,
+      "id": 0
+    },
+    {
+      "nullification": 83,
+      "id": 0
+    },
+    {
+      "nullification": 72,
+      "id": 0
+    },
+    {
+      "nullification": 72,
+      "id": 0
+    },
+    {
+      "nullification": 80,
+      "id": 0
+    },
+    {
+      "nullification": 73,
+      "id": 0
+    },
+    {
+      "nullification": 82,
+      "id": 0
+    },
+    {
+      "nullification": 71,
+      "id": 0
+    },
+    {
+      "nullification": 73,
+      "id": 0
+    },
+    {
+      "nullification": 77,
+      "id": 0
+    },
+    {
+      "nullification": 76,
+      "id": 0
+    },
+    {
+      "nullification": 83,
+      "id": 0
+    },
+    {
+      "nullification": 81,
+      "id": 0
+    },
+    {
+      "nullification": 87,
+      "id": 0
+    },
+    {
+      "nullification": 76,
+      "id": 0
+    },
+    {
+      "nullification": 77,
+      "id": 0
+    },
+    {
+      "nullification": 79,
+      "id": 0
+    },
+    {
+      "nullification": 79,
+      "id": 0
+    },
+    {
+      "nullification": 83,
+      "id": 0
+    },
+    {
+      "nullification": 86,
+      "id": 0
+    },
+    {
+      "nullification": 78,
+      "id": 0
+    },
+    {
+      "nullification": 82,
+      "id": 0
+    },
+    {
+      "nullification": 82,
+      "id": 0
+    },
+    {
+      "nullification": 85,
+      "id": 0
+    },
+    {
+      "nullification": 79,
+      "id": 0
+    },
+    {
+      "nullification": 80,
+      "id": 0
+    },
+    {
+      "nullification": 82,
+      "id": 0
+    },
+    {
+      "nullification": 82,
+      "id": 0
+    },
+    {
+      "nullification": 87,
+      "id": 0
+    },
+    {
+      "nullification": 79,
+      "id": 0
+    },
+    {
+      "nullification": 81,
+      "id": 0
+    },
+    {
+      "nullification": 109,
+      "id": 0
+    },
+    {
+      "nullification": 107,
+      "id": 0
+    },
+    {
+      "nullification": 89,
+      "id": 0
+    },
+    {
+      "nullification": 85,
+      "id": 0
+    },
+    {
+      "nullification": 87,
+      "id": 0
+    },
+    {
+      "nullification": 86,
+      "id": 0
+    },
+    {
+      "nullification": 88,
+      "id": 0
+    },
+    {
+      "nullification": 88,
+      "id": 0
+    },
+    {
+      "nullification": 89,
+      "id": 0
+    },
+    {
+      "nullification": 89,
+      "id": 0
+    },
+    {
+      "nullification": 88,
+      "id": 0
+    },
+    {
+      "nullification": 87,
+      "id": 0
+    },
+    {
+      "nullification": 88,
+      "id": 0
+    },
+    {
+      "nullification": 89,
+      "id": 0
+    },
+    {
+      "nullification": 91,
+      "id": 0
+    },
+    {
+      "nullification": 92,
+      "id": 0
+    },
+    {
+      "nullification": 91,
+      "id": 0
+    },
+    {
+      "nullification": 86,
+      "id": 0
+    },
+    {
+      "nullification": 90,
+      "id": 0
+    },
+    {
+      "nullification": 89,
+      "id": 0
+    },
+    {
+      "nullification": 87,
+      "id": 0
+    },
+    {
+      "nullification": 90,
+      "id": 0
+    },
+    {
+      "nullification": 92,
+      "id": 0
+    },
+    {
+      "nullification": 90,
+      "id": 0
+    },
+    {
+      "nullification": 96,
+      "id": 0
+    },
+    {
+      "nullification": 87,
+      "id": 0
+    },
+    {
+      "nullification": 94,
+      "id": 0
+    },
+    {
+      "nullification": 101,
+      "id": 0
+    },
+    {
+      "nullification": 97,
+      "id": 0
+    },
+    {
+      "nullification": 92,
+      "id": 0
+    },
+    {
+      "nullification": 98,
+      "id": 0
+    },
+    {
+      "nullification": 103,
+      "id": 0
+    },
+    {
+      "nullification": 107,
+      "id": 0
+    },
+    {
+      "nullification": 103,
+      "id": 0
+    },
+    {
+      "nullification": 116,
+      "id": 0
+    },
+    {
+      "nullification": 110,
+      "id": 0
+    },
+    {
+      "nullification": 109,
+      "id": 0
+    },
+    {
+      "nullification": 110,
+      "id": 0
+    },
+    {
+      "nullification": 112,
+      "id": 0
+    },
+    {
+      "nullification": 108,
+      "id": 0
+    },
+    {
+      "nullification": 118,
+      "id": 0
+    },
+    {
+      "nullification": 113,
+      "id": 0
+    },
+    {
+      "nullification": 116,
+      "id": 0
+    },
+    {
+      "nullification": 122,
+      "id": 0
+    },
+    {
+      "nullification": 127,
+      "id": 0
+    },
+    {
+      "nullification": 119,
+      "id": 0
+    },
+    {
+      "nullification": 126,
+      "id": 0
+    },
+    {
+      "nullification": 124,
+      "id": 0
+    },
+    {
+      "nullification": 118,
+      "id": 0
+    },
+    {
+      "nullification": 118,
+      "id": 0
+    },
+    {
+      "nullification": 121,
+      "id": 0
+    },
+    {
+      "nullification": 127,
+      "id": 0
+    },
+    {
+      "nullification": 127,
+      "id": 0
+    },
+    {
+      "nullification": 122,
+      "id": 0
+    },
+    {
+      "nullification": 141,
+      "id": 0
+    },
+    {
+      "nullification": 124,
+      "id": 0
+    },
+    {
+      "nullification": 124,
+      "id": 0
+    },
+    {
+      "nullification": 133,
+      "id": 0
+    },
+    {
+      "nullification": 125,
+      "id": 0
+    },
+    {
+      "nullification": 132,
+      "id": 0
+    },
+    {
+      "nullification": 133,
+      "id": 0
+    },
+    {
+      "nullification": 123,
+      "id": 0
+    },
+    {
+      "nullification": 131,
+      "id": 0
+    },
+    {
+      "nullification": 130,
+      "id": 0
+    },
+    {
+      "nullification": 145,
+      "id": 0
+    },
+    {
+      "nullification": 138,
+      "id": 0
+    },
+    {
+      "nullification": 141,
+      "id": 0
+    },
+    {
+      "nullification": 134,
+      "id": 0
+    },
+    {
+      "nullification": 129,
+      "id": 0
+    },
+    {
+      "nullification": 126,
+      "id": 0
+    },
+    {
+      "nullification": 132,
+      "id": 0
+    },
+    {
+      "nullification": 134,
+      "id": 0
+    },
+    {
+      "nullification": 147,
+      "id": 0
+    },
+    {
+      "nullification": 139,
+      "id": 0
+    },
+    {
+      "nullification": 137,
+      "id": 0
+    },
+    {
+      "nullification": 128,
+      "id": 0
+    },
+    {
+      "nullification": 154,
+      "id": 0
+    },
+    {
+      "nullification": 134,
+      "id": 0
+    },
+    {
+      "nullification": 138,
+      "id": 0
+    },
+    {
+      "nullification": 143,
+      "id": 0
+    },
+    {
+      "nullification": 146,
+      "id": 0
+    },
+    {
+      "nullification": 143,
+      "id": 0
+    },
+    {
+      "nullification": 155,
+      "id": 0
+    },
+    {
+      "nullification": 155,
+      "id": 0
+    },
+    {
+      "nullification": 164,
+      "id": 0
+    },
+    {
+      "nullification": 156,
+      "id": 0
+    },
+    {
+      "nullification": 168,
+      "id": 0
+    },
+    {
+      "nullification": 154,
+      "id": 0
+    },
+    {
+      "nullification": 153,
+      "id": 0
+    },
+    {
+      "nullification": 156,
+      "id": 0
+    },
+    {
+      "nullification": 154,
+      "id": 0
+    },
+    {
+      "nullification": 152,
+      "id": 0
+    },
+    {
+      "nullification": 148,
+      "id": 0
+    },
+    {
+      "nullification": 187,
+      "id": 0
+    },
+    {
+      "nullification": 186,
+      "id": 0
+    },
+    {
+      "nullification": 157,
+      "id": 0
+    },
+    {
+      "nullification": 458,
+      "id": 0
+    },
+    {
+      "nullification": 158,
+      "id": 0
+    },
+    {
+      "nullification": 167,
+      "id": 0
+    },
+    {
+      "nullification": 162,
+      "id": 0
+    },
+    {
+      "nullification": 171,
+      "id": 0
+    },
+    {
+      "nullification": 183,
+      "id": 0
+    },
+    {
+      "nullification": 214,
+      "id": 0
+    },
+    {
+      "nullification": 242,
+      "id": 0
+    },
+    {
+      "nullification": 186,
+      "id": 0
+    },
+    {
+      "nullification": 209,
+      "id": 0
+    },
+    {
+      "nullification": 188,
+      "id": 0
+    },
+    {
+      "nullification": 192,
+      "id": 0
+    },
+    {
+      "nullification": 198,
+      "id": 0
+    },
+    {
+      "nullification": 194,
+      "id": 0
+    },
+    {
+      "nullification": 196,
+      "id": 0
+    },
+    {
+      "nullification": 196,
+      "id": 0
+    },
+    {
+      "nullification": 202,
+      "id": 0
+    },
+    {
+      "nullification": 196,
+      "id": 0
+    },
+    {
+      "nullification": 236,
+      "id": 0
+    },
+    {
+      "nullification": 223,
+      "id": 0
+    },
+    {
+      "nullification": 207,
+      "id": 0
+    },
+    {
+      "nullification": 232,
+      "id": 0
+    },
+    {
+      "nullification": 251,
+      "id": 0
+    },
+    {
+      "nullification": 876,
+      "id": 0
+    },
+    {
+      "nullification": 713,
+      "id": 0
+    },
+    {
+      "nullification": 799,
+      "id": 0
+    },
+    {
+      "nullification": 1945,
+      "id": 0
+    },
+    {
+      "nullification": 843,
+      "id": 0
+    },
+    {
+      "nullification": 937,
+      "id": 0
+    },
+    {
+      "nullification": 995,
+      "id": 0
+    },
+    {
+      "nullification": 967,
+      "id": 0
+    },
+    {
+      "nullification": 2137,
+      "id": 1
+    },
+    {
+      "nullification": 2316,
+      "id": 1
+    },
+    {
+      "nullification": 2348,
+      "id": 1
+    },
+    {
+      "nullification": 2502,
+      "id": 1
+    },
+    {
+      "nullification": 2677,
+      "id": 1
+    },
+    {
+      "nullification": 2596,
+      "id": 1
+    },
+    {
+      "nullification": 2773,
+      "id": 1
+    },
+    {
+      "nullification": 2737,
+      "id": 1
+    },
+    {
+      "nullification": 2730,
+      "id": 1
+    },
+    {
+      "nullification": 2685,
+      "id": 1
+    },
+    {
+      "nullification": 2655,
+      "id": 1
+    },
+    {
+      "nullification": 2882,
+      "id": 1
+    },
+    {
+      "nullification": 2818,
+      "id": 1
+    },
+    {
+      "nullification": 2873,
+      "id": 1
+    },
+    {
+      "nullification": 2899,
+      "id": 1
+    },
+    {
+      "nullification": 3039,
+      "id": 1
+    },
+    {
+      "nullification": 3032,
+      "id": 1
+    },
+    {
+      "nullification": 3019,
+      "id": 1
+    },
+    {
+      "nullification": 3082,
+      "id": 2
+    },
+    {
+      "nullification": 3171,
+      "id": 1
+    },
+    {
+      "nullification": 3058,
+      "id": 4
+    },
+    {
+      "nullification": 3158,
+      "id": 1
+    },
+    {
+      "nullification": 3213,
+      "id": 1
+    },
+    {
+      "nullification": 3263,
+      "id": 1
+    },
+    {
+      "nullification": 8122,
+      "id": 1
+    },
+    {
+      "nullification": 7514,
+      "id": 0
+    },
+    {
+      "nullification": 8207,
+      "id": 1
+    },
+    {
+      "nullification": 8389,
+      "id": 0
+    },
+    {
+      "nullification": 8914,
+      "id": 0
+    },
+    {
+      "nullification": 8483,
+      "id": 1
+    },
+    {
+      "nullification": 9519,
+      "id": 0
+    },
+    {
+      "nullification": 8846,
+      "id": 0
+    },
+    {
+      "nullification": 8705,
+      "id": 0
+    },
+    {
+      "nullification": 8573,
+      "id": 0
+    },
+    {
+      "nullification": 9783,
+      "id": 0
+    },
+    {
+      "nullification": 8583,
+      "id": 0
+    },
+    {
+      "nullification": 9114,
+      "id": 1
+    },
+    {
+      "nullification": 8883,
+      "id": 1
+    },
+    {
+      "nullification": 9443,
+      "id": 0
+    },
+    {
+      "nullification": 9050,
+      "id": 0
+    },
+    {
+      "nullification": 8861,
+      "id": 0
+    },
+    {
+      "nullification": 9598,
+      "id": 0
+    },
+    {
+      "nullification": 9119,
+      "id": 1
+    },
+    {
+      "nullification": 9536,
+      "id": 1
+    },
+    {
+      "nullification": 9529,
+      "id": 0
+    },
+    {
+      "nullification": 9276,
+      "id": 0
+    },
+    {
+      "nullification": 9662,
+      "id": 0
+    },
+    {
+      "nullification": 9227,
+      "id": 1
+    }
+  ],
+  "lu_times": [
+    {
+      "io": 1,
+      "extraction": 125,
+      "assembly": 0
+    },
+    {
+      "io": 1,
+      "extraction": 209,
+      "assembly": 0
+    },
+    {
+      "io": 1,
+      "extraction": 133,
+      "assembly": 0
+    },
+    {
+      "io": 1,
+      "extraction": 129,
+      "assembly": 0
+    },
+    {
+      "io": 1,
+      "extraction": 138,
+      "assembly": 0
+    },
+    {
+      "io": 1,
+      "extraction": 138,
+      "assembly": 0
+    },
+    {
+      "io": 1,
+      "extraction": 147,
+      "assembly": 0
+    },
+    {
+      "io": 1,
+      "extraction": 135,
+      "assembly": 0
+    },
+    {
+      "io": 1,
+      "extraction": 143,
+      "assembly": 0
+    },
+    {
+      "io": 1,
+      "extraction": 135,
+      "assembly": 0
+    },
+    {
+      "io": 1,
+      "extraction": 141,
+      "assembly": 0
+    },
+    {
+      "io": 1,
+      "extraction": 150,
+      "assembly": 0
+    },
+    {
+      "io": 1,
+      "extraction": 217,
+      "assembly": 0
+    },
+    {
+      "io": 1,
+      "extraction": 148,
+      "assembly": 0
+    },
+    {
+      "io": 1,
+      "extraction": 156,
+      "assembly": 0
+    },
+    {
+      "io": 1,
+      "extraction": 165,
+      "assembly": 0
+    },
+    {
+      "io": 1,
+      "extraction": 170,
+      "assembly": 0
+    },
+    {
+      "io": 1,
+      "extraction": 166,
+      "assembly": 0
+    },
+    {
+      "io": 2,
+      "extraction": 179,
+      "assembly": 0
+    },
+    {
+      "io": 1,
+      "extraction": 186,
+      "assembly": 0
+    },
+    {
+      "io": 1,
+      "extraction": 195,
+      "assembly": 0
+    },
+    {
+      "io": 1,
+      "extraction": 199,
+      "assembly": 0
+    },
+    {
+      "io": 1,
+      "extraction": 198,
+      "assembly": 0
+    },
+    {
+      "io": 2,
+      "extraction": 188,
+      "assembly": 0
+    },
+    {
+      "io": 2,
+      "extraction": 194,
+      "assembly": 0
+    },
+    {
+      "io": 2,
+      "extraction": 199,
+      "assembly": 0
+    },
+    {
+      "io": 2,
+      "extraction": 193,
+      "assembly": 0
+    },
+    {
+      "io": 2,
+      "extraction": 196,
+      "assembly": 0
+    },
+    {
+      "io": 2,
+      "extraction": 195,
+      "assembly": 0
+    },
+    {
+      "io": 2,
+      "extraction": 201,
+      "assembly": 0
+    },
+    {
+      "io": 2,
+      "extraction": 203,
+      "assembly": 0
+    },
+    {
+      "io": 2,
+      "extraction": 227,
+      "assembly": 0
+    },
+    {
+      "io": 2,
+      "extraction": 238,
+      "assembly": 0
+    },
+    {
+      "io": 2,
+      "extraction": 217,
+      "assembly": 0
+    },
+    {
+      "io": 2,
+      "extraction": 224,
+      "assembly": 0
+    },
+    {
+      "io": 2,
+      "extraction": 247,
+      "assembly": 0
+    },
+    {
+      "io": 4,
+      "extraction": 883,
+      "assembly": 1
+    },
+    {
+      "io": 4,
+      "extraction": 733,
+      "assembly": 0
+    },
+    {
+      "io": 4,
+      "extraction": 831,
+      "assembly": 1
+    },
+    {
+      "io": 4,
+      "extraction": 831,
+      "assembly": 0
+    },
+    {
+      "io": 4,
+      "extraction": 1259,
+      "assembly": 0
+    },
+    {
+      "io": 4,
+      "extraction": 1016,
+      "assembly": 0
+    },
+    {
+      "io": 4,
+      "extraction": 982,
+      "assembly": 0
+    },
+    {
+      "io": 11,
+      "extraction": 2312,
+      "assembly": 0
+    },
+    {
+      "io": 9,
+      "extraction": 2287,
+      "assembly": 0
+    },
+    {
+      "io": 10,
+      "extraction": 2289,
+      "assembly": 1
+    },
+    {
+      "io": 10,
+      "extraction": 2459,
+      "assembly": 0
+    },
+    {
+      "io": 9,
+      "extraction": 2658,
+      "assembly": 0
+    },
+    {
+      "io": 10,
+      "extraction": 2598,
+      "assembly": 1
+    },
+    {
+      "io": 10,
+      "extraction": 3529,
+      "assembly": 0
+    },
+    {
+      "io": 9,
+      "extraction": 3537,
+      "assembly": 1
+    },
+    {
+      "io": 11,
+      "extraction": 2637,
+      "assembly": 0
+    },
+    {
+      "io": 17,
+      "extraction": 2684,
+      "assembly": 4
+    },
+    {
+      "io": 10,
+      "extraction": 3683,
+      "assembly": 1
+    },
+    {
+      "io": 12,
+      "extraction": 2721,
+      "assembly": 0
+    },
+    {
+      "io": 11,
+      "extraction": 2676,
+      "assembly": 1
+    },
+    {
+      "io": 10,
+      "extraction": 3808,
+      "assembly": 0
+    },
+    {
+      "io": 11,
+      "extraction": 2673,
+      "assembly": 1
+    },
+    {
+      "io": 10,
+      "extraction": 2763,
+      "assembly": 1
+    },
+    {
+      "io": 10,
+      "extraction": 2799,
+      "assembly": 1
+    },
+    {
+      "io": 12,
+      "extraction": 2788,
+      "assembly": 0
+    },
+    {
+      "io": 12,
+      "extraction": 2804,
+      "assembly": 1
+    },
+    {
+      "io": 11,
+      "extraction": 2976,
+      "assembly": 1
+    },
+    {
+      "io": 12,
+      "extraction": 2722,
+      "assembly": 2
+    },
+    {
+      "io": 11,
+      "extraction": 2961,
+      "assembly": 1
+    },
+    {
+      "io": 11,
+      "extraction": 2916,
+      "assembly": 1
+    },
+    {
+      "io": 11,
+      "extraction": 3004,
+      "assembly": 1
+    },
+    {
+      "io": 15,
+      "extraction": 6504,
+      "assembly": 0
+    },
+    {
+      "io": 17,
+      "extraction": 6670,
+      "assembly": 0
+    },
+    {
+      "io": 18,
+      "extraction": 7009,
+      "assembly": 0
+    },
+    {
+      "io": 41,
+      "extraction": 7428,
+      "assembly": 1
+    },
+    {
+      "io": 15,
+      "extraction": 7307,
+      "assembly": 0
+    },
+    {
+      "io": 15,
+      "extraction": 9337,
+      "assembly": 0
+    },
+    {
+      "io": 18,
+      "extraction": 7925,
+      "assembly": 1
+    },
+    {
+      "io": 14,
+      "extraction": 7890,
+      "assembly": 0
+    },
+    {
+      "io": 20,
+      "extraction": 7939,
+      "assembly": 0
+    },
+    {
+      "io": 16,
+      "extraction": 8139,
+      "assembly": 0
+    },
+    {
+      "io": 15,
+      "extraction": 8577,
+      "assembly": 0
+    },
+    {
+      "io": 18,
+      "extraction": 8268,
+      "assembly": 0
+    },
+    {
+      "io": 15,
+      "extraction": 8454,
+      "assembly": 1
+    },
+    {
+      "io": 15,
+      "extraction": 8473,
+      "assembly": 1
+    },
+    {
+      "io": 29,
+      "extraction": 9622,
+      "assembly": 0
+    },
+    {
+      "io": 41,
+      "extraction": 9553,
+      "assembly": 1
+    },
+    {
+      "io": 34,
+      "extraction": 8889,
+      "assembly": 0
+    },
+    {
+      "io": 16,
+      "extraction": 9057,
+      "assembly": 0
+    },
+    {
+      "io": 16,
+      "extraction": 9111,
+      "assembly": 1
+    },
+    {
+      "io": 25,
+      "extraction": 9304,
+      "assembly": 1
+    },
+    {
+      "io": 16,
+      "extraction": 9643,
+      "assembly": 1
+    },
+    {
+      "io": 28,
+      "extraction": 9467,
+      "assembly": 1
+    },
+    {
+      "io": 16,
+      "extraction": 9359,
+      "assembly": 1
+    },
+    {
+      "io": 16,
+      "extraction": 9107,
+      "assembly": 1
+    }
+  ],
+  "update_times": [
+    {
+      "id": 3,
+      "lu": 9
+    },
+    {
+      "id": 1,
+      "lu": 8
+    },
+    {
+      "id": 1,
+      "lu": 7
+    },
+    {
+      "id": 1,
+      "lu": 9
+    },
+    {
+      "id": 1,
+      "lu": 8
+    },
+    {
+      "id": 0,
+      "lu": 8
+    },
+    {
+      "id": 1,
+      "lu": 8
+    },
+    {
+      "id": 1,
+      "lu": 8
+    },
+    {
+      "id": 0,
+      "lu": 8
+    },
+    {
+      "id": 0,
+      "lu": 8
+    },
+    {
+      "id": 1,
+      "lu": 8
+    },
+    {
+      "id": 0,
+      "lu": 7
+    },
+    {
+      "id": 1,
+      "lu": 8
+    },
+    {
+      "id": 1,
+      "lu": 8
+    },
+    {
+      "id": 1,
+      "lu": 8
+    },
+    {
+      "id": 1,
+      "lu": 8
+    },
+    {
+      "id": 0,
+      "lu": 8
+    },
+    {
+      "id": 1,
+      "lu": 8
+    },
+    {
+      "id": 1,
+      "lu": 8
+    },
+    {
+      "id": 1,
+      "lu": 10
+    },
+    {
+      "id": 0,
+      "lu": 9
+    },
+    {
+      "id": 1,
+      "lu": 10
+    },
+    {
+      "id": 0,
+      "lu": 8
+    },
+    {
+      "id": 1,
+      "lu": 9
+    },
+    {
+      "id": 1,
+      "lu": 9
+    },
+    {
+      "id": 1,
+      "lu": 9
+    },
+    {
+      "id": 1,
+      "lu": 9
+    },
+    {
+      "id": 1,
+      "lu": 9
+    },
+    {
+      "id": 1,
+      "lu": 9
+    },
+    {
+      "id": 1,
+      "lu": 9
+    },
+    {
+      "id": 1,
+      "lu": 9
+    },
+    {
+      "id": 1,
+      "lu": 9
+    },
+    {
+      "id": 0,
+      "lu": 9
+    },
+    {
+      "id": 1,
+      "lu": 9
+    },
+    {
+      "id": 1,
+      "lu": 9
+    },
+    {
+      "id": 1,
+      "lu": 9
+    },
+    {
+      "id": 30,
+      "lu": 51
+    },
+    {
+      "id": 2,
+      "lu": 45
+    },
+    {
+      "id": 2,
+      "lu": 47
+    },
+    {
+      "id": 2,
+      "lu": 50
+    },
+    {
+      "id": 2,
+      "lu": 46
+    },
+    {
+      "id": 3,
+      "lu": 50
+    },
+    {
+      "id": 4,
+      "lu": 47
+    },
+    {
+      "id": 8,
+      "lu": 76
+    },
+    {
+      "id": 9,
+      "lu": 112
+    },
+    {
+      "id": 11,
+      "lu": 68
+    },
+    {
+      "id": 8,
+      "lu": 65
+    },
+    {
+      "id": 8,
+      "lu": 64
+    },
+    {
+      "id": 8,
+      "lu": 72
+    },
+    {
+      "id": 8,
+      "lu": 72
+    },
+    {
+      "id": 9,
+      "lu": 65
+    },
+    {
+      "id": 8,
+      "lu": 97
+    },
+    {
+      "id": 13,
+      "lu": 82
+    },
+    {
+      "id": 9,
+      "lu": 113
+    },
+    {
+      "id": 9,
+      "lu": 77
+    },
+    {
+      "id": 9,
+      "lu": 66
+    },
+    {
+      "id": 8,
+      "lu": 77
+    },
+    {
+      "id": 8,
+      "lu": 66
+    },
+    {
+      "id": 9,
+      "lu": 67
+    },
+    {
+      "id": 9,
+      "lu": 66
+    },
+    {
+      "id": 8,
+      "lu": 69
+    },
+    {
+      "id": 10,
+      "lu": 71
+    },
+    {
+      "id": 9,
+      "lu": 71
+    },
+    {
+      "id": 10,
+      "lu": 68
+    },
+    {
+      "id": 9,
+      "lu": 73
+    },
+    {
+      "id": 10,
+      "lu": 67
+    },
+    {
+      "id": 9,
+      "lu": 74
+    },
+    {
+      "id": 5,
+      "lu": 75
+    },
+    {
+      "id": 5,
+      "lu": 74
+    },
+    {
+      "id": 5,
+      "lu": 131
+    },
+    {
+      "id": 7,
+      "lu": 92
+    },
+    {
+      "id": 6,
+      "lu": 79
+    },
+    {
+      "id": 6,
+      "lu": 106
+    },
+    {
+      "id": 7,
+      "lu": 109
+    },
+    {
+      "id": 5,
+      "lu": 126
+    },
+    {
+      "id": 6,
+      "lu": 84
+    },
+    {
+      "id": 5,
+      "lu": 87
+    },
+    {
+      "id": 7,
+      "lu": 95
+    },
+    {
+      "id": 6,
+      "lu": 81
+    },
+    {
+      "id": 7,
+      "lu": 85
+    },
+    {
+      "id": 6,
+      "lu": 81
+    },
+    {
+      "id": 5,
+      "lu": 134
+    },
+    {
+      "id": 10,
+      "lu": 151
+    },
+    {
+      "id": 6,
+      "lu": 167
+    },
+    {
+      "id": 7,
+      "lu": 168
+    },
+    {
+      "id": 8,
+      "lu": 94
+    },
+    {
+      "id": 7,
+      "lu": 85
+    },
+    {
+      "id": 6,
+      "lu": 199
+    },
+    {
+      "id": 6,
+      "lu": 195
+    },
+    {
+      "id": 6,
+      "lu": 83
+    },
+    {
+      "id": 8,
+      "lu": 138
+    }
+  ]
+}

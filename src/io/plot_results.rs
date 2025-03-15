@@ -215,12 +215,14 @@ pub fn plot_stats(geometry : &str, kernel: &str, npoints: &[usize], kappa: f64, 
         for tol in tols{
             match read_file("stats", geometry, kernel, n, kappa, *tol).unwrap() {
                 FileContent::Stats(stats) => {
-                    let tot_lu_time = stats.lu_time.iter().map(|&x| x as f32).sum();
-                    let tot_id_time = stats.id_time.iter().map(|&x| x as f32).sum();
-                    let tot_null_time = stats.nullification_time.iter().map(|&x| x as f32).sum();
+                    let tot_lu_time = stats.lu_times.iter().map(|x| x.assembly as f32).sum();
+                    let tot_id_time = stats.id_times.iter().map(|x| x.id as f32).sum();
+                    let tot_null_time = stats.id_times.iter().map(|x| x.nullification as f32).sum();
                     let tot_sampling_time = stats.sampling_time.iter().map(|&x| x as f32).sum();
-                    let tot_update_id_time = stats.update_id_time.iter().map(|&x| x as f32).sum();
-                    let tot_update_lu_time = stats.update_lu_time.iter().map(|&x| x as f32).sum();
+                    let tot_update_id_time = stats.update_times.iter().map(|x| x.id as f32).sum();
+                    let tot_update_lu_time = stats.update_times.iter().map(|x| x.lu as f32).sum();
+                    let tot_lu_extraction_time = stats.lu_times.iter().map(|x| x.extraction as f32).sum();
+                    let tot_lu_io_time = stats.lu_times.iter().map(|x| x.io as f32).sum();
                     let tot_extraction_time = stats.extraction_time as f32;
 
                     println!("Total LU time: {} ms", tot_lu_time);
@@ -240,8 +242,10 @@ pub fn plot_stats(geometry : &str, kernel: &str, npoints: &[usize], kappa: f64, 
                         Data { label: "ID".into(), value: tot_id_time, color: Some(Color::Green.into()), fill: '•' },
                         Data { label: "Nullification".into(), value: tot_null_time, color: Some(Color::Blue.into()), fill: '•' },
                         Data { label: "Update ID".into(), value: tot_update_id_time, color: Some(Color::Yellow.into()), fill: '•' },
-                        Data { label: "Update LU".into(), value: tot_update_lu_time, color: Some(Color::White.into()), fill: '•' },
-                        Data { label: "Sampling".into(), value: tot_sampling_time, color: Some(Color::Cyan.into()), fill: '•' },
+                        Data { label: "Update LU".into(), value: tot_update_lu_time, color: Some(Color::Cyan.into()), fill: '•' },
+                        Data { label: "Sampling".into(), value: tot_sampling_time, color: Some(Color::White.into()), fill: '•' },
+                        Data { label: "LU Extraction".into(), value: tot_lu_extraction_time, color: Some(Color::RGB(178, 102, 255).into() ), fill: '•' },
+                        Data { label: "LU IO".into(), value: tot_lu_io_time, color: Some(Color::RGB(0, 102, 204).into()), fill: '•' },
                         Data { label: "Extraction".into(), value: tot_extraction_time, color: Some(Color::Purple.into()), fill: '•' },
                     ];
 

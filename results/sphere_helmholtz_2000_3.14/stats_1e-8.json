@@ -1,0 +1,748 @@
+{
+  "app_inv_norm": 6.297744902241813e-9,
+  "diag_ae_mean": 1.3341064398624373e-11,
+  "skel_ae": 5.540115079736991e-9,
+  "tot_num_samples": 1788,
+  "total_elapsed_time": 51,
+  "extraction_time": 15982,
+  "residual_size": 227,
+  "sampling_time": [
+    122,
+    117,
+    1498
+  ],
+  "id_times": [
+    {
+      "nullification": 16,
+      "id": 0
+    },
+    {
+      "nullification": 17,
+      "id": 0
+    },
+    {
+      "nullification": 18,
+      "id": 0
+    },
+    {
+      "nullification": 19,
+      "id": 0
+    },
+    {
+      "nullification": 19,
+      "id": 0
+    },
+    {
+      "nullification": 19,
+      "id": 0
+    },
+    {
+      "nullification": 19,
+      "id": 0
+    },
+    {
+      "nullification": 18,
+      "id": 0
+    },
+    {
+      "nullification": 20,
+      "id": 0
+    },
+    {
+      "nullification": 22,
+      "id": 0
+    },
+    {
+      "nullification": 23,
+      "id": 0
+    },
+    {
+      "nullification": 23,
+      "id": 0
+    },
+    {
+      "nullification": 23,
+      "id": 0
+    },
+    {
+      "nullification": 24,
+      "id": 0
+    },
+    {
+      "nullification": 25,
+      "id": 0
+    },
+    {
+      "nullification": 26,
+      "id": 0
+    },
+    {
+      "nullification": 24,
+      "id": 0
+    },
+    {
+      "nullification": 26,
+      "id": 0
+    },
+    {
+      "nullification": 27,
+      "id": 0
+    },
+    {
+      "nullification": 27,
+      "id": 0
+    },
+    {
+      "nullification": 29,
+      "id": 0
+    },
+    {
+      "nullification": 31,
+      "id": 0
+    },
+    {
+      "nullification": 35,
+      "id": 0
+    },
+    {
+      "nullification": 33,
+      "id": 0
+    },
+    {
+      "nullification": 42,
+      "id": 0
+    },
+    {
+      "nullification": 44,
+      "id": 0
+    },
+    {
+      "nullification": 48,
+      "id": 0
+    },
+    {
+      "nullification": 60,
+      "id": 0
+    },
+    {
+      "nullification": 63,
+      "id": 0
+    },
+    {
+      "nullification": 73,
+      "id": 0
+    },
+    {
+      "nullification": 79,
+      "id": 0
+    },
+    {
+      "nullification": 79,
+      "id": 0
+    },
+    {
+      "nullification": 79,
+      "id": 0
+    },
+    {
+      "nullification": 83,
+      "id": 0
+    },
+    {
+      "nullification": 87,
+      "id": 0
+    },
+    {
+      "nullification": 93,
+      "id": 0
+    },
+    {
+      "nullification": 63,
+      "id": 0
+    },
+    {
+      "nullification": 70,
+      "id": 0
+    },
+    {
+      "nullification": 71,
+      "id": 0
+    },
+    {
+      "nullification": 67,
+      "id": 0
+    },
+    {
+      "nullification": 71,
+      "id": 0
+    },
+    {
+      "nullification": 85,
+      "id": 0
+    },
+    {
+      "nullification": 91,
+      "id": 0
+    },
+    {
+      "nullification": 101,
+      "id": 0
+    },
+    {
+      "nullification": 182,
+      "id": 0
+    },
+    {
+      "nullification": 184,
+      "id": 0
+    },
+    {
+      "nullification": 206,
+      "id": 0
+    },
+    {
+      "nullification": 192,
+      "id": 0
+    },
+    {
+      "nullification": 191,
+      "id": 0
+    },
+    {
+      "nullification": 191,
+      "id": 0
+    },
+    {
+      "nullification": 194,
+      "id": 0
+    },
+    {
+      "nullification": 194,
+      "id": 0
+    },
+    {
+      "nullification": 193,
+      "id": 0
+    },
+    {
+      "nullification": 193,
+      "id": 0
+    },
+    {
+      "nullification": 199,
+      "id": 0
+    },
+    {
+      "nullification": 200,
+      "id": 0
+    },
+    {
+      "nullification": 196,
+      "id": 0
+    },
+    {
+      "nullification": 203,
+      "id": 0
+    },
+    {
+      "nullification": 227,
+      "id": 0
+    },
+    {
+      "nullification": 221,
+      "id": 0
+    },
+    {
+      "nullification": 225,
+      "id": 0
+    },
+    {
+      "nullification": 216,
+      "id": 0
+    },
+    {
+      "nullification": 250,
+      "id": 0
+    },
+    {
+      "nullification": 230,
+      "id": 0
+    },
+    {
+      "nullification": 254,
+      "id": 0
+    },
+    {
+      "nullification": 252,
+      "id": 0
+    },
+    {
+      "nullification": 249,
+      "id": 0
+    },
+    {
+      "nullification": 264,
+      "id": 0
+    },
+    {
+      "nullification": 409,
+      "id": 0
+    },
+    {
+      "nullification": 430,
+      "id": 0
+    },
+    {
+      "nullification": 531,
+      "id": 0
+    },
+    {
+      "nullification": 447,
+      "id": 0
+    },
+    {
+      "nullification": 457,
+      "id": 0
+    },
+    {
+      "nullification": 495,
+      "id": 0
+    },
+    {
+      "nullification": 569,
+      "id": 0
+    },
+    {
+      "nullification": 490,
+      "id": 0
+    },
+    {
+      "nullification": 522,
+      "id": 0
+    },
+    {
+      "nullification": 508,
+      "id": 0
+    },
+    {
+      "nullification": 517,
+      "id": 0
+    },
+    {
+      "nullification": 511,
+      "id": 0
+    },
+    {
+      "nullification": 517,
+      "id": 0
+    },
+    {
+      "nullification": 582,
+      "id": 0
+    },
+    {
+      "nullification": 529,
+      "id": 0
+    },
+    {
+      "nullification": 509,
+      "id": 0
+    },
+    {
+      "nullification": 556,
+      "id": 0
+    },
+    {
+      "nullification": 564,
+      "id": 0
+    },
+    {
+      "nullification": 544,
+      "id": 0
+    },
+    {
+      "nullification": 581,
+      "id": 0
+    },
+    {
+      "nullification": 548,
+      "id": 0
+    },
+    {
+      "nullification": 591,
+      "id": 0
+    },
+    {
+      "nullification": 617,
+      "id": 0
+    },
+    {
+      "nullification": 619,
+      "id": 0
+    }
+  ],
+  "lu_times": [
+    {
+      "io": 1,
+      "extraction": 95,
+      "assembly": 0
+    },
+    {
+      "io": 1,
+      "extraction": 185,
+      "assembly": 0
+    },
+    {
+      "io": 1,
+      "extraction": 196,
+      "assembly": 0
+    },
+    {
+      "io": 1,
+      "extraction": 185,
+      "assembly": 0
+    },
+    {
+      "io": 1,
+      "extraction": 188,
+      "assembly": 0
+    },
+    {
+      "io": 1,
+      "extraction": 191,
+      "assembly": 0
+    },
+    {
+      "io": 1,
+      "extraction": 184,
+      "assembly": 0
+    },
+    {
+      "io": 1,
+      "extraction": 191,
+      "assembly": 0
+    },
+    {
+      "io": 1,
+      "extraction": 191,
+      "assembly": 0
+    },
+    {
+      "io": 1,
+      "extraction": 263,
+      "assembly": 0
+    },
+    {
+      "io": 1,
+      "extraction": 196,
+      "assembly": 0
+    },
+    {
+      "io": 1,
+      "extraction": 198,
+      "assembly": 0
+    },
+    {
+      "io": 1,
+      "extraction": 204,
+      "assembly": 0
+    },
+    {
+      "io": 1,
+      "extraction": 202,
+      "assembly": 0
+    },
+    {
+      "io": 1,
+      "extraction": 207,
+      "assembly": 0
+    },
+    {
+      "io": 1,
+      "extraction": 214,
+      "assembly": 0
+    },
+    {
+      "io": 1,
+      "extraction": 240,
+      "assembly": 0
+    },
+    {
+      "io": 1,
+      "extraction": 241,
+      "assembly": 0
+    },
+    {
+      "io": 1,
+      "extraction": 222,
+      "assembly": 0
+    },
+    {
+      "io": 1,
+      "extraction": 218,
+      "assembly": 0
+    },
+    {
+      "io": 1,
+      "extraction": 226,
+      "assembly": 0
+    },
+    {
+      "io": 1,
+      "extraction": 543,
+      "assembly": 0
+    },
+    {
+      "io": 1,
+      "extraction": 233,
+      "assembly": 0
+    },
+    {
+      "io": 1,
+      "extraction": 240,
+      "assembly": 0
+    },
+    {
+      "io": 1,
+      "extraction": 280,
+      "assembly": 0
+    },
+    {
+      "io": 2,
+      "extraction": 477,
+      "assembly": 0
+    },
+    {
+      "io": 2,
+      "extraction": 440,
+      "assembly": 0
+    },
+    {
+      "io": 2,
+      "extraction": 484,
+      "assembly": 0
+    },
+    {
+      "io": 2,
+      "extraction": 743,
+      "assembly": 0
+    },
+    {
+      "io": 2,
+      "extraction": 498,
+      "assembly": 0
+    },
+    {
+      "io": 2,
+      "extraction": 508,
+      "assembly": 0
+    },
+    {
+      "io": 2,
+      "extraction": 501,
+      "assembly": 0
+    },
+    {
+      "io": 2,
+      "extraction": 520,
+      "assembly": 0
+    },
+    {
+      "io": 2,
+      "extraction": 523,
+      "assembly": 0
+    },
+    {
+      "io": 2,
+      "extraction": 533,
+      "assembly": 0
+    },
+    {
+      "io": 2,
+      "extraction": 527,
+      "assembly": 0
+    },
+    {
+      "io": 2,
+      "extraction": 543,
+      "assembly": 0
+    },
+    {
+      "io": 3,
+      "extraction": 596,
+      "assembly": 0
+    },
+    {
+      "io": 2,
+      "extraction": 565,
+      "assembly": 0
+    },
+    {
+      "io": 2,
+      "extraction": 609,
+      "assembly": 0
+    }
+  ],
+  "update_times": [
+    {
+      "id": 6,
+      "lu": 8
+    },
+    {
+      "id": 1,
+      "lu": 9
+    },
+    {
+      "id": 1,
+      "lu": 9
+    },
+    {
+      "id": 1,
+      "lu": 9
+    },
+    {
+      "id": 1,
+      "lu": 9
+    },
+    {
+      "id": 1,
+      "lu": 9
+    },
+    {
+      "id": 1,
+      "lu": 9
+    },
+    {
+      "id": 1,
+      "lu": 9
+    },
+    {
+      "id": 1,
+      "lu": 9
+    },
+    {
+      "id": 1,
+      "lu": 9
+    },
+    {
+      "id": 1,
+      "lu": 9
+    },
+    {
+      "id": 1,
+      "lu": 9
+    },
+    {
+      "id": 1,
+      "lu": 10
+    },
+    {
+      "id": 1,
+      "lu": 9
+    },
+    {
+      "id": 1,
+      "lu": 9
+    },
+    {
+      "id": 1,
+      "lu": 10
+    },
+    {
+      "id": 1,
+      "lu": 9
+    },
+    {
+      "id": 1,
+      "lu": 10
+    },
+    {
+      "id": 1,
+      "lu": 10
+    },
+    {
+      "id": 1,
+      "lu": 10
+    },
+    {
+      "id": 1,
+      "lu": 10
+    },
+    {
+      "id": 1,
+      "lu": 10
+    },
+    {
+      "id": 1,
+      "lu": 10
+    },
+    {
+      "id": 1,
+      "lu": 10
+    },
+    {
+      "id": 1,
+      "lu": 11
+    },
+    {
+      "id": 1,
+      "lu": 12
+    },
+    {
+      "id": 1,
+      "lu": 12
+    },
+    {
+      "id": 0,
+      "lu": 12
+    },
+    {
+      "id": 1,
+      "lu": 14
+    },
+    {
+      "id": 1,
+      "lu": 12
+    },
+    {
+      "id": 1,
+      "lu": 12
+    },
+    {
+      "id": 1,
+      "lu": 13
+    },
+    {
+      "id": 1,
+      "lu": 13
+    },
+    {
+      "id": 1,
+      "lu": 12
+    },
+    {
+      "id": 1,
+      "lu": 12
+    },
+    {
+      "id": 1,
+      "lu": 12
+    },
+    {
+      "id": 1,
+      "lu": 12
+    },
+    {
+      "id": 1,
+      "lu": 13
+    },
+    {
+      "id": 1,
+      "lu": 13
+    },
+    {
+      "id": 1,
+      "lu": 13
+    }
+  ]
+}

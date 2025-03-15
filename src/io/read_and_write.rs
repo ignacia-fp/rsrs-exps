@@ -1,12 +1,11 @@
 use std::{fs::{self, File}, io::Read, path::Path};
-use bempp_rsrs::rsrs::{rsrs_cycle::RsrsData, rsrs_factors::{RsrsFactors, RsrsFactorsOps}};
+use bempp_rsrs::rsrs::{box_skeletonisation::{IdTimes, UpdateTimes}, rsrs_cycle::RsrsData, rsrs_factors::{LuTimes, RsrsFactors, RsrsFactorsOps}};
 use num::NumCast;
 use serde::{Deserialize, Serialize};
 use rlst::prelude::*;
 use std::io::Write;
 
 type Real<T> = <T as rlst::RlstScalar>::Real;
-
 
 #[derive(Serialize)]
 struct StatsOutput<Item: RlstScalar>{
@@ -18,17 +17,34 @@ struct StatsOutput<Item: RlstScalar>{
     extraction_time: u128,
     residual_size: usize,
     sampling_time: Vec<u128>,
-    nullification_time: Vec<u128>,
-    id_time: Vec<u128>,
-    lu_time: Vec<u128>,
-    update_id_time: Vec<u128>,
-    update_lu_time: Vec<u128>,
+    id_times: Vec<IdTimes>,
+    lu_times: Vec<LuTimes>,
+    update_times: Vec<UpdateTimes>
 }
 
 #[derive(Serialize)]
 struct ErrorsOutput<Item: RlstScalar>{
     rel_errors: Vec<Vec<Real<Item>>>,
     abs_errors: Vec<Vec<Real<Item>>>
+}
+
+#[derive(Debug, Deserialize)]
+pub struct LuTimesOutput{
+    pub io: u128,
+    pub extraction: u128,
+    pub assembly: u128
+}
+
+#[derive(Debug, Deserialize)]
+pub struct IdTimesOutput{
+    pub nullification: u128,
+    pub id: u128
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateTimesOutput{
+    pub id: u128,
+    pub lu: u128
 }
 
 #[derive(Debug, Deserialize)]
@@ -42,11 +58,9 @@ pub struct StatsInput{
     total_elapsed_time: f64,
     pub extraction_time: f64,
     pub sampling_time: Vec<f64>,
-    pub nullification_time: Vec<f64>,
-    pub id_time: Vec<f64>,
-    pub lu_time: Vec<f64>,
-    pub update_id_time: Vec<f64>,
-    pub update_lu_time: Vec<f64>,
+    pub id_times: Vec<IdTimesOutput>,
+    pub lu_times: Vec<LuTimesOutput>,
+    pub update_times: Vec<UpdateTimesOutput>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -65,11 +79,11 @@ where <Item as RlstScalar>::Real: for<'a> std::iter::Sum<&'a <Item as RlstScalar
     stats_path.push_str(&string_tol);
     stats_path.push_str(".json");
 
-    let norm_app_inv = num::Zero::zero();
-    let diag_ae_mean = num::Zero::zero();
-    let skel_ae = num::Zero::zero();
+    //let norm_app_inv = num::Zero::zero();
+    //let diag_ae_mean = num::Zero::zero();
+    //let skel_ae = num::Zero::zero();
 
-    //let (norm_app_inv, diag_ae_mean, skel_ae) = write_box_errors(_kernel_mat, _rsrs_factors,  tol, &path_str);
+    let (norm_app_inv, diag_ae_mean, skel_ae) = write_box_errors(_kernel_mat, _rsrs_factors,  tol, &path_str);
 
     let stats = StatsOutput::<Item>{
         app_inv_norm: norm_app_inv,
@@ -80,11 +94,9 @@ where <Item as RlstScalar>::Real: for<'a> std::iter::Sum<&'a <Item as RlstScalar
         extraction_time: rsrs_data.stats.extraction_time,
         residual_size: rsrs_data.stats.residual_size,
         sampling_time: rsrs_data.stats.sampling_time.clone(),
-        nullification_time: rsrs_data.stats.nullification_time.clone(),
-        id_time: rsrs_data.stats.id_time.clone(),
-        lu_time: rsrs_data.stats.lu_time.clone(),
-        update_id_time: rsrs_data.stats.update_id_time.clone(),
-        update_lu_time: rsrs_data.stats.update_lu_time.clone(),
+        id_times: rsrs_data.stats.id_times.clone(),
+        lu_times: rsrs_data.stats.lu_times.clone(),
+        update_times: rsrs_data.stats.update_times.clone(),
     };
     
     let json_string = serde_json::to_string_pretty(&stats).expect("Failed to serialize");
@@ -135,9 +147,9 @@ where <Item as RlstScalar>::Real: for<'a> std::iter::Sum<&'a <Item as RlstScalar
     let mut ident = rlst_dynamic_array2!(Item, [npoints, npoints]);
     ident.set_identity();
 
-    let zero = ident - kernel_mat.view();
+    let zero = ident - kernel_mat.r();
 
-    (zero.view().norm_1(), diag_ae_r_mean, diag_ae_s)
+    (zero.r().norm_1(), diag_ae_r_mean, diag_ae_s)
 
 }
 

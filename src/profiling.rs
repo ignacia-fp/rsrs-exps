@@ -1,5 +1,5 @@
 use mpi::{topology::SimpleCommunicator, traits::Communicator};
-use bempp_rsrs::rsrs::rsrs_cycle::{Rsrs, RsrsData, RsrsOptions};
+use bempp_rsrs::rsrs::rsrs_cycle::{Rsrs, RsrsData, RsrsOptions, Termination};
 use crate::io::geometries::{cube_surface, sphere_surface};
 use bempp_rsrs::rsrs::box_skeletonisation::Tols;
 use crate::io::read_and_write::save_stats;
@@ -47,7 +47,7 @@ macro_rules! implement_test_framework{
                         let tols : Tols<$scalar> = Tols{id: id_tol, null: num::Zero::zero(), lstq: num::Zero::zero()};
                         let mut kernel_mat: DynamicArray<$scalar, 2> = kernel_fn(&points, kappa);
                         let mut rsrs_algo: RsrsData<$scalar> = <RsrsData<$scalar> as Rsrs>::new(&kernel_mat, tols, &tree);
-                        let options = RsrsOptions{ hermitian: false, silent: true };
+                        let options = RsrsOptions{ hermitian: true, silent: true, split: true, termination: Termination::ReachRoot, oversampling: 8};
                         let rsrs_factors = rsrs_algo.tree_cycle_and_diag_block_extraction(&kernel_mat, options);
                         save_stats(&mut kernel_mat, &rsrs_factors, &rsrs_algo, id_tol, &path_str);
                     }
@@ -58,7 +58,6 @@ macro_rules! implement_test_framework{
                     let universe: mpi::environment::Universe = mpi::initialize().unwrap();
                     let comm: SimpleCommunicator = universe.world();
                     for &n in npoints{
-                        //let id_tols = [1e-2, 1e-4, 1e-6, 1e-8];
                         let mut geometry_fn: fn(usize, &SimpleCommunicator) -> Vec<bempp_octree::Point> = sphere_surface;
                         if geometry == "cube"{
                             geometry_fn = cube_surface;

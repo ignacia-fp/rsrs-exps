@@ -2,264 +2,449 @@
   "app_inv_norm": 0.0,
   "diag_ae_mean": 0.0,
   "skel_ae": 0.0,
-  "tot_num_samples": 446,
+  "tot_num_samples": 472,
   "total_elapsed_time": 1,
-  "extraction_time": 193,
-  "residual_size": 54,
+  "extraction_time": 182,
+  "residual_size": 38,
   "sampling_time": [
-    4,
-    2,
-    1,
-    2,
-    1,
-    1,
-    1,
-    1,
-    1,
-    1,
-    1,
-    0,
-    1,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    1,
-    0,
-    0,
-    1,
-    2,
-    1,
-    1,
-    1,
-    1,
-    3,
-    1,
-    1,
-    1,
-    2,
-    1,
-    2,
-    1,
-    1,
-    2,
-    1,
-    1,
-    3,
-    52
-  ],
-  "nullification_time": [
-    1,
-    1,
-    1,
-    2,
-    2,
-    2,
-    2,
-    3,
-    3,
-    4,
-    4,
-    5,
-    5,
-    5,
-    6,
-    6,
-    6,
-    5,
-    6,
-    6,
-    6,
-    6,
-    7,
-    6,
-    6,
-    7,
-    7,
-    7,
-    7,
-    8,
-    8,
-    8,
-    11,
-    12,
-    12,
-    12,
-    13,
-    13,
-    12,
-    28,
-    13,
-    16,
-    15,
-    19,
-    21,
-    19,
-    15,
-    15,
-    15,
-    20,
-    18,
-    28,
-    16,
-    18,
-    17,
-    19
-  ],
-  "id_time": [
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0
-  ],
-  "lu_time": [
-    4,
-    4,
-    5,
-    5,
-    5,
-    6,
-    6,
-    6,
-    6,
-    7,
-    7,
-    7,
-    7,
-    8,
-    8,
-    8,
     9,
-    9,
-    8,
-    9,
-    13,
-    14,
-    16,
-    16,
-    20,
-    16,
-    17,
-    22,
-    18,
-    27
+    42
   ],
-  "update_id_time": [
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0
+  "id_times": [
+    {
+      "nullification": 1,
+      "id": 0
+    },
+    {
+      "nullification": 2,
+      "id": 0
+    },
+    {
+      "nullification": 2,
+      "id": 0
+    },
+    {
+      "nullification": 2,
+      "id": 0
+    },
+    {
+      "nullification": 2,
+      "id": 0
+    },
+    {
+      "nullification": 3,
+      "id": 0
+    },
+    {
+      "nullification": 3,
+      "id": 0
+    },
+    {
+      "nullification": 3,
+      "id": 0
+    },
+    {
+      "nullification": 4,
+      "id": 0
+    },
+    {
+      "nullification": 4,
+      "id": 0
+    },
+    {
+      "nullification": 5,
+      "id": 0
+    },
+    {
+      "nullification": 5,
+      "id": 0
+    },
+    {
+      "nullification": 6,
+      "id": 0
+    },
+    {
+      "nullification": 6,
+      "id": 0
+    },
+    {
+      "nullification": 6,
+      "id": 0
+    },
+    {
+      "nullification": 6,
+      "id": 0
+    },
+    {
+      "nullification": 6,
+      "id": 0
+    },
+    {
+      "nullification": 9,
+      "id": 0
+    },
+    {
+      "nullification": 9,
+      "id": 0
+    },
+    {
+      "nullification": 7,
+      "id": 0
+    },
+    {
+      "nullification": 9,
+      "id": 0
+    },
+    {
+      "nullification": 7,
+      "id": 0
+    },
+    {
+      "nullification": 8,
+      "id": 0
+    },
+    {
+      "nullification": 7,
+      "id": 0
+    },
+    {
+      "nullification": 8,
+      "id": 0
+    },
+    {
+      "nullification": 8,
+      "id": 0
+    },
+    {
+      "nullification": 8,
+      "id": 0
+    },
+    {
+      "nullification": 9,
+      "id": 0
+    },
+    {
+      "nullification": 8,
+      "id": 0
+    },
+    {
+      "nullification": 9,
+      "id": 0
+    },
+    {
+      "nullification": 9,
+      "id": 0
+    },
+    {
+      "nullification": 21,
+      "id": 0
+    },
+    {
+      "nullification": 12,
+      "id": 0
+    },
+    {
+      "nullification": 12,
+      "id": 0
+    },
+    {
+      "nullification": 12,
+      "id": 0
+    },
+    {
+      "nullification": 12,
+      "id": 0
+    },
+    {
+      "nullification": 15,
+      "id": 0
+    },
+    {
+      "nullification": 14,
+      "id": 0
+    },
+    {
+      "nullification": 13,
+      "id": 0
+    },
+    {
+      "nullification": 13,
+      "id": 0
+    },
+    {
+      "nullification": 14,
+      "id": 0
+    },
+    {
+      "nullification": 16,
+      "id": 0
+    },
+    {
+      "nullification": 16,
+      "id": 0
+    },
+    {
+      "nullification": 15,
+      "id": 0
+    },
+    {
+      "nullification": 16,
+      "id": 0
+    },
+    {
+      "nullification": 15,
+      "id": 0
+    },
+    {
+      "nullification": 17,
+      "id": 0
+    },
+    {
+      "nullification": 17,
+      "id": 0
+    },
+    {
+      "nullification": 16,
+      "id": 0
+    },
+    {
+      "nullification": 16,
+      "id": 0
+    },
+    {
+      "nullification": 16,
+      "id": 0
+    },
+    {
+      "nullification": 17,
+      "id": 0
+    },
+    {
+      "nullification": 17,
+      "id": 0
+    },
+    {
+      "nullification": 16,
+      "id": 0
+    },
+    {
+      "nullification": 18,
+      "id": 0
+    },
+    {
+      "nullification": 19,
+      "id": 0
+    }
   ],
-  "update_lu_time": [
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0
+  "lu_times": [
+    {
+      "io": 0,
+      "extraction": 5,
+      "assembly": 0
+    },
+    {
+      "io": 0,
+      "extraction": 6,
+      "assembly": 0
+    },
+    {
+      "io": 0,
+      "extraction": 7,
+      "assembly": 0
+    },
+    {
+      "io": 0,
+      "extraction": 7,
+      "assembly": 0
+    },
+    {
+      "io": 0,
+      "extraction": 7,
+      "assembly": 0
+    },
+    {
+      "io": 0,
+      "extraction": 8,
+      "assembly": 0
+    },
+    {
+      "io": 0,
+      "extraction": 7,
+      "assembly": 0
+    },
+    {
+      "io": 0,
+      "extraction": 8,
+      "assembly": 0
+    },
+    {
+      "io": 0,
+      "extraction": 8,
+      "assembly": 0
+    },
+    {
+      "io": 0,
+      "extraction": 9,
+      "assembly": 0
+    },
+    {
+      "io": 0,
+      "extraction": 8,
+      "assembly": 0
+    },
+    {
+      "io": 0,
+      "extraction": 9,
+      "assembly": 0
+    },
+    {
+      "io": 0,
+      "extraction": 9,
+      "assembly": 0
+    },
+    {
+      "io": 0,
+      "extraction": 10,
+      "assembly": 0
+    },
+    {
+      "io": 0,
+      "extraction": 9,
+      "assembly": 0
+    },
+    {
+      "io": 0,
+      "extraction": 10,
+      "assembly": 0
+    },
+    {
+      "io": 0,
+      "extraction": 13,
+      "assembly": 0
+    },
+    {
+      "io": 0,
+      "extraction": 14,
+      "assembly": 0
+    },
+    {
+      "io": 0,
+      "extraction": 16,
+      "assembly": 0
+    },
+    {
+      "io": 0,
+      "extraction": 16,
+      "assembly": 0
+    },
+    {
+      "io": 0,
+      "extraction": 17,
+      "assembly": 0
+    },
+    {
+      "io": 0,
+      "extraction": 19,
+      "assembly": 0
+    },
+    {
+      "io": 0,
+      "extraction": 19,
+      "assembly": 0
+    }
+  ],
+  "update_times": [
+    {
+      "id": 0,
+      "lu": 0
+    },
+    {
+      "id": 0,
+      "lu": 0
+    },
+    {
+      "id": 0,
+      "lu": 0
+    },
+    {
+      "id": 0,
+      "lu": 0
+    },
+    {
+      "id": 0,
+      "lu": 0
+    },
+    {
+      "id": 0,
+      "lu": 0
+    },
+    {
+      "id": 0,
+      "lu": 0
+    },
+    {
+      "id": 0,
+      "lu": 0
+    },
+    {
+      "id": 0,
+      "lu": 0
+    },
+    {
+      "id": 0,
+      "lu": 0
+    },
+    {
+      "id": 0,
+      "lu": 0
+    },
+    {
+      "id": 0,
+      "lu": 0
+    },
+    {
+      "id": 0,
+      "lu": 0
+    },
+    {
+      "id": 0,
+      "lu": 0
+    },
+    {
+      "id": 0,
+      "lu": 0
+    },
+    {
+      "id": 0,
+      "lu": 0
+    },
+    {
+      "id": 0,
+      "lu": 0
+    },
+    {
+      "id": 0,
+      "lu": 0
+    },
+    {
+      "id": 0,
+      "lu": 0
+    },
+    {
+      "id": 0,
+      "lu": 0
+    },
+    {
+      "id": 0,
+      "lu": 0
+    },
+    {
+      "id": 0,
+      "lu": 0
+    },
+    {
+      "id": 0,
+      "lu": 0
+    }
   ]
 }

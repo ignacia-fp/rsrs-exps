@@ -2,25 +2,21 @@
   "app_inv_norm": 0.0,
   "diag_ae_mean": 0.0,
   "skel_ae": 0.0,
-  "tot_num_samples": 509,
+  "tot_num_samples": 510,
   "total_elapsed_time": 0,
-  "extraction_time": 245,
-  "residual_size": 1,
+  "extraction_time": 249,
+  "residual_size": 0,
   "sampling_time": [
-    8,
-    18
+    9,
+    17
   ],
   "id_times": [
     {
-      "nullification": 1,
-      "id": 0
-    },
-    {
       "nullification": 2,
       "id": 0
     },
     {
-      "nullification": 2,
+      "nullification": 3,
       "id": 0
     },
     {
@@ -33,6 +29,10 @@
     },
     {
       "nullification": 3,
+      "id": 0
+    },
+    {
+      "nullification": 2,
       "id": 0
     },
     {
@@ -68,7 +68,7 @@
       "id": 0
     },
     {
-      "nullification": 6,
+      "nullification": 7,
       "id": 0
     },
     {
@@ -76,7 +76,7 @@
       "id": 0
     },
     {
-      "nullification": 6,
+      "nullification": 7,
       "id": 0
     },
     {
@@ -84,15 +84,11 @@
       "id": 0
     },
     {
-      "nullification": 6,
-      "id": 0
-    },
-    {
-      "nullification": 6,
-      "id": 0
-    },
-    {
       "nullification": 7,
+      "id": 0
+    },
+    {
+      "nullification": 10,
       "id": 0
     },
     {
@@ -104,7 +100,11 @@
       "id": 0
     },
     {
-      "nullification": 7,
+      "nullification": 8,
+      "id": 0
+    },
+    {
+      "nullification": 8,
       "id": 0
     },
     {
@@ -124,7 +124,7 @@
       "id": 0
     },
     {
-      "nullification": 8,
+      "nullification": 9,
       "id": 0
     },
     {
@@ -160,10 +160,6 @@
       "id": 0
     },
     {
-      "nullification": 14,
-      "id": 0
-    },
-    {
       "nullification": 13,
       "id": 0
     },
@@ -172,6 +168,10 @@
       "id": 0
     },
     {
+      "nullification": 13,
+      "id": 0
+    },
+    {
       "nullification": 14,
       "id": 0
     },
@@ -180,15 +180,7 @@
       "id": 0
     },
     {
-      "nullification": 16,
-      "id": 0
-    },
-    {
-      "nullification": 16,
-      "id": 0
-    },
-    {
-      "nullification": 16,
+      "nullification": 15,
       "id": 0
     },
     {
@@ -204,6 +196,34 @@
       "id": 0
     },
     {
+      "nullification": 16,
+      "id": 0
+    },
+    {
+      "nullification": 16,
+      "id": 0
+    },
+    {
+      "nullification": 16,
+      "id": 0
+    },
+    {
+      "nullification": 16,
+      "id": 0
+    },
+    {
+      "nullification": 17,
+      "id": 0
+    },
+    {
+      "nullification": 17,
+      "id": 0
+    },
+    {
+      "nullification": 17,
+      "id": 0
+    },
+    {
       "nullification": 17,
       "id": 0
     },
@@ -212,41 +232,10 @@
       "id": 0
     },
     {
-      "nullification": 18,
-      "id": 0
-    },
-    {
-      "nullification": 17,
-      "id": 0
-    },
-    {
-      "nullification": 17,
-      "id": 0
-    },
-    {
-      "nullification": 17,
-      "id": 0
-    },
-    {
-      "nullification": 18,
-      "id": 0
-    },
-    {
-      "nullification": 19,
+      "nullification": 20,
       "id": 0
     }
   ],
-  "lu_times": [
-    {
-      "io": 0,
-      "extraction": 9,
-      "assembly": 0
-    }
-  ],
-  "update_times": [
-    {
-      "id": 0,
-      "lu": 0
-    }
-  ]
+  "lu_times": [],
+  "update_times": []
 }
