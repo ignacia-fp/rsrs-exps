@@ -1,5 +1,5 @@
 use mpi::{topology::SimpleCommunicator, traits::Communicator};
-use bempp_rsrs::rsrs::rsrs_cycle::{Rsrs, RsrsData, RsrsOptions, Termination};
+use bempp_rsrs::rsrs::rsrs_cycle::{Rsrs, RsrsOptions};
 use crate::io::geometries::{cube_surface, sphere_surface};
 use bempp_rsrs::rsrs::box_skeletonisation::Tols;
 use crate::io::read_and_write::save_stats;
@@ -41,12 +41,13 @@ macro_rules! implement_test_framework{
                     geometry_and_points.push('_');
                     geometry_and_points.push_str(&kappa_string);
                     path_str.push_str(&geometry_and_points);
+                    
 
                     for &id_tol in id_tols.iter(){
                         println!("Test: {} points, tol:{}", npoints, id_tol);
                         let tols : Tols<$scalar> = Tols{id: id_tol, null: num::Zero::zero(), lstq: num::Zero::zero()};
                         let mut kernel_mat: DynamicArray<$scalar, 2> = kernel_fn(&points, kappa);
-                        let mut rsrs_algo: RsrsData<$scalar> = <RsrsData<$scalar> as Rsrs>::new(&kernel_mat, tols, &tree);
+                        let mut rsrs_algo: Rsrs<$scalar> = Rsrs::new(&kernel_mat, tols, &tree);
                         let options = RsrsOptions{ hermitian: true, silent: true, split: true, termination: Termination::ReachRoot, oversampling: 8};
                         let rsrs_factors = rsrs_algo.tree_cycle_and_diag_block_extraction(&kernel_mat, options);
                         save_stats(&mut kernel_mat, &rsrs_factors, &rsrs_algo, id_tol, &path_str);
