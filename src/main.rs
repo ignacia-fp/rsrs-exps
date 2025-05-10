@@ -1,31 +1,93 @@
-use bempp_rsrs::utils::low_rank_matrices::KernelMatrix;
-use rsrs_exps::{io::plot_results::plot_stats, profiling::TestFramework};
 use rlst::c64;
+use rsrs_exps::{
+    io::{low_rank_matrices::KernelMatrix, plot_results::get_time_piecharts},
+    // profiling_options::add_samples_test::SampleTestFramework,
+    test_prep::{TestFramework, TestOptions},
+};
 
-fn run_kernel_test(geometry: &str, kernel: &str, npoints: &[usize], kappa: f64, id_tols: &[f64]){
-    if kernel == "standard_real"{
-        <f64 as TestFramework>::run_test(geometry, kernel, KernelMatrix::get_exp_real_kernel_matrix, &npoints, kappa, id_tols);
+fn run(
+    geometry: &str,
+    kernel: &str,
+    npoints: &[usize],
+    mut kappa: f64,
+    version: f64,
+    id_tols: &[f64],
+    options: TestOptions,
+) {
+    if kernel == "standard_real" {
+        kappa = 0.0;
+        <f64 as TestFramework>::select_and_run_test(
+            geometry,
+            kernel,
+            KernelMatrix::get_exp_real_kernel_matrix,
+            &npoints,
+            kappa,
+            version,
+            id_tols,
+            &options,
+        );
+    } else if kernel == "standard_complex" {
+        <c64 as TestFramework>::select_and_run_test(
+            geometry,
+            kernel,
+            KernelMatrix::get_exp_complex_kernel_matrix,
+            &npoints,
+            kappa,
+            version,
+            id_tols,
+            &options,
+        );
+    } else if kernel == "laplace" {
+        kappa = 0.0;
+        <f64 as TestFramework>::select_and_run_test(
+            geometry,
+            kernel,
+            KernelMatrix::get_laplace_matrix,
+            &npoints,
+            kappa,
+            version,
+            id_tols,
+            &options,
+        );
+    } else {
+        <c64 as TestFramework>::select_and_run_test(
+            geometry,
+            kernel,
+            KernelMatrix::get_helmholtz_matrix,
+            &npoints,
+            kappa,
+            version,
+            id_tols,
+            &options,
+        );
     }
-    else if kernel == "standard_complex"{
-        <c64 as TestFramework>::run_test(geometry, kernel, KernelMatrix::get_exp_complex_kernel_matrix, &npoints, kappa, id_tols);
-    }
-    else if kernel == "laplace"{
-        <f64 as TestFramework>::run_test(geometry, kernel, KernelMatrix::get_laplace_matrix, &npoints, kappa, id_tols);
-    }
-    else{
-        <c64 as TestFramework>::run_test(geometry, kernel, KernelMatrix::get_helmholtz_matrix, &npoints, kappa, id_tols);
-    }
-
 }
-
 
 fn main() {
     let geometry = "sphere";
-    let kernel = "laplace";
-    let npoints = [500, 1000, 3000, 5000, 10000, 20000];
-    let id_tols = [1e-2, 1e-4, 1e-6, 1e-8];
-    let pi =std::f64::consts::PI;
-    let kappa = 0.0;
-    run_kernel_test(geometry, kernel, &npoints, kappa, &id_tols);
-    plot_stats(geometry, kernel, &npoints, kappa, &id_tols);
+    let kernel = "helmholtz";
+    let npoints = [5000]; //[20000, 50000, 70000, 90000];//, 100000, 150000, 170000];//, 180000];
+    let id_tols = [1e-2, 1e-4, 1e-6]; //1e-4, 1e-6];
+    let pi = std::f64::consts::PI;
+    let kappa = 4.0 * pi;
+    let version = 0.0;
+    run(
+        geometry,
+        kernel,
+        &npoints,
+        kappa,
+        version,
+        &id_tols,
+        TestOptions {
+            plot: false,
+            test_type: "all".to_owned(),
+        },
+    );
+
+    //get_time_piecharts(geometry, kernel, &npoints, kappa, version, &id_tols);
+
+    //<f64 as SampleTestFramework>::test::<f64>(geometry, kernel, &npoints);
+
+    //let _ = python_kernel();
+    
 }
