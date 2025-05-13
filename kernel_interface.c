@@ -13,25 +13,37 @@ Kernel* fail(Kernel *k) {
 Kernel* create_kernel(PyObject *kernel_instance) {
     Kernel *k = (Kernel *)malloc(sizeof(Kernel));
     if (!k) return NULL;
-
     PyObject *points_obj = PyObject_GetAttrString(kernel_instance, "points");
     PyObject *mat_obj = PyObject_GetAttrString(kernel_instance, "mat");
-    PyObject *dim_obj = PyObject_GetAttrString(kernel_instance, "dim");
+    PyObject *n_points_obj = PyObject_GetAttrString(kernel_instance, "n_points");
 
-    if ((!points_obj || !PyArray_Check(points_obj)) || 
-        (!mat_obj || !PyArray_Check(mat_obj)) ||
-        (!dim_obj || !PyLong_Check(dim_obj))) {
+    if (!points_obj) {
+        printf("points_obj is NULL\n");
         return fail(k);
     }
-
+    if (!PyArray_Check(points_obj)) {
+        printf("points_obj is not a NumPy array\n");
+        return fail(k);
+    }
+    if (!mat_obj) {
+        printf("mat_obj is NULL\n");
+        return fail(k);
+    }
+    if (!n_points_obj) {
+        printf("n_points_obj is NULL\n");
+        return fail(k);
+    }
+    if (!PyLong_Check(n_points_obj)) {
+        printf("n_points_obj is not a Python int\n");
+        return fail(k);
+    }
     k->points = (PyArrayObject *)points_obj;
     k->mat = (PyArrayObject *)mat_obj;
-    k->dim = (int)PyLong_AsLong(dim_obj);
-
+    k->n_points = (int)PyLong_AsLong(n_points_obj);
     return k;
 }
 
-Kernel* initialize_kernel(const char *class_name, int dim, double kappa) {
+Kernel* initialize_kernel(const char *class_name, double arg1, double kappa) {
     if (!Py_IsInitialized()) {
         Py_Initialize();
         if (_import_array() < 0) {
@@ -41,13 +53,11 @@ Kernel* initialize_kernel(const char *class_name, int dim, double kappa) {
     }
 
     PyRun_SimpleString("import sys; sys.path.append('.')");
-
     PyObject *module = PyImport_ImportModule("python_kernels");
     if (!module) {
         PyErr_Print();
         return NULL;
     }
-
     PyObject *kernel_class = PyObject_GetAttrString(module, class_name);
     Py_DECREF(module);
     if (!kernel_class) {
@@ -55,7 +65,16 @@ Kernel* initialize_kernel(const char *class_name, int dim, double kappa) {
         return NULL;
     }
 
-    PyObject *args = PyTuple_Pack(2, PyLong_FromLong(dim), PyFloat_FromDouble(kappa));
+    PyObject *arg1_obj;
+    if ((int)arg1 == arg1) {
+        arg1_obj = PyLong_FromLong((long)arg1);
+    } else {
+        arg1_obj = PyFloat_FromDouble(arg1);
+    }
+
+    PyObject *args = PyTuple_Pack(2, arg1_obj, PyFloat_FromDouble(kappa));
+    Py_DECREF(arg1_obj);
+
     PyObject *instance = PyObject_CallObject(kernel_class, args);
     Py_DECREF(args);
     Py_DECREF(kernel_class);
@@ -63,7 +82,6 @@ Kernel* initialize_kernel(const char *class_name, int dim, double kappa) {
         PyErr_Print();
         return NULL;
     }
-
     Kernel *k = create_kernel(instance);
     if (!k) return NULL;
     k->pyobj = instance;  // take ownership
@@ -72,7 +90,7 @@ Kernel* initialize_kernel(const char *class_name, int dim, double kappa) {
 
 
 int mv_kernel(Kernel *k, const double *input, double *output, int len) {
-    if (!k || k->dim != len) return 0;
+    if (!k || k->n_points != len) return 0;
 
     npy_intp dims[1] = {len};
     PyObject *v = PyArray_SimpleNew(1, dims, NPY_DOUBLE);
@@ -108,6 +126,10 @@ const double* get_points(Kernel *k) {
     return (const double *)PyArray_DATA(k->points);
 }
 
+size_t get_n_points(Kernel *k) {
+    if (!k) return (size_t)-1;  // sentinel value for error
+    return (size_t)(k->n_points);
+}
 
 void finalize_kernel(Kernel *k) {
     if (!k) return;

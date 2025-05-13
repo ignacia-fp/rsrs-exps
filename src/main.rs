@@ -1,10 +1,9 @@
-use rlst::c64;
-use rlst::prelude::*;
-use rsrs_exps::io::python_kernel::KernelAttr;
+// use rlst::c64;
+// use rlst::prelude::*;
+// use rsrs_exps::io::python_kernel::KernelAttr;
 use rsrs_exps::{
     io::{
         low_rank_matrices::KernelMatrix,
-        python_kernel::{Kernel, LocalFrom},
     }, //, plot_results::get_time_piecharts},
     // profiling_options::add_samples_test::SampleTestFramework,
     test_prep_ops::{TestFramework, TestOptions},
@@ -94,9 +93,9 @@ fn run_ops(
 fn main() {
     let geometry = "sphere";
     let kernel = "laplace";
-    let npoints = [5000]; //[20000, 50000, 70000, 90000];//, 100000, 150000, 170000];//, 180000];
-    let id_tols = [1e-6];//[1e-2, 1e-4, 1e-6]; //1e-4, 1e-6];
-    let pi = std::f64::consts::PI;
+    let npoints = [15]; //[20000, 50000, 70000, 90000];//, 100000, 150000, 170000];//, 180000];
+    let id_tols = [1e-2];//[1e-2, 1e-4, 1e-6]; //1e-4, 1e-6];
+    let _pi = std::f64::consts::PI;
     let kappa = 0.0;
     let version = 0.0;
 

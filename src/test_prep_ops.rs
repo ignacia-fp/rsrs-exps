@@ -3,12 +3,12 @@ use crate::io::plot_results::time_piechart;
 use crate::io::python_kernel::{Kernel, KernelAttr, LocalFrom};
 use crate::io::read_and_write::{save_error_stats, save_rank_stats, save_time_stats};
 use bempp_octree::Octree;
-use bempp_rsrs::utils::print::pretty_print;
 use crate::io::python_kernel::KernelOperator;
 use bempp_rsrs::rsrs::box_skeletonisation::Tols;
 use bempp_rsrs::rsrs::rsrs_cycle::{RankPicking, Rsrs, RsrsOptions};
 use mpi::{topology::SimpleCommunicator, traits::Communicator};
 use rlst::prelude::*;
+use crate::io::python_kernel::{KernelType, KernelParams};
 
 pub struct TestOptions {
     pub plot: bool,
@@ -53,7 +53,6 @@ fn compute_dense_kernel(kernel: &Operator<KernelOperator<'_, f64, Kernel>>) -> D
          dense_kernel.r_mut().slice(1, i).fill_from(res.view());
     }
 
-    pretty_print(&dense_kernel);
     return dense_kernel
 }
 
@@ -63,8 +62,8 @@ macro_rules! implement_test_framework {
             fn run_test(
                 geometry: &str,
                 kernel_name: &str,
-                geometry_fn: fn(usize, &SimpleCommunicator) -> Vec<bempp_octree::Point>,
-                kernel_fn: fn(
+                _geometry_fn: fn(usize, &SimpleCommunicator) -> Vec<bempp_octree::Point>,
+                _kernel_fn: fn(
                     &[bempp_octree::Point],
                     <$scalar as RlstScalar>::Real,
                 ) -> DynamicArray<$scalar, 2>,
@@ -75,12 +74,14 @@ macro_rules! implement_test_framework {
                 comm: &SimpleCommunicator,
                 test_options: &TestOptions,
             ) {
-                let kernel = Kernel::new("LaplaceKernel", npoints, 0.0);
+                let h = 1.0/npoints as f64;
+                let kernel_params = KernelParams::new(KernelType::BemLaplace, npoints, 0.0, h);
+                let kernel = Kernel::new(kernel_params);
                 let operator = Operator::from_local(&kernel);
                 
                 let points: Vec<bempp_octree::Point> = kernel.get_bempp_points();
-                let max_level: usize = 16;
-                let max_leaf_points: usize = 30;
+                let max_level: usize = 6;
+                let max_leaf_points: usize = 50;
                 let tree: Octree<'_, SimpleCommunicator> =
                     Octree::new(&points, max_level, max_leaf_points, &comm);
                 let global_number_of_points: usize = tree.global_number_of_points();
@@ -107,7 +108,7 @@ macro_rules! implement_test_framework {
                 path_str.push_str(&geometry_and_points);
 
                 for &id_tol in id_tols.iter() {
-                    println!("Test: {} points, tol:{}", npoints, id_tol);
+                    println!("Test: {} points, tol:{}", operator.domain().dimension(), id_tol);
                     let tols: Tols<$scalar> = Tols {
                         id: id_tol,
                         null: num::Zero::zero(),
