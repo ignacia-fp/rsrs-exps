@@ -118,8 +118,6 @@ pub struct ErrorsInput {
 }
 
 pub fn save_time_stats<Item: RlstScalar + MatrixInverse + MatrixPseudoInverse + MatrixId>(
-    _kernel_mat: &mut DynamicArray<Item, 2>,
-    _rsrs_factors: &RsrsFactors<Item>,
     rsrs_data: &Rsrs<Item>,
     tol: Real<Item>,
     path_str: &str,

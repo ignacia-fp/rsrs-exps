@@ -1,11 +1,16 @@
 use rlst::c64;
+use rlst::prelude::*;
+use rsrs_exps::io::python_kernel::KernelAttr;
 use rsrs_exps::{
-    io::{low_rank_matrices::KernelMatrix, plot_results::get_time_piecharts},
+    io::{
+        low_rank_matrices::KernelMatrix,
+        python_kernel::{Kernel, LocalFrom},
+    }, //, plot_results::get_time_piecharts},
     // profiling_options::add_samples_test::SampleTestFramework,
-    test_prep::{TestFramework, TestOptions},
+    test_prep_ops::{TestFramework, TestOptions},
 };
 
-fn run(
+/*fn run(
     geometry: &str,
     kernel: &str,
     npoints: &[usize],
@@ -61,17 +66,41 @@ fn run(
             &options,
         );
     }
+}*/
+
+fn run_ops(
+    geometry: &str,
+    kernel: &str,
+    npoints: &[usize],
+    mut kappa: f64,
+    version: f64,
+    id_tols: &[f64],
+    options: TestOptions,
+) {
+    kappa = 0.0;
+    <f64 as TestFramework>::select_and_run_test(
+        geometry,
+        kernel,
+        KernelMatrix::get_exp_real_kernel_matrix,
+        &npoints,
+        kappa,
+        version,
+        id_tols,
+        &options,
+    );
+
 }
 
 fn main() {
     let geometry = "sphere";
-    let kernel = "helmholtz";
+    let kernel = "laplace";
     let npoints = [5000]; //[20000, 50000, 70000, 90000];//, 100000, 150000, 170000];//, 180000];
-    let id_tols = [1e-2, 1e-4, 1e-6]; //1e-4, 1e-6];
+    let id_tols = [1e-6];//[1e-2, 1e-4, 1e-6]; //1e-4, 1e-6];
     let pi = std::f64::consts::PI;
-    let kappa = 4.0 * pi;
+    let kappa = 0.0;
     let version = 0.0;
-    run(
+
+    run_ops(
         geometry,
         kernel,
         &npoints,
@@ -87,7 +116,4 @@ fn main() {
     //get_time_piecharts(geometry, kernel, &npoints, kappa, version, &id_tols);
 
     //<f64 as SampleTestFramework>::test::<f64>(geometry, kernel, &npoints);
-
-    //let _ = python_kernel();
-    
 }

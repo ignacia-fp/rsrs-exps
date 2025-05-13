@@ -1,7 +1,10 @@
 use crate::io::geometries::{cube_surface, randomly_distributed, sphere_surface};
 use crate::io::plot_results::time_piechart;
+use crate::io::python_kernel::{Kernel, KernelAttr, LocalFrom};
 use crate::io::read_and_write::{save_error_stats, save_rank_stats, save_time_stats};
 use bempp_octree::Octree;
+use bempp_rsrs::utils::print::pretty_print;
+use crate::io::python_kernel::KernelOperator;
 use bempp_rsrs::rsrs::box_skeletonisation::Tols;
 use bempp_rsrs::rsrs::rsrs_cycle::{RankPicking, Rsrs, RsrsOptions};
 use mpi::{topology::SimpleCommunicator, traits::Communicator};
@@ -38,12 +41,28 @@ pub trait TestFramework: RlstScalar {
     );
 }
 
+fn compute_dense_kernel(kernel: &Operator<KernelOperator<'_, f64, Kernel>>) -> DynamicArray<f64, 2>
+{
+    let dim = kernel.domain().dimension();
+    let mut dense_kernel = rlst_dynamic_array2!(f64, [dim, dim]);
+    for i in 0..dim
+    {
+         let mut el_vec = ArrayVectorSpace::zero(kernel.domain());
+         el_vec.view_mut()[[i]] = 1.0;
+         let res = kernel.apply(el_vec.r_mut());
+         dense_kernel.r_mut().slice(1, i).fill_from(res.view());
+    }
+
+    pretty_print(&dense_kernel);
+    return dense_kernel
+}
+
 macro_rules! implement_test_framework {
     ($scalar:ty) => {
         impl TestFramework for $scalar {
             fn run_test(
                 geometry: &str,
-                kernel: &str,
+                kernel_name: &str,
                 geometry_fn: fn(usize, &SimpleCommunicator) -> Vec<bempp_octree::Point>,
                 kernel_fn: fn(
                     &[bempp_octree::Point],
@@ -56,7 +75,10 @@ macro_rules! implement_test_framework {
                 comm: &SimpleCommunicator,
                 test_options: &TestOptions,
             ) {
-                let points: Vec<bempp_octree::Point> = geometry_fn(npoints, &comm);
+                let kernel = Kernel::new("LaplaceKernel", npoints, 0.0);
+                let operator = Operator::from_local(&kernel);
+                
+                let points: Vec<bempp_octree::Point> = kernel.get_bempp_points();
                 let max_level: usize = 16;
                 let max_leaf_points: usize = 30;
                 let tree: Octree<'_, SimpleCommunicator> =
@@ -75,7 +97,7 @@ macro_rules! implement_test_framework {
                 let kappa_string = format!("{:.2}", kappa);
                 let version_string = format!("{:.2}", version);
                 geometry_and_points.push('_');
-                geometry_and_points.push_str(kernel);
+                geometry_and_points.push_str(kernel_name);
                 geometry_and_points.push('_');
                 geometry_and_points.push_str(&npoints.to_string());
                 geometry_and_points.push('_');
@@ -91,8 +113,8 @@ macro_rules! implement_test_framework {
                         null: num::Zero::zero(),
                         lstq: num::Zero::zero(),
                     };
-                    let mut kernel_mat: DynamicArray<$scalar, 2> = kernel_fn(&points, kappa);
-                    let operator = Operator::from(&kernel_mat);
+
+                    
                     let mut rsrs_algo: Rsrs<$scalar> =
                         Rsrs::new(operator.domain().dimension(), tols, &tree, true);
                     let options = RsrsOptions {
@@ -102,18 +124,19 @@ macro_rules! implement_test_framework {
                         initial_num_samples: 420,
                     };
                     let mut rsrs_factors = rsrs_algo.run(&operator, &options);
+                    let mut dense_kernel = compute_dense_kernel(&operator);
 
                     if test_options.test_type == "all" {
                         save_time_stats(&rsrs_algo, id_tol, &path_str);
                         save_error_stats(
-                            &mut kernel_mat,
+                            &mut dense_kernel,
                             &mut rsrs_factors,
                             &rsrs_algo,
                             id_tol,
                             &path_str,
                         );
                         save_rank_stats(
-                            &mut kernel_mat,
+                            &mut dense_kernel,
                             &rsrs_factors,
                             &rsrs_algo,
                             id_tol,
@@ -121,18 +144,18 @@ macro_rules! implement_test_framework {
                         );
 
                         if test_options.plot {
-                            time_piechart(geometry, kernel, npoints, kappa, version, id_tol);
+                            time_piechart(geometry, kernel_name, npoints, kappa, version, id_tol);
                         }
                     } else if test_options.test_type == "rank" {
                         save_error_stats(
-                            &mut kernel_mat,
+                            &mut dense_kernel,
                             &mut rsrs_factors,
                             &rsrs_algo,
                             id_tol,
                             &path_str,
                         );
                         save_rank_stats(
-                            &mut kernel_mat,
+                            &mut dense_kernel,
                             &rsrs_factors,
                             &rsrs_algo,
                             id_tol,
@@ -140,7 +163,7 @@ macro_rules! implement_test_framework {
                         );
                     } else {
                         save_error_stats(
-                            &mut kernel_mat,
+                            &mut dense_kernel,
                             &mut rsrs_factors,
                             &rsrs_algo,
                             id_tol,
@@ -148,7 +171,7 @@ macro_rules! implement_test_framework {
                         );
                         save_time_stats(&rsrs_algo, id_tol, &path_str);
                         if test_options.plot {
-                            time_piechart(geometry, kernel, npoints, kappa, version, id_tol);
+                            time_piechart(geometry, kernel_name, npoints, kappa, version, id_tol);
                         }
                     }
                 }
@@ -197,4 +220,4 @@ macro_rules! implement_test_framework {
 }
 
 implement_test_framework!(f64);
-implement_test_framework!(c64);
+//implement_test_framework!(c64);
