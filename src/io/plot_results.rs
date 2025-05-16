@@ -1,15 +1,17 @@
+use crate::test_prep_ops::DimArg;
+
 use super::read_and_write::{read_file, FileContent};
 use piechart::{Chart, Color, Data};
 
 pub fn time_piechart(
     geometry: &str,
     kernel: &str,
-    npoints: usize,
+    dim_arg: &DimArg,
     kappa: f64,
     version: f64,
     tol: f64,
 ) {
-    match read_file("time_stats", geometry, kernel, npoints, kappa, version, tol).unwrap() {
+    match read_file("time_stats", geometry, kernel, dim_arg, kappa, version, tol).unwrap() {
         FileContent::TimeStats(stats) => {
             let tot_id_time = stats.tot_id_time as f32;
             let tot_sampling_time = stats.sampling_time.iter().map(|&x| x as f32).sum();
@@ -106,14 +108,14 @@ pub fn time_piechart(
 pub fn get_time_piecharts(
     geometry: &str,
     kernel: &str,
-    npoints: &[usize],
+    dim_args: &[DimArg],
     kappa: f64,
     version: f64,
     tols: &[f64],
 ) {
-    for &n in npoints {
+    for dim_arg in dim_args {
         for tol in tols {
-            time_piechart(geometry, kernel, n, kappa, version, *tol);
+            time_piechart(geometry, kernel, dim_arg, kappa, version, *tol);
         }
     }
 }

@@ -1,6 +1,7 @@
 from scipy.spatial.distance import cdist
 import numpy as np
 import bempp_cl.api
+from scipy.sparse.linalg import LinearOperator, eigsh
 
 def generate_random_points_on_sphere(n_points, radius=1):
     # Generate random polar and azimuthal angles
@@ -26,6 +27,13 @@ class BaseKernel:
 
     def mv(self, v):
         return self.mat @ v
+    
+    def get_cond(self):
+        ATA = self.mat.H @ self.mat # A^T A as a LinearOperator
+        vals_max = eigsh(ATA, k=1, which='LM', return_eigenvectors=False)
+        vals_min = eigsh(ATA, k=1, which='SM', return_eigenvectors=False)
+        return np.sqrt(vals_max[0] / vals_min[0])
+
 
 class Kernel(BaseKernel):
     def __init__(self, dim_param, _kappa):
@@ -78,7 +86,26 @@ class BemLaplaceKernel(BaseKernel):
             self.n_points = len(self.points)
             print("Number of dofs:", self.n_points)
         except Exception as e:
-            print("Error initializing LaplaceKernel:", e)
+            print("Error initializing BemLaplaceKernel:", e)
+            raise
+    def mv(self, v):
+        return self.mat * v
+    
+
+class BemHelmholtzKernel(BaseKernel):
+    def __init__(self, dim_param, kappa):
+        super().__init__(dim_param)
+        try:
+            grid = get_geometry('sphere', dim_param)
+            dp0_space = bempp_cl.api.function_space(grid, "DP", 0)
+            p1_space = bempp_cl.api.function_space(grid, "P", 1)
+            self.mat = bempp_cl.api.operators.boundary.helmholtz.single_layer(
+                dp0_space, p1_space, dp0_space, kappa).weak_form()
+            self.points = get_barycenters(grid)
+            self.n_points = len(self.points)
+            print("Number of dofs:", self.n_points)
+        except Exception as e:
+            print("Error initializing BemHelmholtzKernel:", e)
             raise
     def mv(self, v):
         return self.mat * v

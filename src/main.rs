@@ -1,118 +1,59 @@
-// use rlst::c64;
-// use rlst::prelude::*;
-// use rsrs_exps::io::python_kernel::KernelAttr;
-use rsrs_exps::{
-    io::{
-        low_rank_matrices::KernelMatrix,
-    }, //, plot_results::get_time_piecharts},
-    // profiling_options::add_samples_test::SampleTestFramework,
-    test_prep_ops::{TestFramework, TestOptions},
-};
+use rlst::prelude::*;
+use rsrs_exps::io::python_kernel::KernelType;
+use rsrs_exps::test_prep_ops::Results;
+use rsrs_exps::test_prep_ops::TestFrameworkImpl;
+use rsrs_exps::test_prep_ops::{DimArg, TestFramework};
 
-/*fn run(
-    geometry: &str,
-    kernel: &str,
-    npoints: &[usize],
+fn set_and_run_tests(
+    geometry: String,
+    kernel_type: &KernelType,
+    dim_args: &[DimArg],
     mut kappa: f64,
     version: f64,
     id_tols: &[f64],
-    options: TestOptions,
 ) {
-    if kernel == "standard_real" {
-        kappa = 0.0;
-        <f64 as TestFramework>::select_and_run_test(
-            geometry,
-            kernel,
-            KernelMatrix::get_exp_real_kernel_matrix,
-            &npoints,
+    if matches!(kernel_type, KernelType::BemHelmholtz)
+        || matches!(kernel_type, KernelType::Helmholtz)
+    {
+        let test_framework = TestFramework::<c64>::new(
+            geometry.to_string(),
+            kernel_type,
+            &dim_args,
             kappa,
             version,
-            id_tols,
-            &options,
+            &id_tols,
+            Results::All,
+            false,
         );
-    } else if kernel == "standard_complex" {
-        <c64 as TestFramework>::select_and_run_test(
-            geometry,
-            kernel,
-            KernelMatrix::get_exp_complex_kernel_matrix,
-            &npoints,
-            kappa,
-            version,
-            id_tols,
-            &options,
-        );
-    } else if kernel == "laplace" {
-        kappa = 0.0;
-        <f64 as TestFramework>::select_and_run_test(
-            geometry,
-            kernel,
-            KernelMatrix::get_laplace_matrix,
-            &npoints,
-            kappa,
-            version,
-            id_tols,
-            &options,
-        );
+        test_framework.run_tests();
     } else {
-        <c64 as TestFramework>::select_and_run_test(
-            geometry,
-            kernel,
-            KernelMatrix::get_helmholtz_matrix,
-            &npoints,
+        kappa = 0.0;
+        let test_framework = TestFramework::<f64>::new(
+            geometry.to_string(),
+            kernel_type,
+            &dim_args,
             kappa,
             version,
-            id_tols,
-            &options,
+            &id_tols,
+            Results::All,
+            false,
         );
+        test_framework.run_tests();
     }
-}*/
 
-fn run_ops(
-    geometry: &str,
-    kernel: &str,
-    npoints: &[usize],
-    mut kappa: f64,
-    version: f64,
-    id_tols: &[f64],
-    options: TestOptions,
-) {
-    kappa = 0.0;
-    <f64 as TestFramework>::select_and_run_test(
-        geometry,
-        kernel,
-        KernelMatrix::get_exp_real_kernel_matrix,
-        &npoints,
-        kappa,
-        version,
-        id_tols,
-        &options,
-    );
-
+    
 }
 
 fn main() {
+    //Usual test for numpoints: [20000, 50000, 70000, 90000];
     let geometry = "sphere";
-    let kernel = "laplace";
-    let npoints = [15]; //[20000, 50000, 70000, 90000];//, 100000, 150000, 170000];//, 180000];
-    let id_tols = [1e-2];//[1e-2, 1e-4, 1e-6]; //1e-4, 1e-6];
-    let _pi = std::f64::consts::PI;
-    let kappa = 0.0;
+    //let dim_args = [DimArg::NumPoints(5000)];
+    let dim_args = [DimArg::MeshWidth(1e-1)]; 
+    let id_tols = [1e-2, 1e-4, 1e-6]; //1e-4, 1e-6];
+    let pi = std::f64::consts::PI;
+    let kappa = pi;
     let version = 0.0;
+    let kernel_type = KernelType::BemHelmholtz;
 
-    run_ops(
-        geometry,
-        kernel,
-        &npoints,
-        kappa,
-        version,
-        &id_tols,
-        TestOptions {
-            plot: false,
-            test_type: "all".to_owned(),
-        },
-    );
-
-    //get_time_piecharts(geometry, kernel, &npoints, kappa, version, &id_tols);
-
-    //<f64 as SampleTestFramework>::test::<f64>(geometry, kernel, &npoints);
+    set_and_run_tests(geometry.to_string(), &kernel_type, &dim_args, kappa, version, &id_tols);
 }

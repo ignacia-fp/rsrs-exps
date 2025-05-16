@@ -1,6 +1,7 @@
 use crate::io::geometries::{cube_surface, randomly_distributed, sphere_surface};
 use crate::io::plot_results::time_piechart;
 use crate::io::read_and_write::{save_error_stats, save_rank_stats, save_time_stats};
+use crate::test_prep_ops::DimArg;
 use bempp_octree::Octree;
 use bempp_rsrs::rsrs::box_skeletonisation::Tols;
 use bempp_rsrs::rsrs::rsrs_cycle::{RankPicking, Rsrs, RsrsOptions};
@@ -112,16 +113,17 @@ macro_rules! implement_test_framework {
                             id_tol,
                             &path_str,
                         );
-                        save_rank_stats(
-                            &mut kernel_mat,
-                            &rsrs_factors,
-                            &rsrs_algo,
-                            id_tol,
-                            &path_str,
-                        );
+                        save_rank_stats(&rsrs_algo, id_tol, &path_str);
 
                         if test_options.plot {
-                            time_piechart(geometry, kernel, npoints, kappa, version, id_tol);
+                            time_piechart(
+                                geometry,
+                                kernel,
+                                &DimArg::NumPoints(npoints),
+                                kappa,
+                                version,
+                                id_tol,
+                            );
                         }
                     } else if test_options.test_type == "rank" {
                         save_error_stats(
@@ -131,13 +133,7 @@ macro_rules! implement_test_framework {
                             id_tol,
                             &path_str,
                         );
-                        save_rank_stats(
-                            &mut kernel_mat,
-                            &rsrs_factors,
-                            &rsrs_algo,
-                            id_tol,
-                            &path_str,
-                        );
+                        save_rank_stats(&rsrs_algo, id_tol, &path_str);
                     } else {
                         save_error_stats(
                             &mut kernel_mat,
@@ -148,7 +144,14 @@ macro_rules! implement_test_framework {
                         );
                         save_time_stats(&rsrs_algo, id_tol, &path_str);
                         if test_options.plot {
-                            time_piechart(geometry, kernel, npoints, kappa, version, id_tol);
+                            time_piechart(
+                                geometry,
+                                kernel,
+                                &DimArg::NumPoints(npoints),
+                                kappa,
+                                version,
+                                id_tol,
+                            );
                         }
                     }
                 }

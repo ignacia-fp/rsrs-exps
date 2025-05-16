@@ -2,7 +2,8 @@
 #include "kernel_interface.h"
 #include <stdio.h>
 #include <stdlib.h>
-#include <numpy/arrayobject.h>
+//#include <numpy/arrayobject.h>
+//#include <complex.h>
 
 Kernel* fail(Kernel *k) {
     PyErr_Print();
@@ -89,7 +90,7 @@ Kernel* initialize_kernel(const char *class_name, double arg1, double kappa) {
 }
 
 
-int mv_kernel(Kernel *k, const double *input, double *output, int len) {
+int mv_kernel_real(Kernel *k, const double *input, double *output, int len) {
     if (!k || k->n_points != len) return 0;
 
     npy_intp dims[1] = {len};
@@ -112,6 +113,40 @@ int mv_kernel(Kernel *k, const double *input, double *output, int len) {
     }
 
     memcpy(output, PyArray_DATA(result_arr), len * sizeof(double));
+    Py_DECREF(result);
+    return 1;
+}
+
+// input/output are arrays of double complex
+int mv_kernel_complex(Kernel *k, const double _Complex *input, double _Complex *output, int len) {
+    if (!k || k->n_points != len) return 0;
+
+    npy_intp dims[1] = {len};
+    PyObject *v = PyArray_SimpleNew(1, dims, NPY_COMPLEX128);
+    if (!v) return 0;
+
+    // Copy input complex values into NumPy array
+    memcpy(PyArray_DATA((PyArrayObject *)v), input, len * sizeof(double _Complex));
+
+    // Call Python method
+    PyObject *result = PyObject_CallMethod(k->pyobj, "mv", "O", v);
+    Py_DECREF(v);
+    if (!result || !PyArray_Check(result)) {
+        Py_XDECREF(result);
+        PyErr_Print();
+        return 0;
+    }
+
+    PyArrayObject *result_arr = (PyArrayObject *)result;
+
+    if (PyArray_NDIM(result_arr) != 1 || PyArray_DIM(result_arr, 0) != len ||
+        PyArray_TYPE(result_arr) != NPY_COMPLEX128) {
+        Py_DECREF(result);
+        return 0;
+    }
+
+    // Copy result to output
+    memcpy(output, PyArray_DATA(result_arr), len * sizeof(double _Complex));
     Py_DECREF(result);
     return 1;
 }

@@ -1,6 +1,5 @@
-use std::process::Command;
-use std::env;
 use cc;
+use std::process::Command;
 
 fn main() {
     // Ensure build.rs reruns if relevant files or env variables change

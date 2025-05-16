@@ -16,6 +16,8 @@ use std::{
     path::Path,
 };
 
+use crate::test_prep_ops::DimArg;
+
 use super::errors::rsrs_error_estimator;
 
 type Real<T> = <T as rlst::RlstScalar>::Real;
@@ -204,8 +206,6 @@ pub fn save_error_stats<
 }
 
 pub fn save_rank_stats<Item: RlstScalar + MatrixInverse + MatrixPseudoInverse + MatrixId>(
-    _kernel_mat: &mut DynamicArray<Item, 2>,
-    _rsrs_factors: &RsrsFactors<Item>,
     rsrs_data: &Rsrs<Item>,
     tol: Real<Item>,
     path_str: &str,
@@ -251,7 +251,7 @@ pub fn read_file<Item: RlstScalar>(
     file_type: &str,
     geometry: &str,
     kernel: &str,
-    npoints: usize,
+    dim_arg: &DimArg,
     kappa: Item,
     version: Item,
     tol: Item,
@@ -264,7 +264,17 @@ pub fn read_file<Item: RlstScalar>(
     geometry_and_points.push('_');
     geometry_and_points.push_str(kernel);
     geometry_and_points.push('_');
-    geometry_and_points.push_str(&npoints.to_string());
+    match dim_arg {
+        DimArg::NumPoints(num_points) => {
+            geometry_and_points.push_str("n_points_");
+            geometry_and_points.push_str(&num_points.to_string());
+        }
+        DimArg::MeshWidth(h) => {
+            geometry_and_points.push_str("mesh_width_");
+            let h_string = format!("{:.2}", h);
+            geometry_and_points.push_str(&h_string);
+        }
+    };
     geometry_and_points.push('_');
     geometry_and_points.push_str(&kappa_string);
     geometry_and_points.push('_');

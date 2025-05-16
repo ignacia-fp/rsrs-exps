@@ -3,6 +3,7 @@
 
 #include <Python.h>
 #include <numpy/arrayobject.h>
+#include <complex.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -16,7 +17,8 @@ typedef struct {
 } Kernel;
 
 Kernel* initialize_kernel(const char *class_name, double arg1, double kappa);
-int mv_kernel(Kernel *kernel, const double *input, double *output, int len);
+int mv_kernel_real(Kernel *kernel, const double *input, double *output, int len);
+int mv_kernel_complex(Kernel *k, const double _Complex *input, double _Complex *output, int len);
 const double* get_points(Kernel *k);
 size_t get_n_points(Kernel *k);
 void finalize_kernel(Kernel *kernel);
