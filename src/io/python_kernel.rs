@@ -1,4 +1,4 @@
-use crate::test_prep_ops::DimArg;
+use crate::test_prep::DimArg;
 use bempp_octree::Point;
 use rlst::prelude::*;
 use rlst::RlstScalar;
@@ -13,6 +13,7 @@ extern "C" {
     fn initialize_kernel(
         class_name: *const i8,
         arg1: libc::c_double,
+        geometry_type: *const i8,
         kappa: libc::c_double,
     ) -> *mut KernelOpaque;
     fn mv_kernel_real(
@@ -28,6 +29,7 @@ extern "C" {
         len: libc::c_int,
     ) -> libc::c_int;
     fn get_points(kernel: *mut KernelOpaque) -> *const f64;
+    fn get_condition_number(kernel: *mut KernelOpaque) -> f64;
     fn get_n_points(kernel: *mut KernelOpaque) -> usize;
     fn finalize_kernel(kernel: *mut KernelOpaque);
 }
@@ -36,7 +38,6 @@ pub struct Kernel {
     raw: *mut KernelOpaque,
     pub n_points: usize,
 }
-
 
 #[derive(Debug, Clone)]
 pub enum KernelType {
@@ -47,28 +48,48 @@ pub enum KernelType {
     BemHelmholtz,
 }
 
+#[derive(Debug, Clone)]
+pub enum GeometryType {
+    SphereSurface,
+    CubeSurface,
+    CylinderSurface,
+    EllipsoidSurface,
+    TrefoilKnot,
+    Sphere,
+    Cube,
+}
+
 pub struct KernelParams {
     kernel_type: KernelType,
+    geometry_type: GeometryType,
     dim_arg: DimArg,
     kappa: f64,
 }
 
 impl KernelParams {
-    pub fn new(kernel_type: KernelType, dim_arg: DimArg, kappa: f64) -> Self {
+    pub fn new(
+        kernel_type: KernelType,
+        geometry_type: GeometryType,
+        dim_arg: DimArg,
+        kappa: f64,
+    ) -> Self {
         Self {
             kernel_type,
+            geometry_type,
             dim_arg,
             kappa,
         }
     }
 }
 
+type Real<T> = <T as rlst::RlstScalar>::Real;
 pub trait KernelImpl<Item: RlstScalar> {
     type Item: RlstScalar;
     fn new(params: KernelParams) -> Self;
     fn mv(&self, input: &[Item], output: &mut [Item]);
     //fn get_points(&self) -> Option<&[[f64; 3]]>;
     fn get_points(&self) -> Option<Vec<Point>>;
+    fn get_condition_number(&self) -> Real<Self::Item>;
 }
 
 macro_rules! implement_kernel {
@@ -87,17 +108,29 @@ macro_rules! implement_kernel {
 
                 let c_str = std::ffi::CString::new(class_name).unwrap();
 
+                let geometry = std::ffi::CString::new(match params.geometry_type {
+                    GeometryType::SphereSurface => "sphere_surface",
+                    GeometryType::CubeSurface => "cube_surface",
+                    GeometryType::CylinderSurface => "cylinder_surface",
+                    GeometryType::EllipsoidSurface => "ellipsoid_surface",
+                    GeometryType::TrefoilKnot => "trefoil_knot",
+                    GeometryType::Sphere => "sphere",
+                    GeometryType::Cube => "cube",
+                })
+                .unwrap();
+
                 let dim_arg = match params.dim_arg {
                     DimArg::NumPoints(num_points) => num_points as f64,
                     DimArg::MeshWidth(h) => h as f64,
                 };
-                let raw =
-                    unsafe { initialize_kernel(c_str.as_ptr(), dim_arg as f64, params.kappa) };
-                /*let raw = if matches!(params.kernel_type, KernelType::BemLaplace) {
-                    unsafe { initialize_kernel(c_str.as_ptr(), dim_arg as f64, params.kappa) }
-                } else {
-                    unsafe { initialize_kernel(c_str.as_ptr(), dim_arg as f64, params.kappa) }
-                };*/
+                let raw = unsafe {
+                    initialize_kernel(
+                        c_str.as_ptr(),
+                        dim_arg as f64,
+                        geometry.as_ptr(),
+                        params.kappa,
+                    )
+                };
 
                 assert!(!raw.is_null(), "Failed to initialize kernel");
                 let n_points = unsafe { get_n_points(raw as *mut KernelOpaque) };
@@ -122,16 +155,10 @@ macro_rules! implement_kernel {
 
             fn get_points(&self) -> Option<Vec<Point>> {
                 get_bempp_points(&self)
-                /*let raw_points: &[[f64; 3]] = self.get_points().unwrap();
-                let points = raw_points
-                    .iter()
-                    .map(|&el| {
-                        let point = bempp_octree::Point::new(el, 000);
-                        point
-                    })
-                    .collect();
+            }
 
-                points*/
+            fn get_condition_number(&self) -> Real<Self::Item> {
+                unsafe { get_condition_number(self.raw) }
             }
         }
     };
@@ -159,9 +186,6 @@ pub fn get_bempp_points(kernel: &Kernel) -> Option<Vec<Point>> {
             .collect();
         points
     })
-    /*Some(unsafe {
-        std::slice::from_raw_parts(slice.as_ptr() as *const [f64; 3], kernel.n_points)
-    })*/
 }
 
 implement_kernel!(f64, mv_kernel_real);
@@ -219,13 +243,13 @@ pub trait LocalFrom<'a, Op, Item: RlstScalar>: Sized {
 }
 
 impl<'a, Item: RlstScalar, Op: KernelImpl<Item> + Shape<2>> LocalFrom<'a, Op, Item>
-    for Operator<KernelOperator<'a, Item, Op>>
+    for KernelOperator<'a, Item, Op>
 {
     fn from_local(op: &'a Op) -> Self {
         let shape = op.shape();
         let domain = ArrayVectorSpace::from_dimension(shape[1]);
         let range = ArrayVectorSpace::from_dimension(shape[0]);
-        Self::new(KernelOperator { op, domain, range })
+        KernelOperator { op, domain, range }
     }
 }
 

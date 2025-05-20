@@ -1,4 +1,4 @@
-use crate::test_prep_ops::DimArg;
+use crate::test_prep::DimArg;
 
 use super::read_and_write::{read_file, FileContent};
 use piechart::{Chart, Color, Data};
@@ -8,7 +8,7 @@ pub fn time_piechart(
     kernel: &str,
     dim_arg: &DimArg,
     kappa: f64,
-    version: f64,
+    version: &str,
     tol: f64,
 ) {
     match read_file("time_stats", geometry, kernel, dim_arg, kappa, version, tol).unwrap() {
@@ -110,7 +110,7 @@ pub fn get_time_piecharts(
     kernel: &str,
     dim_args: &[DimArg],
     kappa: f64,
-    version: f64,
+    version: &str,
     tols: &[f64],
 ) {
     for dim_arg in dim_args {

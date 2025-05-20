@@ -44,7 +44,7 @@ Kernel* create_kernel(PyObject *kernel_instance) {
     return k;
 }
 
-Kernel* initialize_kernel(const char *class_name, double arg1, double kappa) {
+Kernel* initialize_kernel(const char *class_name, double arg1, const char *geometry_type, double kappa) {
     if (!Py_IsInitialized()) {
         Py_Initialize();
         if (_import_array() < 0) {
@@ -73,8 +73,15 @@ Kernel* initialize_kernel(const char *class_name, double arg1, double kappa) {
         arg1_obj = PyFloat_FromDouble(arg1);
     }
 
-    PyObject *args = PyTuple_Pack(2, arg1_obj, PyFloat_FromDouble(kappa));
+    // Create Python string object for geometry_type
+    PyObject *geometry_obj = PyUnicode_FromString(geometry_type);
+
+    // Create argument tuple with (arg1, geometry_type, kappa)
+    PyObject *args = PyTuple_Pack(3, arg1_obj, geometry_obj, PyFloat_FromDouble(kappa));
+
     Py_DECREF(arg1_obj);
+    Py_DECREF(geometry_obj);
+
 
     PyObject *instance = PyObject_CallObject(kernel_class, args);
     Py_DECREF(args);
@@ -159,6 +166,29 @@ const double* get_points(Kernel *k) {
         return NULL;
 
     return (const double *)PyArray_DATA(k->points);
+}
+
+double get_condition_number(Kernel *k) {
+    if (!k || !k->pyobj) {
+        fprintf(stderr, "Invalid kernel object\n");
+        return -1.0;
+    }
+
+    PyObject *result = PyObject_CallMethod(k->pyobj, "get_cond", NULL);
+    if (!result) {
+        PyErr_Print();
+        return -1.0;
+    }
+
+    double cond_number = PyFloat_AsDouble(result);
+    Py_DECREF(result);
+
+    if (PyErr_Occurred()) {
+        PyErr_Print();
+        return -1.0;
+    }
+
+    return cond_number;
 }
 
 size_t get_n_points(Kernel *k) {

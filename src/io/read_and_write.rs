@@ -16,9 +16,12 @@ use std::{
     path::Path,
 };
 
-use crate::test_prep_ops::DimArg;
+use crate::test_prep::DimArg;
 
-use super::errors::rsrs_error_estimator;
+use super::{
+    errors::{rsrs_error_estimator},
+    python_kernel::{Kernel, KernelImpl, KernelOperator},
+};
 
 type Real<T> = <T as rlst::RlstScalar>::Real;
 
@@ -39,10 +42,12 @@ struct TimeStatsOutput {
     min_samples: usize,
     max_level: usize,
     limiting_level: usize,
+    dim: usize,
     max_boxes: usize,
     max_points: usize,
     elapsed_time_at_limiting: u128,
-    total_elapsed_time: u64,
+    total_elapsed_time: u128,
+    total_elapsed_time_wo_sampling: u128,
     sampling_extraction_time: u128,
     extraction_time: u128,
     sampling_time: Vec<u128>,
@@ -136,6 +141,8 @@ pub fn save_time_stats<Item: RlstScalar + MatrixInverse + MatrixPseudoInverse + 
     let stats = TimeStatsOutput {
         tot_num_samples: rsrs_data.y_data.num_samples,
         total_elapsed_time: rsrs_data.stats.total_elapsed_time,
+        total_elapsed_time_wo_sampling: rsrs_data.stats.total_elapsed_time_wo_sampling,
+        dim: rsrs_data.stats.dim,
         extraction_time: rsrs_data.stats.extraction_time,
         sampling_extraction_time: rsrs_data.stats.sampling_extraction_time,
         sampling_time: rsrs_data.stats.sampling_time.clone(),
@@ -165,20 +172,21 @@ pub fn save_time_stats<Item: RlstScalar + MatrixInverse + MatrixPseudoInverse + 
 }
 
 pub fn save_error_stats<
-    Item: RlstScalar + RandScalar + MatrixInverse + MatrixPseudoInverse + MatrixId + MatrixLu,
+    'a,
+    Item: RlstScalar + RandScalar + MatrixInverse + MatrixPseudoInverse + MatrixId + MatrixLu + MatrixQr,
 >(
-    kernel_mat: &mut DynamicArray<Item, 2>,
+    kernel_op: &KernelOperator<'a, Item, Kernel>,
     rsrs_factors: &mut RsrsFactors<Item>,
     rsrs_data: &Rsrs<Item>,
     tol: Real<Item>,
     path_str: &str,
 ) where
-    <Item as RlstScalar>::Real: for<'a> std::iter::Sum<&'a <Item as RlstScalar>::Real>,
     StandardNormal: Distribution<Real<Item>>,
     Standard: Distribution<Real<Item>>,
     LuDecomposition<Item, BaseArray<Item, VectorContainer<Item>, 2>>:
         MatrixLuDecomposition<Item = Item>,
     TriangularMatrix<Item>: TriangularOperations<Item = Item>,
+    Kernel: KernelImpl<Item>,
 {
     fs::create_dir_all(Path::new(&path_str)).unwrap();
     let string_tol = format!("{:e}", tol);
@@ -187,8 +195,9 @@ pub fn save_error_stats<
     stats_path.push_str(&string_tol);
     stats_path.push_str(".json");
 
+    let rsrs_factors: &mut RsrsFactors<Item> = rsrs_factors;
     let (app_inv_err_left, app_inv_err_right, app_err_left, app_err_right, condition_number) =
-        rsrs_error_estimator(&kernel_mat, rsrs_factors, 10);
+        rsrs_error_estimator::<Item>(kernel_op, rsrs_factors, 10);
 
     let stats = ErrorStatsOutput::<Item> {
         app_inv_err_left,
@@ -253,10 +262,29 @@ pub fn read_file<Item: RlstScalar>(
     kernel: &str,
     dim_arg: &DimArg,
     kappa: Item,
-    version: Item,
+    version: &str,
     tol: Item,
 ) -> std::io::Result<FileContent> {
-    let mut path_str = "results/".to_string();
+    let geometry = geometry.to_string();
+    let kappa = format!("{:.2}", kappa);
+
+    let dim_part = match dim_arg {
+        DimArg::NumPoints(n) => format!("n_points_{}", n),
+        DimArg::MeshWidth(h) => format!("mesh_width_{:.2}", h),
+    };
+
+    let filename = format!(
+        "{}_{}_{}_{}",
+        geometry,
+        kernel,
+        dim_part,
+        kappa, // temporarily omit version
+    );
+
+    // Use `format!` again to prepend "results/" and append version
+    let path_str = format!("results/{}/{}.json", filename, version);
+
+    /*let mut path_str = "results/".to_string();
     let mut geometry_and_points = geometry.to_string();
     let version_string = format!("{:.2}", version);
     let kappa_string = format!("{:.2}", kappa);
@@ -284,7 +312,7 @@ pub fn read_file<Item: RlstScalar>(
     path_str.push_str(file_type);
     path_str.push_str("_");
     path_str.push_str(&tol_string);
-    path_str.push_str(".json");
+    path_str.push_str(".json");*/
 
     // Open the JSON file
     let mut file = File::open(path_str)?;
