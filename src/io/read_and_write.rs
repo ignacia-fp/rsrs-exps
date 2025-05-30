@@ -16,14 +16,18 @@ use std::{
     path::Path,
 };
 
-use crate::test_prep::DimArg;
-
 use super::{
-    errors::{rsrs_error_estimator},
+    errors::{get_boxes_errors, rsrs_error_estimator},
     python_kernel::{Kernel, KernelImpl, KernelOperator},
 };
 
 type Real<T> = <T as rlst::RlstScalar>::Real;
+
+#[derive(Serialize, Clone)]
+pub struct Iterations {
+    pub no_prec: Option<usize>,
+    pub prec: Option<usize>,
+}
 
 #[derive(Serialize)]
 struct ErrorStatsOutput<Item: RlstScalar> {
@@ -34,6 +38,7 @@ struct ErrorStatsOutput<Item: RlstScalar> {
     condition_number: Real<Item>,
     tot_num_samples: usize,
     residual_size: usize,
+    iterations: Iterations,
 }
 
 #[derive(Serialize)]
@@ -171,6 +176,24 @@ pub fn save_time_stats<Item: RlstScalar + MatrixInverse + MatrixPseudoInverse + 
     file.write_all(json_string.as_bytes()).unwrap();
 }
 
+fn compute_dense_kernel<Item: RlstScalar>(
+    kernel: &KernelOperator<'_, Item, Kernel>,
+) -> DynamicArray<Item, 2>
+where
+    Kernel: KernelImpl<Item>,
+{
+    let dim = kernel.domain().dimension();
+    let mut dense_kernel = rlst_dynamic_array2!(Item, [dim, dim]);
+    for i in 0..dim {
+        let mut el_vec = ArrayVectorSpace::zero(kernel.domain());
+        el_vec.view_mut()[[i]] = num::One::one();
+        let res = kernel.apply(el_vec.r_mut(), TransMode::NoTrans);
+        dense_kernel.r_mut().slice(1, i).fill_from(res.view());
+    }
+
+    return dense_kernel;
+}
+
 pub fn save_error_stats<
     'a,
     Item: RlstScalar + RandScalar + MatrixInverse + MatrixPseudoInverse + MatrixId + MatrixLu + MatrixQr,
@@ -178,8 +201,10 @@ pub fn save_error_stats<
     kernel_op: &KernelOperator<'a, Item, Kernel>,
     rsrs_factors: &mut RsrsFactors<Item>,
     rsrs_data: &Rsrs<Item>,
+    iterations: Iterations,
     tol: Real<Item>,
     path_str: &str,
+    dense_errors: bool,
 ) where
     StandardNormal: Distribution<Real<Item>>,
     Standard: Distribution<Real<Item>>,
@@ -207,11 +232,21 @@ pub fn save_error_stats<
         condition_number,
         tot_num_samples: rsrs_data.y_data.num_samples,
         residual_size: rsrs_data.stats.residual_size,
+        iterations,
     };
 
     let json_string = serde_json::to_string_pretty(&stats).expect("Failed to serialize");
     let mut file = File::create(stats_path).unwrap();
     file.write_all(json_string.as_bytes()).unwrap();
+
+    if dense_errors {
+        let mut kernel_mat = compute_dense_kernel(kernel_op);
+        get_boxes_errors(
+            &mut kernel_mat,
+            rsrs_factors,
+            num::NumCast::from(tol).unwrap(),
+        );
+    }
 }
 
 pub fn save_rank_stats<Item: RlstScalar + MatrixInverse + MatrixPseudoInverse + MatrixId>(
@@ -257,62 +292,17 @@ pub enum FileContent {
 }
 
 pub fn read_file<Item: RlstScalar>(
+    path_str: &str,
     file_type: &str,
-    geometry: &str,
-    kernel: &str,
-    dim_arg: &DimArg,
-    kappa: Item,
-    version: &str,
     tol: Item,
 ) -> std::io::Result<FileContent> {
-    let geometry = geometry.to_string();
-    let kappa = format!("{:.2}", kappa);
-
-    let dim_part = match dim_arg {
-        DimArg::NumPoints(n) => format!("n_points_{}", n),
-        DimArg::MeshWidth(h) => format!("mesh_width_{:.2}", h),
-    };
-
-    let filename = format!(
-        "{}_{}_{}_{}",
-        geometry,
-        kernel,
-        dim_part,
-        kappa, // temporarily omit version
-    );
-
-    // Use `format!` again to prepend "results/" and append version
-    let path_str = format!("results/{}/{}.json", filename, version);
-
-    /*let mut path_str = "results/".to_string();
-    let mut geometry_and_points = geometry.to_string();
-    let version_string = format!("{:.2}", version);
-    let kappa_string = format!("{:.2}", kappa);
     let tol_string = format!("{:e}", tol);
-    geometry_and_points.push('_');
-    geometry_and_points.push_str(kernel);
-    geometry_and_points.push('_');
-    match dim_arg {
-        DimArg::NumPoints(num_points) => {
-            geometry_and_points.push_str("n_points_");
-            geometry_and_points.push_str(&num_points.to_string());
-        }
-        DimArg::MeshWidth(h) => {
-            geometry_and_points.push_str("mesh_width_");
-            let h_string = format!("{:.2}", h);
-            geometry_and_points.push_str(&h_string);
-        }
-    };
-    geometry_and_points.push('_');
-    geometry_and_points.push_str(&kappa_string);
-    geometry_and_points.push('_');
-    geometry_and_points.push_str(&version_string);
-    path_str.push_str(&geometry_and_points);
+    let mut path_str = path_str.to_string();
     path_str.push_str("/");
     path_str.push_str(file_type);
     path_str.push_str("_");
     path_str.push_str(&tol_string);
-    path_str.push_str(".json");*/
+    path_str.push_str(".json");
 
     // Open the JSON file
     let mut file = File::open(path_str)?;

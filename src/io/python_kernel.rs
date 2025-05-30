@@ -1,5 +1,6 @@
 use crate::test_prep::DimArg;
 use bempp_octree::Point;
+use rlst::operator::ConcreteElementContainer;
 use rlst::prelude::*;
 use rlst::RlstScalar;
 use std::rc::Rc;
@@ -28,12 +29,15 @@ extern "C" {
         output: *mut num::Complex<f64>,
         len: libc::c_int,
     ) -> libc::c_int;
+    fn kernel_get_real_rhs(kernel: *mut KernelOpaque) -> *const f64;
+    fn kernel_get_complex_rhs(kernel: *mut KernelOpaque) -> *const c64;
     fn get_points(kernel: *mut KernelOpaque) -> *const f64;
     fn get_condition_number(kernel: *mut KernelOpaque) -> f64;
     fn get_n_points(kernel: *mut KernelOpaque) -> usize;
     fn finalize_kernel(kernel: *mut KernelOpaque);
 }
 
+#[derive(Clone)]
 pub struct Kernel {
     raw: *mut KernelOpaque,
     pub n_points: usize,
@@ -89,11 +93,12 @@ pub trait KernelImpl<Item: RlstScalar> {
     fn mv(&self, input: &[Item], output: &mut [Item]);
     //fn get_points(&self) -> Option<&[[f64; 3]]>;
     fn get_points(&self) -> Option<Vec<Point>>;
+    fn rhs(&self) -> Vec<Self::Item>;
     fn get_condition_number(&self) -> Real<Self::Item>;
 }
 
 macro_rules! implement_kernel {
-    ($scalar:ty, $mv:expr) => {
+    ($scalar:ty, $mv:expr, $rhs_fn:expr) => {
         impl KernelImpl<$scalar> for Kernel {
             type Item = $scalar;
 
@@ -153,6 +158,10 @@ macro_rules! implement_kernel {
                 }
             }
 
+            fn rhs(&self) -> Vec<$scalar> {
+                $rhs_fn(&self).unwrap()
+            }
+
             fn get_points(&self) -> Option<Vec<Point>> {
                 get_bempp_points(&self)
             }
@@ -163,6 +172,31 @@ macro_rules! implement_kernel {
         }
     };
 }
+
+pub fn rhs_real(kernel: &Kernel) -> Option<Vec<f64>> {
+    let ptr = unsafe { kernel_get_real_rhs(kernel.raw) };
+    if ptr.is_null() {
+        return None;
+    }
+
+    let total_len = kernel.n_points;
+    let slice = unsafe { std::slice::from_raw_parts(ptr, total_len) };
+
+    Some(slice.to_vec())
+}
+
+pub fn rhs_complex(kernel: &Kernel) -> Option<Vec<c64>> {
+    let ptr = unsafe { kernel_get_complex_rhs(kernel.raw) };
+    if ptr.is_null() {
+        return None;
+    }
+    let total_len = kernel.n_points;
+    let slice = unsafe { std::slice::from_raw_parts(ptr, total_len) };
+    Some(slice.to_vec())
+}
+
+implement_kernel!(f64, mv_kernel_real, rhs_real);
+implement_kernel!(c64, mv_kernel_complex, rhs_complex);
 
 pub fn get_bempp_points(kernel: &Kernel) -> Option<Vec<Point>> {
     let ptr = unsafe { get_points(kernel.raw) };
@@ -188,12 +222,14 @@ pub fn get_bempp_points(kernel: &Kernel) -> Option<Vec<Point>> {
     })
 }
 
-implement_kernel!(f64, mv_kernel_real);
-implement_kernel!(c64, mv_kernel_complex);
-
 impl Drop for Kernel {
     fn drop(&mut self) {
-        unsafe { finalize_kernel(self.raw) };
+        if !self.raw.is_null() {
+            unsafe {
+                finalize_kernel(self.raw);
+            }
+            self.raw = std::ptr::null_mut();
+        }
     }
 }
 
@@ -203,10 +239,31 @@ impl Shape<2> for Kernel {
     }
 }
 
+#[derive(Clone)]
 pub struct KernelOperator<'a, Item: RlstScalar, Op: KernelImpl<Item> + Shape<2>> {
     op: &'a Op,
     domain: Rc<ArrayVectorSpace<Item>>,
     range: Rc<ArrayVectorSpace<Item>>,
+}
+
+pub trait Attr<'a, Op, Item: RlstScalar>: Sized {
+    fn get_rhs(&self) -> Element<ConcreteElementContainer<ArrayVectorSpaceElement<Item>>>;
+}
+
+impl<'a, Item: RlstScalar, Op: KernelImpl<Item> + Shape<2>> Attr<'a, Op, Item>
+    for KernelOperator<'_, Item, Op>
+where
+    Op: KernelImpl<Item, Item = Item>,
+{
+    fn get_rhs(&self) -> Element<ConcreteElementContainer<ArrayVectorSpaceElement<Item>>> {
+        let mut vec: Element<ConcreteElementContainer<ArrayVectorSpaceElement<Item>>> =
+            zero_element(self.domain.clone());
+        let raw_data = self.op.rhs();
+        for (i, val) in vec.imp_mut().view_mut().data_mut().iter_mut().enumerate() {
+            *val = raw_data[i];
+        }
+        vec
+    }
 }
 
 impl<Item: RlstScalar, Op: KernelImpl<Item> + Shape<2>> std::fmt::Debug

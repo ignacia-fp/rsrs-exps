@@ -17,6 +17,7 @@ Kernel* create_kernel(PyObject *kernel_instance) {
     PyObject *points_obj = PyObject_GetAttrString(kernel_instance, "points");
     PyObject *mat_obj = PyObject_GetAttrString(kernel_instance, "mat");
     PyObject *n_points_obj = PyObject_GetAttrString(kernel_instance, "n_points");
+    PyObject *rhs_obj = PyObject_GetAttrString(kernel_instance, "rhs");
 
     if (!points_obj) {
         printf("points_obj is NULL\n");
@@ -38,9 +39,14 @@ Kernel* create_kernel(PyObject *kernel_instance) {
         printf("n_points_obj is not a Python int\n");
         return fail(k);
     }
+    if (!rhs_obj) {
+        printf("rhs_obj is NULL\n");
+        return fail(k);
+    }
     k->points = (PyArrayObject *)points_obj;
     k->mat = (PyArrayObject *)mat_obj;
     k->n_points = (int)PyLong_AsLong(n_points_obj);
+    k->rhs = (PyArrayObject *)rhs_obj;
     return k;
 }
 
@@ -195,6 +201,28 @@ size_t get_n_points(Kernel *k) {
     if (!k) return (size_t)-1;  // sentinel value for error
     return (size_t)(k->n_points);
 }
+
+
+const double _Complex* kernel_get_complex_rhs(Kernel *k) {
+    if (!k || !k->rhs) return NULL;
+
+    if (PyArray_NDIM(k->points) != 2)
+        return NULL;
+
+    return (const double _Complex *)PyArray_DATA(k->rhs);
+
+}
+
+
+const double * kernel_get_real_rhs(Kernel *k) {
+    if (!k || !k->rhs) return NULL;
+
+    if (PyArray_NDIM(k->points) != 2)
+        return NULL;
+
+    return (const double *)PyArray_DATA(k->rhs);
+}
+
 
 void finalize_kernel(Kernel *k) {
     if (!k) return;

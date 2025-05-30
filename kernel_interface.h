@@ -11,6 +11,7 @@ extern "C" {
 
 typedef struct {
     PyArrayObject *points;
+    PyArrayObject *rhs;
     PyArrayObject *mat;
     int n_points;
     PyObject *pyobj;
@@ -21,6 +22,8 @@ int mv_kernel_real(Kernel *kernel, const double *input, double *output, int len)
 int mv_kernel_complex(Kernel *k, const double _Complex *input, double _Complex *output, int len);
 const double* get_points(Kernel *k);
 double get_condition_number(Kernel *k);
+const double * kernel_get_real_rhs(Kernel *k);
+const double _Complex* kernel_get_complex_rhs(Kernel *k);
 size_t get_n_points(Kernel *k);
 void finalize_kernel(Kernel *kernel);
 

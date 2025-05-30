@@ -2,6 +2,7 @@ from scipy.spatial.distance import cdist
 import numpy as np
 import bempp_cl.api
 from scipy.sparse.linalg import LinearOperator, eigsh
+import scipy.linalg
 
 def generate_random_points_on_sphere(n_points, radius=1):
     # Generate random polar and azimuthal angles
@@ -68,6 +69,7 @@ class BaseKernel:
                 self.points = get_geometry(geometry_type, dim_param)
             self.n_points = len(self.points)
             self.mat = None  # Set in subclass
+            self.rhs = None
         except Exception as e:
             print("Error initializing BaseKernel:", e)
             raise
@@ -80,6 +82,14 @@ class BaseKernel:
         vals_max = eigsh(ATA, k=1, which='LM', return_eigenvectors=False)
         vals_min = eigsh(ATA, k=1, which='SM', return_eigenvectors=False)
         return np.sqrt(vals_max[0] / vals_min[0])
+    
+    def get_dense(self):
+        if self.mat is None:
+            raise ValueError("Matrix not initialized.")
+        return self.mat
+    
+    def get_rhs(self):
+        raise ValueError("get_rhs not implemented for this kernel class.")
 
 
 class Kernel(BaseKernel):
@@ -89,17 +99,25 @@ class Kernel(BaseKernel):
         self.mat[np.diag_indices_from(self.mat)] = 1
 
 
+def is_hermitian(A, tol=1e-10):
+    return np.allclose(A, A.T.conj(), atol=tol)
+
 class HelmholtzKernel(BaseKernel):
     def __init__(self, dim_param, geometry_type, kappa):
         super().__init__(dim_param, geometry_type)
         try:
             self.mat = cdist(self.points, self.points)
-            kappa = 1j * kappa
-            self.mat = (1.0 / self.n_points) * np.exp(kappa * self.mat) / (4 * np.pi * self.mat)
+            self.mat = self.mat.astype(np.complex128) 
+            kappa = 1.0j * kappa
+            self.mat = (1.0 / self.n_points) * np.exp(kappa * self.mat) / (4.0 * np.pi * self.mat)
             self.mat[np.diag_indices_from(self.mat)] = 1
+            self.rhs = self.get_rhs()
         except Exception as e:
             print("Error initializing HelmholtzKernel:", e)
-            raise  # Let the caller handle the failure
+            raise 
+
+    def get_rhs(self):
+        np.random.rand(self.n_points)
 
 
 class LaplaceKernel(BaseKernel):
@@ -109,41 +127,113 @@ class LaplaceKernel(BaseKernel):
             self.mat = cdist(self.points, self.points)
             self.mat = (1.0 / self.n_points) * 1.0 / (4 * np.pi * self.mat)
             self.mat[np.diag_indices_from(self.mat)] = 1
+            self.rhs = self.get_rhs()
         except Exception as e:
             print("Error initializing LaplaceKernel:", e)
-            raise  # Let the caller handle the failure
+            raise  
+
+    def get_rhs(self):
+        np.random.rand(self.n_points)
 
 
 class BemLaplaceKernel(BaseKernel):
     def __init__(self, dim_param, geometry_type, _kappa):
         super().__init__(dim_param, geometry_type)
         try:
-            dp0_space = bempp_cl.api.function_space(self.grid, "DP", 0)
-            p1_space = bempp_cl.api.function_space(self.grid, "P", 1)
+            self.domain = bempp_cl.api.function_space(self.grid, "DP", 0)
+            self.dual_to_range = self.domain
+            self.range = bempp_cl.api.function_space(self.grid, "P", 1)
             self.mat = bempp_cl.api.operators.boundary.laplace.single_layer(
-                dp0_space, p1_space, dp0_space).weak_form()
+                self.domain, self.range, self.dual_to_range).weak_form()
             print("Number of dofs:", self.n_points)
+            self.rhs = self.get_rhs()
         except Exception as e:
             print("Error initializing BemLaplaceKernel:", e)
             raise
+
     def mv(self, v):
         return self.mat * v
+    
+    def get_dense(self):
+        if self.mat is None:
+            raise ValueError("Matrix not initialized.")
+        return bempp_cl.api.as_matrix(self.mat)
+    
+    def get_rhs(self):
+        @bempp_cl.api.real_callable
+        def dirichlet_data(x, n, domain_index, result):
+            result[0] = 1./(4 * np.pi *((x[0] - .9)**2 + x[1]**2 + x[2]**2)**(0.5))
+            
+        dirichlet_fun = bempp_cl.api.GridFunction(self.domain, fun=dirichlet_data)
+
+        identity = bempp_cl.api.operators.boundary.sparse.identity(self.domain,
+                                                                self.range,
+                                                                self.dual_to_range)
+        dlp = bempp_cl.api.operators.boundary.laplace.double_layer(self.domain,
+                                                                self.range,
+                                                                self.domain)
+
+        rhs = (.5 * identity + dlp) * dirichlet_fun
+
+        return rhs.projections()
+    
+def are_consecutive(lst):
+    if len(lst) < 2:
+        return True  # A list with 0 or 1 element is trivially consecutive
+    lst_sorted = sorted(lst)
+    return all(b - a == 1 for a, b in zip(lst_sorted, lst_sorted[1:]))
     
 
 class BemHelmholtzKernel(BaseKernel):
     def __init__(self, dim_param, geometry_type, kappa):
         super().__init__(dim_param, geometry_type)
         try:
-            dp0_space = bempp_cl.api.function_space(self.grid, "DP", 0)
-            p1_space = bempp_cl.api.function_space(self.grid, "P", 1)
+            self.domain = bempp_cl.api.function_space(self.grid, "DP", 0)
+            self.dual_to_range = self.domain
+            self.range = bempp_cl.api.function_space(self.grid, "P", 1)
             self.mat = bempp_cl.api.operators.boundary.helmholtz.single_layer(
-                dp0_space, p1_space, dp0_space, kappa).weak_form()
-            print("Number of dofs:", self.n_points)
+                self.domain, self.range, self.dual_to_range, kappa).weak_form()
+            self.kappa = kappa
+            self.rhs = self.get_rhs()
+            print("Number of dofs:", self.n_points, kappa)
+
         except Exception as e:
             print("Error initializing BemHelmholtzKernel:", e)
             raise
     def mv(self, v):
         return self.mat * v
+    
+    def get_dense(self):
+        if self.mat is None:
+            raise ValueError("Matrix not initialized.")
+        return bempp_cl.api.as_matrix(self.mat)
+    
+    def get_rhs(self):
+        kappa = self.kappa
+        @bempp_cl.api.complex_callable
+        def dirichlet_data(x, n, domain_index, result):
+            result[0] = np.exp(1j * kappa * x[0])
+
+        dirichlet_fun = bempp_cl.api.GridFunction(self.domain, fun=dirichlet_data)
+
+        identity = bempp_cl.api.operators.boundary.sparse.identity(self.domain,
+                                                                self.range,
+                                                                self.dual_to_range)
+        dlp = bempp_cl.api.operators.boundary.helmholtz.double_layer(self.domain,
+                                                                self.range,
+                                                                self.domain, self.kappa)
+
+        rhs = (.5 * identity + dlp) * dirichlet_fun
+
+        return rhs.projections()
+
+
+def is_positive_definite(A):
+    try:
+        _ = scipy.linalg.cholesky(A, lower=True)
+        return True
+    except scipy.linalg.LinAlgError:
+        return False
 
 
 def get_barycenters(grid):

@@ -1,6 +1,7 @@
 use bempp_rsrs::rsrs::rsrs_cycle::RankPicking;
 use bempp_rsrs::rsrs::rsrs_cycle::RsrsOptions;
-use bempp_rsrs::utils::least_squares_and_null::NullMethod;
+use bempp_rsrs::rsrs::rsrs_factors::PivotMethod;
+use bempp_rsrs::utils::least_squares_and_null::{BlockExtractionMethod, NullMethod};
 use rlst::prelude::*;
 use rsrs_exps::io::python_kernel::GeometryType;
 use rsrs_exps::io::python_kernel::KernelType;
@@ -23,14 +24,17 @@ fn set_and_run_tests(
             16,
             420,
             NullMethod::Projection,
+            BlockExtractionMethod::LuLstSq,
+            BlockExtractionMethod::LuLstSq,
+            PivotMethod::Lu,
+            PivotMethod::Lu,
             1e-10,
             1e-2,
             1e-10,
             1e-10,
-            1e-10,
             4,
             true,
-            RankPicking::Tol,
+            RankPicking::Min,
         );
         let mut test_framework = TestFramework::<c64>::new(
             kernel_type,
@@ -40,6 +44,9 @@ fn set_and_run_tests(
             options,
             &id_tols,
             Results::All,
+            true,
+            1e-5,
+            true,
             false,
         );
         test_framework.run_tests();
@@ -50,14 +57,17 @@ fn set_and_run_tests(
             16,
             420,
             NullMethod::Projection,
+            BlockExtractionMethod::LuLstSq,
+            BlockExtractionMethod::LuLstSq,
+            PivotMethod::Lu,
+            PivotMethod::Lu,
             1e-10,
             1e-2,
             1e-10,
             1e-10,
-            1e-10,
             4,
             true,
-            RankPicking::Tol,
+            RankPicking::Min,
         );
         let mut test_framework = TestFramework::<f64>::new(
             kernel_type,
@@ -67,6 +77,9 @@ fn set_and_run_tests(
             options,
             &id_tols,
             Results::All,
+            true,
+            1e-5,
+            false,
             false,
         );
         test_framework.run_tests();
@@ -74,12 +87,13 @@ fn set_and_run_tests(
 }
 
 fn main() {
-    let dim_args = [DimArg::MeshWidth(1e-1)];
-    let id_tols = [1e-2, 1e-4, 1e-6];
+    let id_tols = [1e-2, 1e-4, 1e-6]; //[1e-2, 1e-4, 1e-6];
     let pi = std::f64::consts::PI;
-    let kappa = pi;
-    let kernel_type = KernelType::BemHelmholtz;
-
+    let kappa = 4.0 * pi;
+    let kernel_type = KernelType::BemLaplace;
+    let h = 2.0 * pi / (8.0 * kappa);
+    println!("Meshwidth: {}", h);
+    let dim_args = [DimArg::MeshWidth(h)];
     set_and_run_tests(
         GeometryType::SphereSurface,
         &kernel_type,

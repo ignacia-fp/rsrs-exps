@@ -3,12 +3,13 @@ use crate::io::python_kernel::{
     get_bempp_points, GeometryType, Kernel, KernelImpl, KernelOperator, KernelParams, KernelType,
     LocalFrom,
 };
+use crate::io::read_and_write::Iterations;
 use crate::io::read_and_write::{save_error_stats, save_rank_stats, save_time_stats};
+use crate::io::solve::{solve_prec_system, solve_system};
 use bempp_octree::Octree;
 use bempp_rsrs::rsrs::rsrs_cycle::{Rsrs, RsrsOptions};
 use mpi::{topology::SimpleCommunicator, traits::Communicator};
 use rlst::prelude::*;
-
 type Real<T> = <T as rlst::RlstScalar>::Real;
 pub enum Results {
     All,
@@ -18,6 +19,9 @@ pub enum Results {
 pub struct TestOptions {
     pub plot: bool,
     pub results: Results,
+    pub dense_errors: bool,
+    pub solve: bool,
+    pub solve_tol: f64,
 }
 
 pub struct TestParams<Item: RlstScalar> {
@@ -77,7 +81,7 @@ impl<Item: RlstScalar> TestParams<Item> {
 
         let dim_part = match self.dim_args[dim_num] {
             DimArg::NumPoints(n) => format!("n_points_{}", n),
-            DimArg::MeshWidth(h) => format!("mesh_width_{:.2}", h),
+            DimArg::MeshWidth(h) => format!("mesh_width_{:e}", h),
         };
 
         let filename = format!(
@@ -115,7 +119,10 @@ pub trait TestFrameworkImpl<Item: RlstScalar> {
         rsrs_options: RsrsOptions<Self::Item>,
         id_tols: &[f64],
         results: Results,
+        solve: bool,
+        solve_tol: f64,
         plot: bool,
+        dense_errors: bool,
     ) -> Self;
 
     fn run_tests(&mut self);
@@ -133,7 +140,10 @@ macro_rules! implement_test_framework {
                 rsrs_options: RsrsOptions<$scalar>,
                 id_tols: &[f64],
                 results: Results,
+                solve: bool,
+                solve_tol: f64,
                 plot: bool,
+                dense_errors: bool,
             ) -> Self {
                 let test_params = TestParams::new(
                     geometry_type,
@@ -143,7 +153,13 @@ macro_rules! implement_test_framework {
                     rsrs_options,
                     id_tols,
                 );
-                let test_options = TestOptions { plot, results };
+                let test_options = TestOptions {
+                    plot,
+                    results,
+                    dense_errors,
+                    solve,
+                    solve_tol,
+                };
                 Self {
                     test_params,
                     test_options,
@@ -159,9 +175,10 @@ macro_rules! implement_test_framework {
                         self.test_params.kernel_type.clone(),
                         self.test_params.geometry_type.clone(),
                         dim_arg.clone(),
-                        0.0,
+                        self.test_params.kappa,
                     );
                     let kernel: Kernel = <Kernel as KernelImpl<$scalar>>::new(kernel_params);
+                    let dim = kernel.n_points;
                     let operator = KernelOperator::from_local(&kernel);
                     let points: Vec<bempp_octree::Point> = get_bempp_points(&kernel).unwrap();
 
@@ -172,6 +189,16 @@ macro_rules! implement_test_framework {
                     let global_number_of_points: usize = tree.global_number_of_points();
                     let global_max_level: usize = tree.global_max_level();
 
+                    let mut iterations = Iterations {
+                        no_prec: None,
+                        prec: None,
+                    };
+
+                    if self.test_options.solve {
+                        iterations.no_prec =
+                            Some(solve_system(operator.clone(), self.test_options.solve_tol));
+                    }
+
                     if comm.rank() == 0 {
                         println!(
                             "Setup octree with {} points and maximum level {}",
@@ -180,23 +207,26 @@ macro_rules! implement_test_framework {
                     }
 
                     for &id_tol in self.test_params.id_tols.iter() {
-                        println!(
-                            "Test: {} points, tol:{}",
-                            operator.domain().dimension(),
-                            id_tol
-                        );
+                        let mut iterations = iterations.clone();
+
+                        println!("Test: {} points, tol:{}", dim, id_tol);
 
                         self.test_params.rsrs_params.id_options.tol_id = id_tol;
 
-                        let mut rsrs_algo: Rsrs<Self::Item> = Rsrs::new(
-                            operator.domain().dimension(),
-                            &tree,
-                            self.test_params.rsrs_params.clone(),
-                        );
+                        let mut rsrs_algo: Rsrs<Self::Item> =
+                            Rsrs::new(dim, &tree, self.test_params.rsrs_params.clone());
 
                         let mut rsrs_factors = rsrs_algo.run(&operator);
 
                         let path_str = self.test_params.get_test_dir(dim_num);
+
+                        if self.test_options.solve {
+                            iterations.prec = Some(solve_prec_system(
+                                operator.clone(),
+                                &mut rsrs_factors,
+                                self.test_options.solve_tol,
+                            ));
+                        }
 
                         match self.test_options.results {
                             Results::All => {
@@ -204,21 +234,16 @@ macro_rules! implement_test_framework {
                                     &operator,
                                     &mut rsrs_factors,
                                     &rsrs_algo,
+                                    iterations,
                                     id_tol,
                                     &path_str,
+                                    self.test_options.dense_errors,
                                 );
                                 save_time_stats(&rsrs_algo, id_tol, &path_str);
                                 save_rank_stats(&rsrs_algo, id_tol, &path_str);
 
                                 if self.test_options.plot {
-                                    /*time_piechart(
-                                        &self.test_params.geometry,
-                                        self.test_params.get_kernel_name(),
-                                        dim_arg,
-                                        self.test_params.kappa,
-                                        &self.test_params.rsrs_params.to_identifier(),
-                                        id_tol,
-                                    );*/
+                                    time_piechart(id_tol, &path_str);
                                 }
                             }
                             Results::Rank => {
@@ -226,8 +251,10 @@ macro_rules! implement_test_framework {
                                     &operator,
                                     &mut rsrs_factors,
                                     &rsrs_algo,
+                                    iterations,
                                     id_tol,
                                     &path_str,
+                                    self.test_options.dense_errors,
                                 );
                                 save_rank_stats(&rsrs_algo, id_tol, &path_str);
                             }
@@ -236,19 +263,14 @@ macro_rules! implement_test_framework {
                                     &operator,
                                     &mut rsrs_factors,
                                     &rsrs_algo,
+                                    iterations,
                                     id_tol,
                                     &path_str,
+                                    self.test_options.dense_errors,
                                 );
                                 save_time_stats(&rsrs_algo, id_tol, &path_str);
                                 if self.test_options.plot {
-                                    /*time_piechart(
-                                        &self.test_params.geometry,
-                                        self.test_params.get_kernel_name(),
-                                        dim_arg,
-                                        self.test_params.kappa,
-                                        &self.test_params.rsrs_params.to_identifier(),
-                                        id_tol,
-                                    );*/
+                                    time_piechart(id_tol, &path_str);
                                 }
                             }
                         }
