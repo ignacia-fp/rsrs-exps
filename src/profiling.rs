@@ -44,7 +44,7 @@ macro_rules! implement_test_framework{
                     
 
                     for &id_tol in id_tols.iter(){
-                        println!("Test: {} points, tol:{}", npoints, id_tol);
+                        println!("Test: {} points, tol:{}", global_number_of_points, id_tol);
                         let tols : Tols<$scalar> = Tols{id: id_tol, null: num::Zero::zero(), lstq: num::Zero::zero()};
                         let mut kernel_mat: DynamicArray<$scalar, 2> = kernel_fn(&points, kappa);
                         let mut rsrs_algo: Rsrs<$scalar> = Rsrs::new(&kernel_mat, tols, &tree);

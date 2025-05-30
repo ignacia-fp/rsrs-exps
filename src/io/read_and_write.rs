@@ -16,9 +16,18 @@ use std::{
     path::Path,
 };
 
-use super::errors::rsrs_error_estimator;
+use super::{
+    errors::{get_boxes_errors, rsrs_error_estimator},
+    python_kernel::{Kernel, KernelImpl, KernelOperator},
+};
 
 type Real<T> = <T as rlst::RlstScalar>::Real;
+
+#[derive(Serialize, Clone)]
+pub struct Iterations {
+    pub no_prec: Option<usize>,
+    pub prec: Option<usize>,
+}
 
 #[derive(Serialize)]
 struct ErrorStatsOutput<Item: RlstScalar> {
@@ -29,6 +38,7 @@ struct ErrorStatsOutput<Item: RlstScalar> {
     condition_number: Real<Item>,
     tot_num_samples: usize,
     residual_size: usize,
+    iterations: Iterations,
 }
 
 #[derive(Serialize)]
@@ -37,10 +47,12 @@ struct TimeStatsOutput {
     min_samples: usize,
     max_level: usize,
     limiting_level: usize,
+    dim: usize,
     max_boxes: usize,
     max_points: usize,
     elapsed_time_at_limiting: u128,
-    total_elapsed_time: u64,
+    total_elapsed_time: u128,
+    total_elapsed_time_wo_sampling: u128,
     sampling_extraction_time: u128,
     extraction_time: u128,
     sampling_time: Vec<u128>,
@@ -118,8 +130,6 @@ pub struct ErrorsInput {
 }
 
 pub fn save_time_stats<Item: RlstScalar + MatrixInverse + MatrixPseudoInverse + MatrixId>(
-    _kernel_mat: &mut DynamicArray<Item, 2>,
-    _rsrs_factors: &RsrsFactors<Item>,
     rsrs_data: &Rsrs<Item>,
     tol: Real<Item>,
     path_str: &str,
@@ -136,6 +146,8 @@ pub fn save_time_stats<Item: RlstScalar + MatrixInverse + MatrixPseudoInverse + 
     let stats = TimeStatsOutput {
         tot_num_samples: rsrs_data.y_data.num_samples,
         total_elapsed_time: rsrs_data.stats.total_elapsed_time,
+        total_elapsed_time_wo_sampling: rsrs_data.stats.total_elapsed_time_wo_sampling,
+        dim: rsrs_data.stats.dim,
         extraction_time: rsrs_data.stats.extraction_time,
         sampling_extraction_time: rsrs_data.stats.sampling_extraction_time,
         sampling_time: rsrs_data.stats.sampling_time.clone(),
@@ -164,21 +176,42 @@ pub fn save_time_stats<Item: RlstScalar + MatrixInverse + MatrixPseudoInverse + 
     file.write_all(json_string.as_bytes()).unwrap();
 }
 
+fn compute_dense_kernel<Item: RlstScalar>(
+    kernel: &KernelOperator<'_, Item, Kernel>,
+) -> DynamicArray<Item, 2>
+where
+    Kernel: KernelImpl<Item>,
+{
+    let dim = kernel.domain().dimension();
+    let mut dense_kernel = rlst_dynamic_array2!(Item, [dim, dim]);
+    for i in 0..dim {
+        let mut el_vec = ArrayVectorSpace::zero(kernel.domain());
+        el_vec.view_mut()[[i]] = num::One::one();
+        let res = kernel.apply(el_vec.r_mut(), TransMode::NoTrans);
+        dense_kernel.r_mut().slice(1, i).fill_from(res.view());
+    }
+
+    return dense_kernel;
+}
+
 pub fn save_error_stats<
-    Item: RlstScalar + RandScalar + MatrixInverse + MatrixPseudoInverse + MatrixId + MatrixLu,
+    'a,
+    Item: RlstScalar + RandScalar + MatrixInverse + MatrixPseudoInverse + MatrixId + MatrixLu + MatrixQr,
 >(
-    kernel_mat: &mut DynamicArray<Item, 2>,
+    kernel_op: &KernelOperator<'a, Item, Kernel>,
     rsrs_factors: &mut RsrsFactors<Item>,
     rsrs_data: &Rsrs<Item>,
+    iterations: Iterations,
     tol: Real<Item>,
     path_str: &str,
+    dense_errors: bool,
 ) where
-    <Item as RlstScalar>::Real: for<'a> std::iter::Sum<&'a <Item as RlstScalar>::Real>,
     StandardNormal: Distribution<Real<Item>>,
     Standard: Distribution<Real<Item>>,
     LuDecomposition<Item, BaseArray<Item, VectorContainer<Item>, 2>>:
         MatrixLuDecomposition<Item = Item>,
     TriangularMatrix<Item>: TriangularOperations<Item = Item>,
+    Kernel: KernelImpl<Item>,
 {
     fs::create_dir_all(Path::new(&path_str)).unwrap();
     let string_tol = format!("{:e}", tol);
@@ -187,8 +220,9 @@ pub fn save_error_stats<
     stats_path.push_str(&string_tol);
     stats_path.push_str(".json");
 
+    let rsrs_factors: &mut RsrsFactors<Item> = rsrs_factors;
     let (app_inv_err_left, app_inv_err_right, app_err_left, app_err_right, condition_number) =
-        rsrs_error_estimator(&kernel_mat, rsrs_factors, 10);
+        rsrs_error_estimator::<Item>(kernel_op, rsrs_factors, 10);
 
     let stats = ErrorStatsOutput::<Item> {
         app_inv_err_left,
@@ -198,16 +232,24 @@ pub fn save_error_stats<
         condition_number,
         tot_num_samples: rsrs_data.y_data.num_samples,
         residual_size: rsrs_data.stats.residual_size,
+        iterations,
     };
 
     let json_string = serde_json::to_string_pretty(&stats).expect("Failed to serialize");
     let mut file = File::create(stats_path).unwrap();
     file.write_all(json_string.as_bytes()).unwrap();
+
+    if dense_errors {
+        let mut kernel_mat = compute_dense_kernel(kernel_op);
+        get_boxes_errors(
+            &mut kernel_mat,
+            rsrs_factors,
+            num::NumCast::from(tol).unwrap(),
+        );
+    }
 }
 
 pub fn save_rank_stats<Item: RlstScalar + MatrixInverse + MatrixPseudoInverse + MatrixId>(
-    _kernel_mat: &mut DynamicArray<Item, 2>,
-    _rsrs_factors: &RsrsFactors<Item>,
     rsrs_data: &Rsrs<Item>,
     tol: Real<Item>,
     path_str: &str,
@@ -250,28 +292,12 @@ pub enum FileContent {
 }
 
 pub fn read_file<Item: RlstScalar>(
+    path_str: &str,
     file_type: &str,
-    geometry: &str,
-    kernel: &str,
-    npoints: usize,
-    kappa: Item,
-    version: Item,
     tol: Item,
 ) -> std::io::Result<FileContent> {
-    let mut path_str = "results/".to_string();
-    let mut geometry_and_points = geometry.to_string();
-    let version_string = format!("{:.2}", version);
-    let kappa_string = format!("{:.2}", kappa);
     let tol_string = format!("{:e}", tol);
-    geometry_and_points.push('_');
-    geometry_and_points.push_str(kernel);
-    geometry_and_points.push('_');
-    geometry_and_points.push_str(&npoints.to_string());
-    geometry_and_points.push('_');
-    geometry_and_points.push_str(&kappa_string);
-    geometry_and_points.push('_');
-    geometry_and_points.push_str(&version_string);
-    path_str.push_str(&geometry_and_points);
+    let mut path_str = path_str.to_string();
     path_str.push_str("/");
     path_str.push_str(file_type);
     path_str.push_str("_");
