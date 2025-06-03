@@ -1,8 +1,17 @@
 from scipy.spatial.distance import cdist
 import numpy as np
 import bempp_cl.api
-from scipy.sparse.linalg import LinearOperator, eigsh
-import scipy.linalg
+from scipy.sparse.linalg import eigsh
+import time
+from kifmm_py import (
+    KiFmm,
+    LaplaceKernel,
+    HelmholtzKernel,
+    SingleNodeTree,
+    EvalType,
+    BlasFieldTranslation,
+    FftFieldTranslation,
+)
 
 def generate_random_points_on_sphere(n_points, radius=1):
     # Generate random polar and azimuthal angles
@@ -99,9 +108,6 @@ class Kernel(BaseKernel):
         self.mat[np.diag_indices_from(self.mat)] = 1
 
 
-def is_hermitian(A, tol=1e-10):
-    return np.allclose(A, A.T.conj(), atol=tol)
-
 class HelmholtzKernel(BaseKernel):
     def __init__(self, dim_param, geometry_type, kappa):
         super().__init__(dim_param, geometry_type)
@@ -120,7 +126,7 @@ class HelmholtzKernel(BaseKernel):
         np.random.rand(self.n_points)
 
 
-class LaplaceKernel(BaseKernel):
+class SimplePythonLaplaceKernel(BaseKernel):
     def __init__(self, dim_param, geometry_type, _kappa):
         super().__init__(dim_param, geometry_type)
         try:
@@ -152,7 +158,12 @@ class BemLaplaceKernel(BaseKernel):
             raise
 
     def mv(self, v):
-        return self.mat * v
+        start_time = time.time()
+        res = self.mat * v
+        end_time = time.time()
+        elapsed_time = end_time - start_time
+        print("Mv time: ", elapsed_time) 
+        return res
     
     def get_dense(self):
         if self.mat is None:
@@ -176,12 +187,6 @@ class BemLaplaceKernel(BaseKernel):
         rhs = (.5 * identity + dlp) * dirichlet_fun
 
         return rhs.projections()
-    
-def are_consecutive(lst):
-    if len(lst) < 2:
-        return True  # A list with 0 or 1 element is trivially consecutive
-    lst_sorted = sorted(lst)
-    return all(b - a == 1 for a, b in zip(lst_sorted, lst_sorted[1:]))
     
 
 class BemHelmholtzKernel(BaseKernel):
@@ -228,12 +233,50 @@ class BemHelmholtzKernel(BaseKernel):
         return rhs.projections()
 
 
-def is_positive_definite(A):
-    try:
-        _ = scipy.linalg.cholesky(A, lower=True)
-        return True
-    except scipy.linalg.LinAlgError:
-        return False
+dtype = np.float64
+
+class KiFMMLaplaceKernel(BaseKernel):
+    def __init__(self, dim_param, geometry_type, _kappa):
+        super().__init__(dim_param, geometry_type)
+        try:
+            
+            points = self.points.ravel()
+            sources = points.astype(dtype)
+            targets = points.astype(dtype)
+            expansion_order = np.array([6], np.uint64)  # Single expansion order as using n_crit
+            n_vec = 1
+            n_crit = 150
+            prune_empty = True  
+            eval_type = EvalType.Value
+
+            # EvalType computes either potentials (EvalType.Value) or potentials + derivatives (EvalType.ValueDeriv)
+            kernel = LaplaceKernel(dtype, eval_type)
+            charges = np.zeros(self.n_points * n_vec).astype(dtype)
+            tree = SingleNodeTree(sources, targets, charges, n_crit=n_crit, prune_empty=prune_empty)
+            field_translation = FftFieldTranslation(kernel, block_size=32)
+            # Create FMM runtime object
+            self.mat = KiFmm(expansion_order, tree, field_translation, timed=True)
+            self.mat.clear()
+            print("Number of dofs:", self.n_points)
+            self.rhs = self.get_rhs()
+        except Exception as e:
+            print("Error initializing BemLaplaceKernel:", e)
+            raise
+
+    def mv(self, v):
+        self.mat.clear()
+        charges = v.astype(dtype)
+        self.mat.attach_charges_unordered(charges)
+        self.mat.evaluate()
+        res = np.copy(charges) + (1/self.n_points)*self.mat.all_potentials_u.reshape(-1)
+        return res
+    
+    def get_dense(self):
+        raise ValueError("Dense is not implemented.")
+    
+    def get_rhs(self):
+        return np.random.rand(self.n_points).astype(dtype)
+    
 
 
 def get_barycenters(grid):

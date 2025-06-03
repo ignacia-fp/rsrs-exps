@@ -59,6 +59,7 @@ impl<Item: RlstScalar> TestParams<Item> {
             KernelType::Exp => "exponential",
             KernelType::BemLaplace => "bem_laplace",
             KernelType::BemHelmholtz => "bem_helmholtz",
+            KernelType::KiFmmLaplace => "kifmm_laplace",
         };
 
         kernel_name

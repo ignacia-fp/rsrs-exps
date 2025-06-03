@@ -3,6 +3,7 @@ use bempp_octree::Point;
 use rlst::operator::ConcreteElementContainer;
 use rlst::prelude::*;
 use rlst::RlstScalar;
+use std::ffi::CString;
 use std::rc::Rc;
 
 #[repr(C)]
@@ -12,6 +13,7 @@ struct KernelOpaque {
 
 extern "C" {
     fn initialize_kernel(
+        python_executable: *const std::ffi::c_char,
         class_name: *const i8,
         arg1: libc::c_double,
         geometry_type: *const i8,
@@ -50,6 +52,7 @@ pub enum KernelType {
     Exp,
     BemLaplace,
     BemHelmholtz,
+    KiFmmLaplace,
 }
 
 #[derive(Debug, Clone)]
@@ -97,6 +100,26 @@ pub trait KernelImpl<Item: RlstScalar> {
     fn get_condition_number(&self) -> Real<Self::Item>;
 }
 
+fn detect_python_env() -> (String, String) {
+    let code = r#"
+import sys
+print(sys.executable)
+print(sys.prefix)
+"#;
+
+    let output = std::process::Command::new("python3")
+        .arg("-c")
+        .arg(code)
+        .output()
+        .expect("Failed to run Python");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut lines = stdout.lines();
+    let executable = lines.next().unwrap_or("").to_string();
+    let prefix = lines.next().unwrap_or("").to_string();
+    (executable, prefix)
+}
+
 macro_rules! implement_kernel {
     ($scalar:ty, $mv:expr, $rhs_fn:expr) => {
         impl KernelImpl<$scalar> for Kernel {
@@ -104,11 +127,12 @@ macro_rules! implement_kernel {
 
             fn new(params: KernelParams) -> Self {
                 let class_name = match params.kernel_type {
-                    KernelType::Laplace => "LaplaceKernel",
+                    KernelType::Laplace => "SimplePythonLaplaceKernel",
                     KernelType::Helmholtz => "HelmholtzKernel",
                     KernelType::Exp => "ExpKernel",
                     KernelType::BemLaplace => "BemLaplaceKernel",
                     KernelType::BemHelmholtz => "BemHelmholtzKernel",
+                    KernelType::KiFmmLaplace => "KiFMMLaplaceKernel",
                 };
 
                 let c_str = std::ffi::CString::new(class_name).unwrap();
@@ -129,7 +153,12 @@ macro_rules! implement_kernel {
                     DimArg::MeshWidth(h) => h as f64,
                 };
                 let raw = unsafe {
+                    let (python_executable, _python_home) = detect_python_env();
+
+                    let python_exe_c = CString::new(python_executable).unwrap();
+
                     initialize_kernel(
+                        python_exe_c.as_ptr(),
                         c_str.as_ptr(),
                         dim_arg as f64,
                         geometry.as_ptr(),

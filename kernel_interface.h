@@ -17,7 +17,7 @@ typedef struct {
     PyObject *pyobj;
 } Kernel;
 
-Kernel* initialize_kernel(const char *class_name, double arg1, const char *geometry_type, double kappa);
+Kernel* initialize_kernel(const char* python_executable, const char *class_name, double arg1, const char *geometry_type, double kappa);
 int mv_kernel_real(Kernel *kernel, const double *input, double *output, int len);
 int mv_kernel_complex(Kernel *k, const double _Complex *input, double _Complex *output, int len);
 const double* get_points(Kernel *k);

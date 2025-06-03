@@ -50,9 +50,14 @@ Kernel* create_kernel(PyObject *kernel_instance) {
     return k;
 }
 
-Kernel* initialize_kernel(const char *class_name, double arg1, const char *geometry_type, double kappa) {
+Kernel* initialize_kernel(const char* python_executable, const char *class_name, double arg1, const char *geometry_type, double kappa) {
+    
     if (!Py_IsInitialized()) {
+        wchar_t *program_name = Py_DecodeLocale(python_executable, NULL);
+        Py_SetProgramName(program_name);
+
         Py_Initialize();
+
         if (_import_array() < 0) {
             PyErr_Print();
             return NULL;

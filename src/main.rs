@@ -89,8 +89,8 @@ fn set_and_run_tests(
 fn main() {
     let id_tols = [1e-2, 1e-4, 1e-6]; //[1e-2, 1e-4, 1e-6];
     let pi = std::f64::consts::PI;
-    let kappa = 4.0 * pi;
-    let kernel_type = KernelType::BemLaplace;
+    let kappa = 8.0 * pi;
+    let kernel_type = KernelType::KiFmmLaplace;
     let h = 2.0 * pi / (8.0 * kappa);
     println!("Meshwidth: {}", h);
     let dim_args = [DimArg::MeshWidth(h)];
