@@ -3,7 +3,7 @@ use mpi::traits::CommunicatorCollectives;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 
-//Function that creates a low rank matrix by calculating a kernel given a random point distribution on an unit sphere.
+//Function that creates a low rank matrix by calculating a structured_operator given a random point distribution on an unit sphere.
 
 pub fn sphere_surface<C: CommunicatorCollectives>(
     npoints: usize,

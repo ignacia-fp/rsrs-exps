@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use super::python_kernel::{Kernel, KernelImpl, KernelOperator};
+use super::structured_operator::{StructuredOperator, StructuredOperatorImpl, StructuredOperatorOperator};
 use bempp_rsrs::rsrs::rsrs_factors::{
     CommutativeFactors, Factor, FactorMulType, FactorOperations, FactorOptions, FactorType,
     IdFactor, LocalFrom, LuFactor,
@@ -54,10 +54,10 @@ fn mul_op<
 pub fn app_error<
     'a,
     Item: RlstScalar + RandScalar + MatrixInverse + MatrixId + MatrixPseudoInverse + MatrixLu + MatrixQr,
-    Op1: KernelImpl<Item> + Shape<2>,
+    Op1: StructuredOperatorImpl<Item> + Shape<2>,
     Op2: RsrsFactorsImpl<Item> + Shape<2>,
 >(
-    target_op: &KernelOperator<'a, Item, Op1>,
+    target_op: &StructuredOperatorOperator<'a, Item, Op1>,
     rsrs_op: &mut RsrsOperator<'a, Item, Op2>,
     sample_size: usize,
     side: RsrsSide,
@@ -122,7 +122,7 @@ pub fn rsrs_error_estimator<
     'a,
     Item: RlstScalar + RandScalar + MatrixInverse + MatrixId + MatrixPseudoInverse + MatrixLu + MatrixQr,
 >(
-    target_op: &KernelOperator<'a, Item, Kernel>,
+    target_op: &StructuredOperatorOperator<'a, Item, StructuredOperator>,
     rsrs_factors: &mut RsrsFactors<Item>,
     sample_size: usize,
 ) -> (Real<Item>, Real<Item>, Real<Item>, Real<Item>, Real<Item>)
@@ -132,7 +132,7 @@ where
     LuDecomposition<Item, BaseArray<Item, VectorContainer<Item>, 2>>:
         MatrixLuDecomposition<Item = Item>,
     TriangularMatrix<Item>: TriangularOperations<Item = Item>,
-    Kernel: KernelImpl<Item>,
+    StructuredOperator: StructuredOperatorImpl<Item>,
 {
     let mut rsrs_operator = RsrsOperator::from_local(rsrs_factors);
 
@@ -451,7 +451,7 @@ where
 pub fn get_boxes_errors<
     Item: RlstScalar + RandScalar + MatrixInverse + MatrixPseudoInverse + MatrixId + MatrixLu + MatrixQr,
 >(
-    kernel_mat: &mut DynamicArray<Item, 2>,
+    structured_operator_mat: &mut DynamicArray<Item, 2>,
     rsrs_factors: &mut RsrsFactors<Item>,
     _tol: f64,
 ) where
@@ -461,7 +461,7 @@ pub fn get_boxes_errors<
         MatrixLuDecomposition<Item = Item>,
     TriangularMatrix<Item>: TriangularOperations<Item = Item>,
 {
-    let (id_error_stats, lu_error_stats) = &el_factors_inv_mul_errors(rsrs_factors, kernel_mat);
+    let (id_error_stats, lu_error_stats) = &el_factors_inv_mul_errors(rsrs_factors, structured_operator_mat);
 
     id_error_stats
         .iter()
@@ -488,7 +488,7 @@ pub fn get_boxes_errors<
 
     println!("\n");
 
-    let diag_re = commutative_factors_errors(&rsrs_factors.diag_box_factors, kernel_mat);
+    let diag_re = commutative_factors_errors(&rsrs_factors.diag_box_factors, structured_operator_mat);
 
     let diag_re_r;
     let diag_re_s;

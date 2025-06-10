@@ -1,29 +1,29 @@
 use rayon::prelude::*;
 use rlst::prelude::*;
-//Function that creates a low rank matrix by calculating a kernel given a random point distribution on an unit sphere.
+//Function that creates a low rank matrix by calculating a structured_operator given a random point distribution on an unit sphere.
 
-pub trait ExpKernel: RlstScalar {
-    fn exp_real_kernel(dist: Self, npoints: usize, kappa: Self) -> Self;
-    fn exp_complex_kernel(dist: Self, npoints: usize, kappa: Self) -> num::Complex<Self>;
-    fn laplace_kernel(dist: Self, npoints: usize, kappa: Self) -> Self;
-    fn helmholtz_kernel(dist: Self, npoints: usize, kappa: Self) -> num::Complex<Self>;
+pub trait ExpStructuredOperator: RlstScalar {
+    fn exp_real_structured_operator(dist: Self, npoints: usize, kappa: Self) -> Self;
+    fn exp_complex_structured_operator(dist: Self, npoints: usize, kappa: Self) -> num::Complex<Self>;
+    fn laplace_structured_operator(dist: Self, npoints: usize, kappa: Self) -> Self;
+    fn helmholtz_structured_operator(dist: Self, npoints: usize, kappa: Self) -> num::Complex<Self>;
 }
 
-macro_rules! implement_exp_kernel {
+macro_rules! implement_exp_structured_operator {
     ($scalar:ty) => {
-        impl ExpKernel for $scalar {
-            fn exp_real_kernel(dist: Self, npoints: usize, _kappa: Self) -> Self {
+        impl ExpStructuredOperator for $scalar {
+            fn exp_real_structured_operator(dist: Self, npoints: usize, _kappa: Self) -> Self {
                 let d: Self = num::NumCast::from(dist).unwrap();
                 let n: Self = num::NumCast::from(npoints).unwrap();
                 (1.0 / (n * (d * d).exp()))
             }
-            fn exp_complex_kernel(dist: Self, npoints: usize, _kappa: Self) -> num::Complex<Self> {
+            fn exp_complex_structured_operator(dist: Self, npoints: usize, _kappa: Self) -> num::Complex<Self> {
                 let d: Self = num::NumCast::from(dist).unwrap();
                 let n: Self = num::NumCast::from(npoints).unwrap();
                 let i = num::Complex::<Self>::new(0.0, 1.0);
                 (1.0 / (n * (i * d * d).exp()))
             }
-            fn laplace_kernel(dist: Self, npoints: usize, _kappa: Self) -> Self {
+            fn laplace_structured_operator(dist: Self, npoints: usize, _kappa: Self) -> Self {
                 let pi: Self = if std::any::TypeId::of::<Self>() == std::any::TypeId::of::<f32>() {
                     std::f32::consts::PI as Self
                 } else {
@@ -33,7 +33,7 @@ macro_rules! implement_exp_kernel {
                 let n: Self = num::NumCast::from(npoints).unwrap();
                 (1.0 / (4.0 * pi * n * d))
             }
-            fn helmholtz_kernel(dist: Self, npoints: usize, kappa: Self) -> num::Complex<Self> {
+            fn helmholtz_structured_operator(dist: Self, npoints: usize, kappa: Self) -> num::Complex<Self> {
                 let pi: Self = if std::any::TypeId::of::<Self>() == std::any::TypeId::of::<f32>() {
                     std::f32::consts::PI as Self
                 } else {
@@ -48,18 +48,18 @@ macro_rules! implement_exp_kernel {
     };
 }
 
-implement_exp_kernel!(f32);
-implement_exp_kernel!(f64);
+implement_exp_structured_operator!(f32);
+implement_exp_structured_operator!(f64);
 
 pub trait LowRankMatrix: RlstScalar {
     fn get_real_matrix(
         points_x: &[bempp_octree::Point],
-        kernel_fn: fn(dist: Self, npoints: usize, kappa: Self) -> Self,
+        structured_operator_fn: fn(dist: Self, npoints: usize, kappa: Self) -> Self,
         kappa: Self,
     ) -> DynamicArray<Self, 2>;
     fn get_complex_matrix(
         points_x: &[bempp_octree::Point],
-        kernel_fn: fn(
+        structured_operator_fn: fn(
             dist: Self,
             npoints: usize,
             kappa: <Self as RlstScalar>::Real,
@@ -75,7 +75,7 @@ macro_rules! implement_low_rank_matrix {
         impl LowRankMatrix for $scalar {
             fn get_real_matrix(
                 points_x: &[bempp_octree::Point],
-                kernel_fn: fn(dist: Self, npoints: usize, kappa: Self) -> Self,
+                structured_operator_fn: fn(dist: Self, npoints: usize, kappa: Self) -> Self,
                 kappa: Self,
             ) -> DynamicArray<Self, 2> {
                 let start = std::time::Instant::now();
@@ -128,7 +128,7 @@ macro_rules! implement_low_rank_matrix {
                                 .unwrap();
 
                                 let value = if dist > 0.0 {
-                                    kernel_fn(dist, n, kappa)
+                                    structured_operator_fn(dist, n, kappa)
                                 } else {
                                     1.0.into()
                                 };
@@ -160,7 +160,7 @@ macro_rules! implement_low_rank_matrix {
 
             fn get_complex_matrix(
                 points_x: &[bempp_octree::Point],
-                kernel_fn: fn(
+                structured_operator_fn: fn(
                     dist: Self,
                     npoints: usize,
                     kappa: <Self as RlstScalar>::Real,
@@ -194,7 +194,7 @@ macro_rules! implement_low_rank_matrix {
                         .unwrap();
 
                         let value = if dist > 0.0 {
-                            kernel_fn(dist, n, kappa)
+                            structured_operator_fn(dist, n, kappa)
                         } else {
                             1.0.into()
                         };
@@ -220,12 +220,12 @@ macro_rules! implement_low_rank_matrix {
 implement_low_rank_matrix!(f32);
 implement_low_rank_matrix!(f64);
 
-pub trait KernelMatrix: RlstScalar {
-    fn get_exp_real_kernel_matrix(
+pub trait StructuredOperatorMatrix: RlstScalar {
+    fn get_exp_real_structured_operator_matrix(
         points_x: &[bempp_octree::Point],
         kappa: Self,
     ) -> DynamicArray<Self, 2>;
-    fn get_exp_complex_kernel_matrix(
+    fn get_exp_complex_structured_operator_matrix(
         points_x: &[bempp_octree::Point],
         kappa: Self,
     ) -> DynamicArray<num::Complex<Self>, 2>
@@ -240,39 +240,39 @@ pub trait KernelMatrix: RlstScalar {
         Self: PartialOrd;
 }
 
-macro_rules! implement_kernel_matrix {
+macro_rules! implement_structured_operator_matrix {
     ($scalar:ty) => {
-        impl KernelMatrix for $scalar {
-            fn get_exp_real_kernel_matrix(
+        impl StructuredOperatorMatrix for $scalar {
+            fn get_exp_real_structured_operator_matrix(
                 points_x: &[bempp_octree::Point],
                 _kappa: Self,
             ) -> DynamicArray<Self, 2> {
-                LowRankMatrix::get_real_matrix(points_x, Self::exp_real_kernel, 0.0)
+                LowRankMatrix::get_real_matrix(points_x, Self::exp_real_structured_operator, 0.0)
             }
 
-            fn get_exp_complex_kernel_matrix(
+            fn get_exp_complex_structured_operator_matrix(
                 points_x: &[bempp_octree::Point],
                 kappa: Self,
             ) -> DynamicArray<num::Complex<Self>, 2> {
-                LowRankMatrix::get_complex_matrix(points_x, Self::exp_complex_kernel, kappa)
+                LowRankMatrix::get_complex_matrix(points_x, Self::exp_complex_structured_operator, kappa)
             }
 
             fn get_laplace_matrix(
                 points_x: &[bempp_octree::Point],
                 _kappa: Self,
             ) -> DynamicArray<Self, 2> {
-                LowRankMatrix::get_real_matrix(points_x, Self::laplace_kernel, 0.0)
+                LowRankMatrix::get_real_matrix(points_x, Self::laplace_structured_operator, 0.0)
             }
 
             fn get_helmholtz_matrix(
                 points_x: &[bempp_octree::Point],
                 kappa: Self,
             ) -> DynamicArray<num::Complex<Self>, 2> {
-                LowRankMatrix::get_complex_matrix(points_x, Self::helmholtz_kernel, kappa)
+                LowRankMatrix::get_complex_matrix(points_x, Self::helmholtz_structured_operator, kappa)
             }
         }
     };
 }
 
-implement_kernel_matrix!(f32);
-implement_kernel_matrix!(f64);
+implement_structured_operator_matrix!(f32);
+implement_structured_operator_matrix!(f64);

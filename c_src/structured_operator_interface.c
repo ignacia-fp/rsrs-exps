@@ -1,23 +1,23 @@
 #define NPY_NO_DEPRECATED_API NPY_1_7_API_VERSION
-#include "kernel_interface.h"
+#include "structured_operator_interface.h"
 #include <stdio.h>
 #include <stdlib.h>
 //#include <numpy/arrayobject.h>
 //#include <complex.h>
 
-Kernel* fail(Kernel *k) {
+StructuredOperator* fail(StructuredOperator *k) {
     PyErr_Print();
     free(k);
     return NULL;
 }
 
-Kernel* create_kernel(PyObject *kernel_instance) {
-    Kernel *k = (Kernel *)malloc(sizeof(Kernel));
+StructuredOperator* create_structured_operator(PyObject *structured_operator_instance) {
+    StructuredOperator *k = (StructuredOperator *)malloc(sizeof(StructuredOperator));
     if (!k) return NULL;
-    PyObject *points_obj = PyObject_GetAttrString(kernel_instance, "points");
-    PyObject *mat_obj = PyObject_GetAttrString(kernel_instance, "mat");
-    PyObject *n_points_obj = PyObject_GetAttrString(kernel_instance, "n_points");
-    PyObject *rhs_obj = PyObject_GetAttrString(kernel_instance, "rhs");
+    PyObject *points_obj = PyObject_GetAttrString(structured_operator_instance, "points");
+    PyObject *mat_obj = PyObject_GetAttrString(structured_operator_instance, "mat");
+    PyObject *n_points_obj = PyObject_GetAttrString(structured_operator_instance, "n_points");
+    PyObject *rhs_obj = PyObject_GetAttrString(structured_operator_instance, "rhs");
 
     if (!points_obj) {
         printf("points_obj is NULL\n");
@@ -50,7 +50,7 @@ Kernel* create_kernel(PyObject *kernel_instance) {
     return k;
 }
 
-Kernel* initialize_kernel(const char* python_executable, const char *class_name, double arg1, const char *geometry_type, double kappa) {
+StructuredOperator* initialize_structured_operator(const char* python_executable, const char *class_name, double arg1, const char *geometry_type, double kappa) {
     
     if (!Py_IsInitialized()) {
         wchar_t *program_name = Py_DecodeLocale(python_executable, NULL);
@@ -65,14 +65,14 @@ Kernel* initialize_kernel(const char* python_executable, const char *class_name,
     }
 
     PyRun_SimpleString("import sys; sys.path.append('.')");
-    PyObject *module = PyImport_ImportModule("python_kernels");
+    PyObject *module = PyImport_ImportModule("python.structured_operators");
     if (!module) {
         PyErr_Print();
         return NULL;
     }
-    PyObject *kernel_class = PyObject_GetAttrString(module, class_name);
+    PyObject *structured_operator_class = PyObject_GetAttrString(module, class_name);
     Py_DECREF(module);
-    if (!kernel_class) {
+    if (!structured_operator_class) {
         PyErr_Print();
         return NULL;
     }
@@ -87,28 +87,28 @@ Kernel* initialize_kernel(const char* python_executable, const char *class_name,
     // Create Python string object for geometry_type
     PyObject *geometry_obj = PyUnicode_FromString(geometry_type);
 
-    // Create argument tuple with (arg1, geometry_type, kappa)
-    PyObject *args = PyTuple_Pack(3, arg1_obj, geometry_obj, PyFloat_FromDouble(kappa));
+    // Create argument tuple with (arg1, kappa, geometry_type)
+    PyObject *args = PyTuple_Pack(3, arg1_obj, PyFloat_FromDouble(kappa), geometry_obj);
 
     Py_DECREF(arg1_obj);
     Py_DECREF(geometry_obj);
 
 
-    PyObject *instance = PyObject_CallObject(kernel_class, args);
+    PyObject *instance = PyObject_CallObject(structured_operator_class, args);
     Py_DECREF(args);
-    Py_DECREF(kernel_class);
+    Py_DECREF(structured_operator_class);
     if (!instance) {
         PyErr_Print();
         return NULL;
     }
-    Kernel *k = create_kernel(instance);
+    StructuredOperator *k = create_structured_operator(instance);
     if (!k) return NULL;
     k->pyobj = instance;  // take ownership
     return k;
 }
 
 
-int mv_kernel_real(Kernel *k, const double *input, double *output, int len) {
+int mv_structured_operator_real(StructuredOperator *k, const double *input, double *output, int len) {
     if (!k || k->n_points != len) return 0;
 
     npy_intp dims[1] = {len};
@@ -136,7 +136,7 @@ int mv_kernel_real(Kernel *k, const double *input, double *output, int len) {
 }
 
 // input/output are arrays of double complex
-int mv_kernel_complex(Kernel *k, const double _Complex *input, double _Complex *output, int len) {
+int mv_structured_operator_complex(StructuredOperator *k, const double _Complex *input, double _Complex *output, int len) {
     if (!k || k->n_points != len) return 0;
 
     npy_intp dims[1] = {len};
@@ -170,7 +170,7 @@ int mv_kernel_complex(Kernel *k, const double _Complex *input, double _Complex *
 }
 
 
-const double* get_points(Kernel *k) {
+const double* get_points(StructuredOperator *k) {
     if (!k || !k->points) return NULL;
 
     if (PyArray_NDIM(k->points) != 2 || PyArray_DIM(k->points, 1) != 3)
@@ -179,13 +179,13 @@ const double* get_points(Kernel *k) {
     return (const double *)PyArray_DATA(k->points);
 }
 
-double get_condition_number(Kernel *k) {
+double get_condition_number(StructuredOperator *k) {
     if (!k || !k->pyobj) {
-        fprintf(stderr, "Invalid kernel object\n");
+        fprintf(stderr, "Invalid structured_operator object\n");
         return -1.0;
     }
 
-    PyObject *result = PyObject_CallMethod(k->pyobj, "get_cond", NULL);
+    PyObject *result = PyObject_CallMethod(k->pyobj, "cond", NULL);
     if (!result) {
         PyErr_Print();
         return -1.0;
@@ -202,13 +202,13 @@ double get_condition_number(Kernel *k) {
     return cond_number;
 }
 
-size_t get_n_points(Kernel *k) {
+size_t get_n_points(StructuredOperator *k) {
     if (!k) return (size_t)-1;  // sentinel value for error
     return (size_t)(k->n_points);
 }
 
 
-const double _Complex* kernel_get_complex_rhs(Kernel *k) {
+const double _Complex* structured_operator_get_complex_rhs(StructuredOperator *k) {
     if (!k || !k->rhs) return NULL;
 
     if (PyArray_NDIM(k->points) != 2)
@@ -219,7 +219,7 @@ const double _Complex* kernel_get_complex_rhs(Kernel *k) {
 }
 
 
-const double * kernel_get_real_rhs(Kernel *k) {
+const double * structured_operator_get_real_rhs(StructuredOperator *k) {
     if (!k || !k->rhs) return NULL;
 
     if (PyArray_NDIM(k->points) != 2)
@@ -229,7 +229,7 @@ const double * kernel_get_real_rhs(Kernel *k) {
 }
 
 
-void finalize_kernel(Kernel *k) {
+void finalize_structured_operator(StructuredOperator *k) {
     if (!k) return;
     Py_DECREF(k->points);
     Py_DECREF(k->mat);

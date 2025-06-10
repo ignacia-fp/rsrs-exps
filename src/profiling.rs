@@ -7,15 +7,15 @@ use bempp_octree::Octree;
 use rlst::prelude::*;
 
 pub trait TestFramework: RlstScalar {
-    fn test_rsrs_geometry(geometry: &str, kernel: &str, geometry_fn: fn(usize, &SimpleCommunicator) -> Vec<bempp_octree::Point> , kernel_fn: fn(&[bempp_octree::Point], <Self as RlstScalar>::Real)-> DynamicArray<Self, 2>, npoints: usize, kappa: <Self as RlstScalar>::Real, id_tols: &[<Self as RlstScalar>::Real], comm: &SimpleCommunicator);
-    fn run_test(geometry: &str, kernel: &str, kernel_fn: fn(&[bempp_octree::Point], <Self as RlstScalar>::Real) -> DynamicArray<Self, 2>, npoints: &[usize], kappa: <Self as RlstScalar>::Real, id_tols: &[<Self as RlstScalar>::Real]);
+    fn test_rsrs_geometry(geometry: &str, structured_operator: &str, geometry_fn: fn(usize, &SimpleCommunicator) -> Vec<bempp_octree::Point> , structured_operator_fn: fn(&[bempp_octree::Point], <Self as RlstScalar>::Real)-> DynamicArray<Self, 2>, npoints: usize, kappa: <Self as RlstScalar>::Real, id_tols: &[<Self as RlstScalar>::Real], comm: &SimpleCommunicator);
+    fn run_test(geometry: &str, structured_operator: &str, structured_operator_fn: fn(&[bempp_octree::Point], <Self as RlstScalar>::Real) -> DynamicArray<Self, 2>, npoints: &[usize], kappa: <Self as RlstScalar>::Real, id_tols: &[<Self as RlstScalar>::Real]);
 }
 
 
 macro_rules! implement_test_framework{
     ($scalar:ty) => {
             impl TestFramework for $scalar {
-                fn test_rsrs_geometry(geometry: &str, kernel: &str, geometry_fn: fn(usize, &SimpleCommunicator) -> Vec<bempp_octree::Point> , kernel_fn: fn(&[bempp_octree::Point], <$scalar as RlstScalar>::Real)-> DynamicArray<$scalar, 2>, npoints: usize, kappa: <$scalar as RlstScalar>::Real, id_tols: &[<$scalar as RlstScalar>::Real], comm: &SimpleCommunicator)
+                fn test_rsrs_geometry(geometry: &str, structured_operator: &str, geometry_fn: fn(usize, &SimpleCommunicator) -> Vec<bempp_octree::Point> , structured_operator_fn: fn(&[bempp_octree::Point], <$scalar as RlstScalar>::Real)-> DynamicArray<$scalar, 2>, npoints: usize, kappa: <$scalar as RlstScalar>::Real, id_tols: &[<$scalar as RlstScalar>::Real], comm: &SimpleCommunicator)
                 {
                     let points: Vec<bempp_octree::Point> = geometry_fn(npoints, &comm);
                     let max_level: usize = 16;
@@ -35,7 +35,7 @@ macro_rules! implement_test_framework{
                     let mut geometry_and_points = geometry.to_string();
                     let kappa_string = format!("{:.2}", kappa);
                     geometry_and_points.push('_');
-                    geometry_and_points.push_str(kernel);
+                    geometry_and_points.push_str(structured_operator);
                     geometry_and_points.push('_');
                     geometry_and_points.push_str(&npoints.to_string());
                     geometry_and_points.push('_');
@@ -46,16 +46,16 @@ macro_rules! implement_test_framework{
                     for &id_tol in id_tols.iter(){
                         println!("Test: {} points, tol:{}", global_number_of_points, id_tol);
                         let tols : Tols<$scalar> = Tols{id: id_tol, null: num::Zero::zero(), lstq: num::Zero::zero()};
-                        let mut kernel_mat: DynamicArray<$scalar, 2> = kernel_fn(&points, kappa);
-                        let mut rsrs_algo: Rsrs<$scalar> = Rsrs::new(&kernel_mat, tols, &tree);
+                        let mut structured_operator_mat: DynamicArray<$scalar, 2> = structured_operator_fn(&points, kappa);
+                        let mut rsrs_algo: Rsrs<$scalar> = Rsrs::new(&structured_operator_mat, tols, &tree);
                         let options = RsrsOptions{ hermitian: true, silent: true, split: true, termination: Termination::ReachRoot, oversampling: 8};
-                        let rsrs_factors = rsrs_algo.tree_cycle_and_diag_block_extraction(&kernel_mat, options);
-                        save_stats(&mut kernel_mat, &rsrs_factors, &rsrs_algo, id_tol, &path_str);
+                        let rsrs_factors = rsrs_algo.tree_cycle_and_diag_block_extraction(&structured_operator_mat, options);
+                        save_stats(&mut structured_operator_mat, &rsrs_factors, &rsrs_algo, id_tol, &path_str);
                     }
 
                 }
             
-                fn run_test(geometry: &str, kernel: &str, kernel_fn: fn(&[bempp_octree::Point], <Self as RlstScalar>::Real) -> DynamicArray<Self, 2>, npoints: &[usize], kappa:<Self as RlstScalar>::Real, id_tols: &[<Self as RlstScalar>::Real]){
+                fn run_test(geometry: &str, structured_operator: &str, structured_operator_fn: fn(&[bempp_octree::Point], <Self as RlstScalar>::Real) -> DynamicArray<Self, 2>, npoints: &[usize], kappa:<Self as RlstScalar>::Real, id_tols: &[<Self as RlstScalar>::Real]){
                     let universe: mpi::environment::Universe = mpi::initialize().unwrap();
                     let comm: SimpleCommunicator = universe.world();
                     for &n in npoints{
@@ -63,7 +63,7 @@ macro_rules! implement_test_framework{
                         if geometry == "cube"{
                             geometry_fn = cube_surface;
                         }
-                        Self::test_rsrs_geometry(geometry, kernel, geometry_fn, kernel_fn, n, kappa, &id_tols, &comm);
+                        Self::test_rsrs_geometry(geometry, structured_operator, geometry_fn, structured_operator_fn, n, kappa, &id_tols, &comm);
                     }
                 }
             }

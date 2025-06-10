@@ -1,4 +1,4 @@
-use super::python_kernel::{Attr, Kernel, KernelImpl, KernelOperator};
+use super::structured_operator::{Attr, StructuredOperator, StructuredOperatorImpl, StructuredOperatorOperator};
 use bempp_rsrs::rsrs::rsrs_factors::{LocalFrom, RsrsFactors, RsrsOperator};
 use rlst::{
     dense::{linalg::lu::MatrixLu, tools::RandScalar},
@@ -9,14 +9,15 @@ pub fn solve_system<
     'a,
     Item: RlstScalar + MatrixId + MatrixPseudoInverse + MatrixLu + RandScalar + MatrixQr + MatrixInverse,
 >(
-    target_op: KernelOperator<'a, Item, Kernel>,
+    target_op: StructuredOperatorOperator<'a, Item, StructuredOperator>,
     tol: <Item as rlst::RlstScalar>::Real,
 ) -> usize
 where
-    Kernel: KernelImpl<Item, Item = Item>,
+    StructuredOperator: StructuredOperatorImpl<Item, Item = Item>,
     LuDecomposition<Item, BaseArray<Item, VectorContainer<Item>, 2>>:
         MatrixLuDecomposition<Item = Item>,
     TriangularMatrix<Item>: TriangularOperations<Item = Item>,
+    GivensRotationsData<Item>: GivensRotations<Item>
 {
     let dim = target_op.domain().dimension();
     let rhs = target_op.get_rhs();
@@ -35,15 +36,16 @@ pub fn solve_prec_system<
     'a,
     Item: RlstScalar + MatrixId + MatrixPseudoInverse + MatrixLu + RandScalar + MatrixQr + MatrixInverse,
 >(
-    target_op: KernelOperator<'a, Item, Kernel>,
+    target_op: StructuredOperatorOperator<'a, Item, StructuredOperator>,
     rsrs_factors: &mut RsrsFactors<Item>,
     tol: <Item as rlst::RlstScalar>::Real,
 ) -> usize
 where
-    Kernel: KernelImpl<Item, Item = Item>,
+    StructuredOperator: StructuredOperatorImpl<Item, Item = Item>,
     LuDecomposition<Item, BaseArray<Item, VectorContainer<Item>, 2>>:
         MatrixLuDecomposition<Item = Item>,
     TriangularMatrix<Item>: TriangularOperations<Item = Item>,
+     GivensRotationsData<Item>: GivensRotations<Item>
 {
     let dim = target_op.domain().dimension();
     let mut rhs = target_op.get_rhs();

@@ -1,10 +1,10 @@
 use crate::io::plot_results::time_piechart;
-use crate::io::python_kernel::{
-    get_bempp_points, GeometryType, Kernel, KernelImpl, KernelOperator, KernelParams, KernelType,
+use crate::io::structured_operator::{
+    get_bempp_points, GeometryType, StructuredOperator, StructuredOperatorImpl, StructuredOperatorOperator, StructuredOperatorParams,
     LocalFrom,
 };
-use crate::io::read_and_write::Iterations;
-use crate::io::read_and_write::{save_error_stats, save_rank_stats, save_time_stats};
+use crate::io::read_and_write::{Iterations, save_error_stats, save_rank_stats, save_time_stats};
+use crate::io::structured_operators_types::StructuredOperatorType;
 use crate::io::solve::{solve_prec_system, solve_system};
 use bempp_octree::Octree;
 use bempp_rsrs::rsrs::rsrs_cycle::{Rsrs, RsrsOptions};
@@ -26,7 +26,7 @@ pub struct TestOptions {
 
 pub struct TestParams<Item: RlstScalar> {
     geometry_type: GeometryType,
-    kernel_type: KernelType,
+    structured_operator_type: StructuredOperatorType,
     dim_args: Vec<DimArg>,
     kappa: Real<Item>,
     rsrs_params: RsrsOptions<Item>,
@@ -36,7 +36,7 @@ pub struct TestParams<Item: RlstScalar> {
 impl<Item: RlstScalar> TestParams<Item> {
     fn new(
         geometry_type: GeometryType,
-        kernel_type: &KernelType,
+        structured_operator_type: &StructuredOperatorType,
         dim_args: &[DimArg],
         kappa: Real<Item>,
         rsrs_params: RsrsOptions<Item>,
@@ -44,7 +44,7 @@ impl<Item: RlstScalar> TestParams<Item> {
     ) -> Self {
         Self {
             geometry_type,
-            kernel_type: kernel_type.clone(),
+            structured_operator_type: structured_operator_type.clone(),
             dim_args: dim_args.to_vec(),
             kappa,
             rsrs_params,
@@ -52,17 +52,17 @@ impl<Item: RlstScalar> TestParams<Item> {
         }
     }
 
-    fn get_kernel_name(&self) -> &str {
-        let kernel_name = match self.kernel_type {
-            KernelType::Laplace => "laplace",
-            KernelType::Helmholtz => "helmholtz",
-            KernelType::Exp => "exponential",
-            KernelType::BemLaplace => "bem_laplace",
-            KernelType::BemHelmholtz => "bem_helmholtz",
-            KernelType::KiFmmLaplace => "kifmm_laplace",
-        };
+    fn get_structured_operator_name(&self) -> &str {
+        let structured_operator_name = self.structured_operator_type.as_ref();/*match self.structured_operator_type {
+            StructuredOperatorType::Laplace => "laplace",
+            StructuredOperatorType::Helmholtz => "helmholtz",
+            StructuredOperatorType::Exp => "exponential",
+            StructuredOperatorType::BemLaplace => "bem_laplace",
+            StructuredOperatorType::BemHelmholtz => "bem_helmholtz",
+            StructuredOperatorType::KiFmmLaplace => "kifmm_laplace",
+        };*/
 
-        kernel_name
+        structured_operator_name
     }
 
     fn get_test_dir(&self, dim_num: usize) -> String {
@@ -76,7 +76,7 @@ impl<Item: RlstScalar> TestParams<Item> {
             GeometryType::Cube => "cube",
         }
         .to_string();
-        let kernel = self.get_kernel_name();
+        let structured_operator = self.get_structured_operator_name();
         let kappa = format!("{:.2}", self.kappa);
         let version = self.rsrs_params.to_identifier();
 
@@ -88,7 +88,7 @@ impl<Item: RlstScalar> TestParams<Item> {
         let filename = format!(
             "{}_{}_{}_{}",
             geometry,
-            kernel,
+            structured_operator,
             dim_part,
             kappa, // temporarily omit version
         );
@@ -113,7 +113,7 @@ pub enum DimArg {
 pub trait TestFrameworkImpl<Item: RlstScalar> {
     type Item: RlstScalar;
     fn new(
-        kernel_type: &KernelType,
+        structured_operator_type: &StructuredOperatorType,
         geometry_type: GeometryType,
         dim_args: &[DimArg],
         kappa: f64,
@@ -134,7 +134,7 @@ macro_rules! implement_test_framework {
         impl TestFrameworkImpl<$scalar> for TestFramework<$scalar> {
             type Item = $scalar;
             fn new(
-                kernel_type: &KernelType,
+                structured_operator_type: &StructuredOperatorType,
                 geometry_type: GeometryType,
                 dim_args: &[DimArg],
                 kappa: f64,
@@ -148,7 +148,7 @@ macro_rules! implement_test_framework {
             ) -> Self {
                 let test_params = TestParams::new(
                     geometry_type,
-                    kernel_type,
+                    structured_operator_type,
                     dim_args,
                     kappa,
                     rsrs_options,
@@ -172,16 +172,16 @@ macro_rules! implement_test_framework {
                 let comm: SimpleCommunicator = universe.world();
 
                 for (dim_num, dim_arg) in self.test_params.dim_args.iter().enumerate() {
-                    let kernel_params = KernelParams::new(
-                        self.test_params.kernel_type.clone(),
+                    let structured_operator_params = StructuredOperatorParams::new(
+                        self.test_params.structured_operator_type.clone(),
                         self.test_params.geometry_type.clone(),
                         dim_arg.clone(),
                         self.test_params.kappa,
                     );
-                    let kernel: Kernel = <Kernel as KernelImpl<$scalar>>::new(kernel_params);
-                    let dim = kernel.n_points;
-                    let operator = KernelOperator::from_local(&kernel);
-                    let points: Vec<bempp_octree::Point> = get_bempp_points(&kernel).unwrap();
+                    let structured_operator: StructuredOperator = <StructuredOperator as StructuredOperatorImpl<$scalar>>::new(structured_operator_params);
+                    let dim = structured_operator.n_points;
+                    let operator = StructuredOperatorOperator::from_local(&structured_operator);
+                    let points: Vec<bempp_octree::Point> = get_bempp_points(&structured_operator).unwrap();
 
                     let max_level: usize = 6;
                     let max_leaf_points: usize = 50;

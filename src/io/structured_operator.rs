@@ -1,59 +1,51 @@
 use crate::test_prep::DimArg;
 use bempp_octree::Point;
 use rlst::operator::ConcreteElementContainer;
+use crate::io::structured_operators_types::StructuredOperatorType;
 use rlst::prelude::*;
 use rlst::RlstScalar;
 use std::ffi::CString;
 use std::rc::Rc;
 
 #[repr(C)]
-struct KernelOpaque {
+struct StructuredOperatorOpaque {
     _private: [u8; 0],
 }
 
 extern "C" {
-    fn initialize_kernel(
+    fn initialize_structured_operator(
         python_executable: *const std::ffi::c_char,
         class_name: *const i8,
         arg1: libc::c_double,
         geometry_type: *const i8,
         kappa: libc::c_double,
-    ) -> *mut KernelOpaque;
-    fn mv_kernel_real(
-        kernel: *mut KernelOpaque,
+    ) -> *mut StructuredOperatorOpaque;
+    fn mv_structured_operator_real(
+        structured_operator: *mut StructuredOperatorOpaque,
         input: *const f64,
         output: *mut f64,
         len: libc::c_int,
     ) -> libc::c_int;
-    fn mv_kernel_complex(
-        kernel: *mut KernelOpaque,
+    fn mv_structured_operator_complex(
+        structured_operator: *mut StructuredOperatorOpaque,
         input: *const num::Complex<f64>, // or *const libc::c_void
         output: *mut num::Complex<f64>,
         len: libc::c_int,
     ) -> libc::c_int;
-    fn kernel_get_real_rhs(kernel: *mut KernelOpaque) -> *const f64;
-    fn kernel_get_complex_rhs(kernel: *mut KernelOpaque) -> *const c64;
-    fn get_points(kernel: *mut KernelOpaque) -> *const f64;
-    fn get_condition_number(kernel: *mut KernelOpaque) -> f64;
-    fn get_n_points(kernel: *mut KernelOpaque) -> usize;
-    fn finalize_kernel(kernel: *mut KernelOpaque);
+    fn structured_operator_get_real_rhs(structured_operator: *mut StructuredOperatorOpaque) -> *const f64;
+    fn structured_operator_get_complex_rhs(structured_operator: *mut StructuredOperatorOpaque) -> *const c64;
+    fn get_points(structured_operator: *mut StructuredOperatorOpaque) -> *const f64;
+    fn get_condition_number(structured_operator: *mut StructuredOperatorOpaque) -> f64;
+    fn get_n_points(structured_operator: *mut StructuredOperatorOpaque) -> usize;
+    fn finalize_structured_operator(structured_operator: *mut StructuredOperatorOpaque);
 }
 
 #[derive(Clone)]
-pub struct Kernel {
-    raw: *mut KernelOpaque,
+pub struct StructuredOperator {
+    raw: *mut StructuredOperatorOpaque,
     pub n_points: usize,
 }
 
-#[derive(Debug, Clone)]
-pub enum KernelType {
-    Laplace,
-    Helmholtz,
-    Exp,
-    BemLaplace,
-    BemHelmholtz,
-    KiFmmLaplace,
-}
 
 #[derive(Debug, Clone)]
 pub enum GeometryType {
@@ -66,22 +58,22 @@ pub enum GeometryType {
     Cube,
 }
 
-pub struct KernelParams {
-    kernel_type: KernelType,
+pub struct StructuredOperatorParams {
+    structured_operator_type: StructuredOperatorType,
     geometry_type: GeometryType,
     dim_arg: DimArg,
     kappa: f64,
 }
 
-impl KernelParams {
+impl StructuredOperatorParams {
     pub fn new(
-        kernel_type: KernelType,
+        structured_operator_type: StructuredOperatorType,
         geometry_type: GeometryType,
         dim_arg: DimArg,
         kappa: f64,
     ) -> Self {
         Self {
-            kernel_type,
+            structured_operator_type,
             geometry_type,
             dim_arg,
             kappa,
@@ -90,9 +82,9 @@ impl KernelParams {
 }
 
 type Real<T> = <T as rlst::RlstScalar>::Real;
-pub trait KernelImpl<Item: RlstScalar> {
+pub trait StructuredOperatorImpl<Item: RlstScalar> {
     type Item: RlstScalar;
-    fn new(params: KernelParams) -> Self;
+    fn new(params: StructuredOperatorParams) -> Self;
     fn mv(&self, input: &[Item], output: &mut [Item]);
     //fn get_points(&self) -> Option<&[[f64; 3]]>;
     fn get_points(&self) -> Option<Vec<Point>>;
@@ -120,21 +112,13 @@ print(sys.prefix)
     (executable, prefix)
 }
 
-macro_rules! implement_kernel {
+macro_rules! implement_structured_operator {
     ($scalar:ty, $mv:expr, $rhs_fn:expr) => {
-        impl KernelImpl<$scalar> for Kernel {
+        impl StructuredOperatorImpl<$scalar> for StructuredOperator {
             type Item = $scalar;
 
-            fn new(params: KernelParams) -> Self {
-                let class_name = match params.kernel_type {
-                    KernelType::Laplace => "SimplePythonLaplaceKernel",
-                    KernelType::Helmholtz => "HelmholtzKernel",
-                    KernelType::Exp => "ExpKernel",
-                    KernelType::BemLaplace => "BemLaplaceKernel",
-                    KernelType::BemHelmholtz => "BemHelmholtzKernel",
-                    KernelType::KiFmmLaplace => "KiFMMLaplaceKernel",
-                };
-
+            fn new(params: StructuredOperatorParams) -> Self {
+                let class_name = params.structured_operator_type.as_ref();
                 let c_str = std::ffi::CString::new(class_name).unwrap();
 
                 let geometry = std::ffi::CString::new(match params.geometry_type {
@@ -157,7 +141,7 @@ macro_rules! implement_kernel {
 
                     let python_exe_c = CString::new(python_executable).unwrap();
 
-                    initialize_kernel(
+                    initialize_structured_operator(
                         python_exe_c.as_ptr(),
                         c_str.as_ptr(),
                         dim_arg as f64,
@@ -166,8 +150,8 @@ macro_rules! implement_kernel {
                     )
                 };
 
-                assert!(!raw.is_null(), "Failed to initialize kernel");
-                let n_points = unsafe { get_n_points(raw as *mut KernelOpaque) };
+                assert!(!raw.is_null(), "Failed to initialize structured_operator");
+                let n_points = unsafe { get_n_points(raw as *mut StructuredOperatorOpaque) };
                 Self { raw, n_points }
             }
 
@@ -182,7 +166,7 @@ macro_rules! implement_kernel {
                             output.as_mut_ptr(),
                             self.n_points as libc::c_int
                         ) != 0,
-                        "mv_kernel call failed"
+                        "mv_structured_operator call failed"
                     );
                 }
             }
@@ -202,42 +186,42 @@ macro_rules! implement_kernel {
     };
 }
 
-pub fn rhs_real(kernel: &Kernel) -> Option<Vec<f64>> {
-    let ptr = unsafe { kernel_get_real_rhs(kernel.raw) };
+pub fn rhs_real(structured_operator: &StructuredOperator) -> Option<Vec<f64>> {
+    let ptr = unsafe { structured_operator_get_real_rhs(structured_operator.raw) };
     if ptr.is_null() {
         return None;
     }
 
-    let total_len = kernel.n_points;
+    let total_len = structured_operator.n_points;
     let slice = unsafe { std::slice::from_raw_parts(ptr, total_len) };
 
     Some(slice.to_vec())
 }
 
-pub fn rhs_complex(kernel: &Kernel) -> Option<Vec<c64>> {
-    let ptr = unsafe { kernel_get_complex_rhs(kernel.raw) };
+pub fn rhs_complex(structured_operator: &StructuredOperator) -> Option<Vec<c64>> {
+    let ptr = unsafe { structured_operator_get_complex_rhs(structured_operator.raw) };
     if ptr.is_null() {
         return None;
     }
-    let total_len = kernel.n_points;
+    let total_len = structured_operator.n_points;
     let slice = unsafe { std::slice::from_raw_parts(ptr, total_len) };
     Some(slice.to_vec())
 }
 
-implement_kernel!(f64, mv_kernel_real, rhs_real);
-implement_kernel!(c64, mv_kernel_complex, rhs_complex);
+implement_structured_operator!(f64, mv_structured_operator_real, rhs_real);
+implement_structured_operator!(c64, mv_structured_operator_complex, rhs_complex);
 
-pub fn get_bempp_points(kernel: &Kernel) -> Option<Vec<Point>> {
-    let ptr = unsafe { get_points(kernel.raw) };
+pub fn get_bempp_points(structured_operator: &StructuredOperator) -> Option<Vec<Point>> {
+    let ptr = unsafe { get_points(structured_operator.raw) };
     if ptr.is_null() {
         return None;
     }
-    let total_len = kernel.n_points * 3;
+    let total_len = structured_operator.n_points * 3;
     let slice = unsafe { std::slice::from_raw_parts(ptr, total_len) };
 
     Some({
         let raw_points = unsafe {
-            std::slice::from_raw_parts(slice.as_ptr() as *const [f64; 3], kernel.n_points)
+            std::slice::from_raw_parts(slice.as_ptr() as *const [f64; 3], structured_operator.n_points)
         };
 
         let points: Vec<_> = raw_points
@@ -251,25 +235,25 @@ pub fn get_bempp_points(kernel: &Kernel) -> Option<Vec<Point>> {
     })
 }
 
-impl Drop for Kernel {
+impl Drop for StructuredOperator {
     fn drop(&mut self) {
         if !self.raw.is_null() {
             unsafe {
-                finalize_kernel(self.raw);
+                finalize_structured_operator(self.raw);
             }
             self.raw = std::ptr::null_mut();
         }
     }
 }
 
-impl Shape<2> for Kernel {
+impl Shape<2> for StructuredOperator {
     fn shape(&self) -> [usize; 2] {
         [self.n_points, self.n_points]
     }
 }
 
 #[derive(Clone)]
-pub struct KernelOperator<'a, Item: RlstScalar, Op: KernelImpl<Item> + Shape<2>> {
+pub struct StructuredOperatorOperator<'a, Item: RlstScalar, Op: StructuredOperatorImpl<Item> + Shape<2>> {
     op: &'a Op,
     domain: Rc<ArrayVectorSpace<Item>>,
     range: Rc<ArrayVectorSpace<Item>>,
@@ -279,10 +263,10 @@ pub trait Attr<'a, Op, Item: RlstScalar>: Sized {
     fn get_rhs(&self) -> Element<ConcreteElementContainer<ArrayVectorSpaceElement<Item>>>;
 }
 
-impl<'a, Item: RlstScalar, Op: KernelImpl<Item> + Shape<2>> Attr<'a, Op, Item>
-    for KernelOperator<'_, Item, Op>
+impl<'a, Item: RlstScalar, Op: StructuredOperatorImpl<Item> + Shape<2>> Attr<'a, Op, Item>
+    for StructuredOperatorOperator<'_, Item, Op>
 where
-    Op: KernelImpl<Item, Item = Item>,
+    Op: StructuredOperatorImpl<Item, Item = Item>,
 {
     fn get_rhs(&self) -> Element<ConcreteElementContainer<ArrayVectorSpaceElement<Item>>> {
         let mut vec: Element<ConcreteElementContainer<ArrayVectorSpaceElement<Item>>> =
@@ -295,12 +279,12 @@ where
     }
 }
 
-impl<Item: RlstScalar, Op: KernelImpl<Item> + Shape<2>> std::fmt::Debug
-    for KernelOperator<'_, Item, Op>
+impl<Item: RlstScalar, Op: StructuredOperatorImpl<Item> + Shape<2>> std::fmt::Debug
+    for StructuredOperatorOperator<'_, Item, Op>
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let shape = self.op.shape();
-        write!(f, "KernelOperator: [{}x{}]", shape[0], shape[1]).unwrap();
+        write!(f, "StructuredOperatorOperator: [{}x{}]", shape[0], shape[1]).unwrap();
         Ok(())
     }
 }
@@ -309,8 +293,8 @@ pub struct LocalOp<'a, Op> {
     pub op: &'a Op,
 }
 
-impl<Item: RlstScalar, Op: KernelImpl<Item> + Shape<2>> OperatorBase
-    for KernelOperator<'_, Item, Op>
+impl<Item: RlstScalar, Op: StructuredOperatorImpl<Item> + Shape<2>> OperatorBase
+    for StructuredOperatorOperator<'_, Item, Op>
 {
     type Domain = ArrayVectorSpace<Item>;
     type Range = ArrayVectorSpace<Item>;
@@ -328,18 +312,18 @@ pub trait LocalFrom<'a, Op, Item: RlstScalar>: Sized {
     fn from_local(op: &'a Op) -> Self;
 }
 
-impl<'a, Item: RlstScalar, Op: KernelImpl<Item> + Shape<2>> LocalFrom<'a, Op, Item>
-    for KernelOperator<'a, Item, Op>
+impl<'a, Item: RlstScalar, Op: StructuredOperatorImpl<Item> + Shape<2>> LocalFrom<'a, Op, Item>
+    for StructuredOperatorOperator<'a, Item, Op>
 {
     fn from_local(op: &'a Op) -> Self {
         let shape = op.shape();
         let domain = ArrayVectorSpace::from_dimension(shape[1]);
         let range = ArrayVectorSpace::from_dimension(shape[0]);
-        KernelOperator { op, domain, range }
+        StructuredOperatorOperator { op, domain, range }
     }
 }
 
-impl<Item: RlstScalar, Op: KernelImpl<Item> + Shape<2>> AsApply for KernelOperator<'_, Item, Op> {
+impl<Item: RlstScalar, Op: StructuredOperatorImpl<Item> + Shape<2>> AsApply for StructuredOperatorOperator<'_, Item, Op> {
     fn apply_extended<
         ContainerIn: ElementContainer<E = <Self::Domain as LinearSpace>::E>,
         ContainerOut: ElementContainerMut<E = <Self::Range as LinearSpace>::E>,

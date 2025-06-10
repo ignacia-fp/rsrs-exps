@@ -18,7 +18,7 @@ use std::{
 
 use super::{
     errors::{get_boxes_errors, rsrs_error_estimator},
-    python_kernel::{Kernel, KernelImpl, KernelOperator},
+    structured_operator::{StructuredOperator, StructuredOperatorImpl, StructuredOperatorOperator},
 };
 
 type Real<T> = <T as rlst::RlstScalar>::Real;
@@ -176,29 +176,29 @@ pub fn save_time_stats<Item: RlstScalar + MatrixInverse + MatrixPseudoInverse + 
     file.write_all(json_string.as_bytes()).unwrap();
 }
 
-fn compute_dense_kernel<Item: RlstScalar>(
-    kernel: &KernelOperator<'_, Item, Kernel>,
+fn compute_dense_structured_operator<Item: RlstScalar>(
+    structured_operator: &StructuredOperatorOperator<'_, Item, StructuredOperator>,
 ) -> DynamicArray<Item, 2>
 where
-    Kernel: KernelImpl<Item>,
+    StructuredOperator: StructuredOperatorImpl<Item>,
 {
-    let dim = kernel.domain().dimension();
-    let mut dense_kernel = rlst_dynamic_array2!(Item, [dim, dim]);
+    let dim = structured_operator.domain().dimension();
+    let mut dense_structured_operator = rlst_dynamic_array2!(Item, [dim, dim]);
     for i in 0..dim {
-        let mut el_vec = ArrayVectorSpace::zero(kernel.domain());
+        let mut el_vec = ArrayVectorSpace::zero(structured_operator.domain());
         el_vec.view_mut()[[i]] = num::One::one();
-        let res = kernel.apply(el_vec.r_mut(), TransMode::NoTrans);
-        dense_kernel.r_mut().slice(1, i).fill_from(res.view());
+        let res = structured_operator.apply(el_vec.r_mut(), TransMode::NoTrans);
+        dense_structured_operator.r_mut().slice(1, i).fill_from(res.view());
     }
 
-    return dense_kernel;
+    return dense_structured_operator;
 }
 
 pub fn save_error_stats<
     'a,
     Item: RlstScalar + RandScalar + MatrixInverse + MatrixPseudoInverse + MatrixId + MatrixLu + MatrixQr,
 >(
-    kernel_op: &KernelOperator<'a, Item, Kernel>,
+    structured_operator_op: &StructuredOperatorOperator<'a, Item, StructuredOperator>,
     rsrs_factors: &mut RsrsFactors<Item>,
     rsrs_data: &Rsrs<Item>,
     iterations: Iterations,
@@ -211,7 +211,7 @@ pub fn save_error_stats<
     LuDecomposition<Item, BaseArray<Item, VectorContainer<Item>, 2>>:
         MatrixLuDecomposition<Item = Item>,
     TriangularMatrix<Item>: TriangularOperations<Item = Item>,
-    Kernel: KernelImpl<Item>,
+    StructuredOperator: StructuredOperatorImpl<Item>,
 {
     fs::create_dir_all(Path::new(&path_str)).unwrap();
     let string_tol = format!("{:e}", tol);
@@ -222,7 +222,7 @@ pub fn save_error_stats<
 
     let rsrs_factors: &mut RsrsFactors<Item> = rsrs_factors;
     let (app_inv_err_left, app_inv_err_right, app_err_left, app_err_right, condition_number) =
-        rsrs_error_estimator::<Item>(kernel_op, rsrs_factors, 10);
+        rsrs_error_estimator::<Item>(structured_operator_op, rsrs_factors, 10);
 
     let stats = ErrorStatsOutput::<Item> {
         app_inv_err_left,
@@ -240,9 +240,9 @@ pub fn save_error_stats<
     file.write_all(json_string.as_bytes()).unwrap();
 
     if dense_errors {
-        let mut kernel_mat = compute_dense_kernel(kernel_op);
+        let mut structured_operator_mat = compute_dense_structured_operator(structured_operator_op);
         get_boxes_errors(
-            &mut kernel_mat,
+            &mut structured_operator_mat,
             rsrs_factors,
             num::NumCast::from(tol).unwrap(),
         );
