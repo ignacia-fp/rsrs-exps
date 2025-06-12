@@ -1,9 +1,11 @@
-use crate::test_prep::DimArg;
+//use crate::test_prep::DimArg;
+use crate::io::structured_operators_types::StructuredOperatorType;
+use crate::test_prep::Precision;
 use bempp_octree::Point;
 use rlst::operator::ConcreteElementContainer;
-use crate::io::structured_operators_types::StructuredOperatorType;
 use rlst::prelude::*;
 use rlst::RlstScalar;
+use serde::Deserialize;
 use std::ffi::CString;
 use std::rc::Rc;
 
@@ -15,10 +17,11 @@ struct StructuredOperatorOpaque {
 extern "C" {
     fn initialize_structured_operator(
         python_executable: *const std::ffi::c_char,
-        class_name: *const i8,
+        class_name: *const std::ffi::c_char,
         arg1: libc::c_double,
-        geometry_type: *const i8,
+        geometry_type: *const std::ffi::c_char,
         kappa: libc::c_double,
+        precision: *const std::ffi::c_char,
     ) -> *mut StructuredOperatorOpaque;
     fn mv_structured_operator_real(
         structured_operator: *mut StructuredOperatorOpaque,
@@ -32,8 +35,12 @@ extern "C" {
         output: *mut num::Complex<f64>,
         len: libc::c_int,
     ) -> libc::c_int;
-    fn structured_operator_get_real_rhs(structured_operator: *mut StructuredOperatorOpaque) -> *const f64;
-    fn structured_operator_get_complex_rhs(structured_operator: *mut StructuredOperatorOpaque) -> *const c64;
+    fn structured_operator_get_real_rhs(
+        structured_operator: *mut StructuredOperatorOpaque,
+    ) -> *const f64;
+    fn structured_operator_get_complex_rhs(
+        structured_operator: *mut StructuredOperatorOpaque,
+    ) -> *const c64;
     fn get_points(structured_operator: *mut StructuredOperatorOpaque) -> *const f64;
     fn get_condition_number(structured_operator: *mut StructuredOperatorOpaque) -> f64;
     fn get_n_points(structured_operator: *mut StructuredOperatorOpaque) -> usize;
@@ -46,8 +53,7 @@ pub struct StructuredOperator {
     pub n_points: usize,
 }
 
-
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize)]
 pub enum GeometryType {
     SphereSurface,
     CubeSurface,
@@ -60,20 +66,23 @@ pub enum GeometryType {
 
 pub struct StructuredOperatorParams {
     structured_operator_type: StructuredOperatorType,
+    precision: Precision,
     geometry_type: GeometryType,
-    dim_arg: DimArg,
+    dim_arg: f64,
     kappa: f64,
 }
 
 impl StructuredOperatorParams {
     pub fn new(
         structured_operator_type: StructuredOperatorType,
+        precision: Precision,
         geometry_type: GeometryType,
-        dim_arg: DimArg,
+        dim_arg: f64,
         kappa: f64,
     ) -> Self {
         Self {
             structured_operator_type,
+            precision,
             geometry_type,
             dim_arg,
             kappa,
@@ -120,6 +129,11 @@ macro_rules! implement_structured_operator {
             fn new(params: StructuredOperatorParams) -> Self {
                 let class_name = params.structured_operator_type.as_ref();
                 let c_str = std::ffi::CString::new(class_name).unwrap();
+                let precision_str = match params.precision {
+                    Precision::Double => std::ffi::CString::new("double").unwrap(),
+                    Precision::Single => std::ffi::CString::new("single").unwrap(),
+                };
+                //let precision_str = std::ffi::CString::new(params.precision).unwrap();
 
                 let geometry = std::ffi::CString::new(match params.geometry_type {
                     GeometryType::SphereSurface => "sphere_surface",
@@ -132,10 +146,6 @@ macro_rules! implement_structured_operator {
                 })
                 .unwrap();
 
-                let dim_arg = match params.dim_arg {
-                    DimArg::NumPoints(num_points) => num_points as f64,
-                    DimArg::MeshWidth(h) => h as f64,
-                };
                 let raw = unsafe {
                     let (python_executable, _python_home) = detect_python_env();
 
@@ -144,9 +154,10 @@ macro_rules! implement_structured_operator {
                     initialize_structured_operator(
                         python_exe_c.as_ptr(),
                         c_str.as_ptr(),
-                        dim_arg as f64,
+                        params.dim_arg as f64,
                         geometry.as_ptr(),
                         params.kappa,
+                        precision_str.as_ptr(),
                     )
                 };
 
@@ -221,7 +232,10 @@ pub fn get_bempp_points(structured_operator: &StructuredOperator) -> Option<Vec<
 
     Some({
         let raw_points = unsafe {
-            std::slice::from_raw_parts(slice.as_ptr() as *const [f64; 3], structured_operator.n_points)
+            std::slice::from_raw_parts(
+                slice.as_ptr() as *const [f64; 3],
+                structured_operator.n_points,
+            )
         };
 
         let points: Vec<_> = raw_points
@@ -253,7 +267,11 @@ impl Shape<2> for StructuredOperator {
 }
 
 #[derive(Clone)]
-pub struct StructuredOperatorOperator<'a, Item: RlstScalar, Op: StructuredOperatorImpl<Item> + Shape<2>> {
+pub struct StructuredOperatorOperator<
+    'a,
+    Item: RlstScalar,
+    Op: StructuredOperatorImpl<Item> + Shape<2>,
+> {
     op: &'a Op,
     domain: Rc<ArrayVectorSpace<Item>>,
     range: Rc<ArrayVectorSpace<Item>>,
@@ -323,7 +341,9 @@ impl<'a, Item: RlstScalar, Op: StructuredOperatorImpl<Item> + Shape<2>> LocalFro
     }
 }
 
-impl<Item: RlstScalar, Op: StructuredOperatorImpl<Item> + Shape<2>> AsApply for StructuredOperatorOperator<'_, Item, Op> {
+impl<Item: RlstScalar, Op: StructuredOperatorImpl<Item> + Shape<2>> AsApply
+    for StructuredOperatorOperator<'_, Item, Op>
+{
     fn apply_extended<
         ContainerIn: ElementContainer<E = <Self::Domain as LinearSpace>::E>,
         ContainerOut: ElementContainerMut<E = <Self::Range as LinearSpace>::E>,

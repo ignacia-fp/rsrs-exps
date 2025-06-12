@@ -25,7 +25,7 @@ def get_cond(A):
 
 
 class BaseStructuredOperator(ABC):
-    def __init__(self, dim_param, kappa, geometry_type='sphere_surface'):
+    def __init__(self, dim_param, kappa, geometry_type='sphere_surface', precision='double'):
         try:
             if dim_param < 1:
                 self.grid = get_geometry(geometry_type, dim_param)
@@ -33,6 +33,7 @@ class BaseStructuredOperator(ABC):
             else:
                 self.grid = None
                 self.points = get_geometry(geometry_type, dim_param)
+            self.precision = precision
             self.n_points = len(self.points)
             print("Number of dofs:", self.n_points)
             self.kappa = kappa
@@ -40,6 +41,7 @@ class BaseStructuredOperator(ABC):
             self.rhs = None
             self.operator_type = None
             self.rhs_data_type = None
+            self.operator_type = None
         except Exception as e:
             print("Error initializing BaseStructuredOperator:", e)
             raise
@@ -63,12 +65,16 @@ class BaseStructuredOperator(ABC):
 
 
 class BasicStructuredOperator(BaseStructuredOperator):
-    def __init__(self, dim_param, kappa, geometry_type):
-        super().__init__(dim_param, kappa, geometry_type)
+    def __init__(self, dim_param, kappa, geometry_type, precision):
+        super().__init__(dim_param, kappa, geometry_type, precision)
+        self.operator_type = 'real'
         self.mat = (1.0/self.n_points)* np.exp(-cdist(self.points, self.points) ** 2)
         self.mat[np.diag_indices_from(self.mat)] = 1
         self.operator_type = 'BasicStructuredOperator'
-        self.rhs_data_type = np.float64
+        if self.precision == 'single':
+            self.rhs_data_type = np.float32
+        else:
+            self.rhs_data_type = np.float64
 
     def mv(self, v):
         return self.mat @ v
@@ -89,66 +95,16 @@ class BasicStructuredOperator(BaseStructuredOperator):
         return right_hand_side(self, None)
 
 
-'''class BasicHelmholtzStructuredOperator(BaseStructuredOperator):
-    def __init__(self, dim_param, geometry_type, kappa):
-        super().__init__(dim_param, geometry_type)
-        try:
-            self.mat = cdist(self.points, self.points)
-            self.mat = self.mat.astype(np.complex128) 
-            kappa = 1.0j * kappa
-            self.mat = (1.0 / self.n_points) * np.exp(kappa * self.mat) / (4.0 * np.pi * self.mat)
-            self.mat[np.diag_indices_from(self.mat)] = 1
-            self.rhs = self.get_rhs()
-        except Exception as e:
-            print("Error initializing HelmholtzKernel:", e)
-            raise 
-
-    def mv(self, v):
-        return self.mat @ v
-    
-    @property
-    def cond(self):
-        return get_cond(self.mat)
-    
-    @property
-    def dense(self):
-        return self.mat
-    
-    def get_rhs(self):
-        np.random.rand(self.n_points)
-
-
-class SimplePythonLaplaceKernel(BaseStructuredOperator):
-    def __init__(self, dim_param, geometry_type, _kappa):
-        super().__init__(dim_param, geometry_type)
-        try:
-            self.mat = cdist(self.points, self.points)
-            self.mat = (1.0 / self.n_points) * 1.0 / (4 * np.pi * self.mat)
-            self.mat[np.diag_indices_from(self.mat)] = 1
-            self.rhs = self.get_rhs()
-        except Exception as e:
-            print("Error initializing LaplaceKernel:", e)
-            raise  
-
-    def mv(self, v):
-        return self.mat @ v
-    
-    @property
-    def cond(self):
-        return get_cond(self.mat)
-    
-    @property
-    def dense(self):
-        return self.mat
-    
-    def get_rhs(self):
-        np.random.rand(self.n_points)'''
-
-
 class BemppClLaplaceSingleLayer(BaseStructuredOperator):
-    def __init__(self, dim_param, kappa, geometry_type):
-        super().__init__(dim_param, kappa, geometry_type)
+    def __init__(self, dim_param, kappa, geometry_type, precision):
+        super().__init__(dim_param, kappa, geometry_type, precision)
         try:
+            if self.precision == 'single':
+                bempp_cl.api.global_parameters.precision = "single"
+            else:
+                bempp_cl.api.global_parameters.precision = "double"
+
+            self.operator_type = 'real'
             self.operator_type = 'BemppClLaplaceSingleLayer'
             self.domain = bempp_cl.api.function_space(self.grid, "DP", 0)
             self.dual_to_range = self.domain
@@ -179,9 +135,15 @@ class BemppClLaplaceSingleLayer(BaseStructuredOperator):
     
 
 class BemppClHelmholtzSingleLayer(BaseStructuredOperator):
-    def __init__(self, dim_param, kappa, geometry_type):
-        super().__init__(dim_param, kappa, geometry_type)
+    def __init__(self, dim_param, kappa, geometry_type, precision):
+        super().__init__(dim_param, kappa, geometry_type, precision)
         try:
+            if self.precision == 'single':
+                bempp_cl.api.global_parameters.precision = "single"
+            else:
+                bempp_cl.api.global_parameters.precision = "double"
+
+            self.operator_type = 'complex'
             self.operator_type = 'BemppClHelmholtzSingleLayer'
             self.domain = bempp_cl.api.function_space(self.grid, "DP", 0)
             self.dual_to_range = self.domain
@@ -190,6 +152,7 @@ class BemppClHelmholtzSingleLayer(BaseStructuredOperator):
                 self.domain, self.range, self.dual_to_range, kappa).weak_form()
             self.rhs_data_type = self.mat.dtype
             self.rhs = self.get_rhs()
+            
 
         except Exception as e:
             print("Error initializing BemppClHelmholtzSingleLayer:", e)
@@ -213,10 +176,15 @@ class BemppClHelmholtzSingleLayer(BaseStructuredOperator):
 
 
 class KiFMMLaplaceOperator(BaseStructuredOperator):
-    def __init__(self, dim_param, kappa, geometry_type):
-        super().__init__(dim_param, kappa, geometry_type)
+    def __init__(self, dim_param, kappa, geometry_type, precision):
+        super().__init__(dim_param, kappa, geometry_type, precision)
         try:
-            self.rhs_data_type = np.float64
+            if self.precision == 'single':
+                self.rhs_data_type = np.float32
+            else:
+                self.rhs_data_type = np.float64
+            
+            self.operator_type = 'real'
             self.operator_type = 'KiFMMLaplaceOperator'
             points = self.points.ravel()
             sources = points.astype(self.rhs_data_type)
@@ -263,11 +231,17 @@ class KiFMMLaplaceOperator(BaseStructuredOperator):
 
 
 class KiFMMHelmholtzOperator(BaseStructuredOperator):
-    def __init__(self, dim_param, kappa, geometry_type):
-        super().__init__(dim_param, kappa, geometry_type)
+    def __init__(self, dim_param, kappa, geometry_type, precision):
+        super().__init__(dim_param, kappa, geometry_type, precision)
         try:
-            dtype = np.float64
-            self.rhs_data_type = np.complex128
+            if self.precision == 'single':
+                dtype = np.float32
+                self.rhs_data_type = np.complex64
+            else:
+                dtype = np.float64
+                self.rhs_data_type = np.complex128
+            
+            self.operator_type = 'complex'
             self.kappa = dtype(self.kappa)
             self.operator_type = 'KiFMMHelmholtzOperator'
             points = self.points.ravel()

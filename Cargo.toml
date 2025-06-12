@@ -38,6 +38,7 @@ rayon = "1.8"
 libc = "0.2"
 strum = "0.24"
 strum_macros = "0.24"
+regex = "1"
 
 
 [profile.release]

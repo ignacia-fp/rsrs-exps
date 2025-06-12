@@ -4,9 +4,14 @@ use rlst::prelude::*;
 
 pub trait ExpStructuredOperator: RlstScalar {
     fn exp_real_structured_operator(dist: Self, npoints: usize, kappa: Self) -> Self;
-    fn exp_complex_structured_operator(dist: Self, npoints: usize, kappa: Self) -> num::Complex<Self>;
+    fn exp_complex_structured_operator(
+        dist: Self,
+        npoints: usize,
+        kappa: Self,
+    ) -> num::Complex<Self>;
     fn laplace_structured_operator(dist: Self, npoints: usize, kappa: Self) -> Self;
-    fn helmholtz_structured_operator(dist: Self, npoints: usize, kappa: Self) -> num::Complex<Self>;
+    fn helmholtz_structured_operator(dist: Self, npoints: usize, kappa: Self)
+        -> num::Complex<Self>;
 }
 
 macro_rules! implement_exp_structured_operator {
@@ -17,7 +22,11 @@ macro_rules! implement_exp_structured_operator {
                 let n: Self = num::NumCast::from(npoints).unwrap();
                 (1.0 / (n * (d * d).exp()))
             }
-            fn exp_complex_structured_operator(dist: Self, npoints: usize, _kappa: Self) -> num::Complex<Self> {
+            fn exp_complex_structured_operator(
+                dist: Self,
+                npoints: usize,
+                _kappa: Self,
+            ) -> num::Complex<Self> {
                 let d: Self = num::NumCast::from(dist).unwrap();
                 let n: Self = num::NumCast::from(npoints).unwrap();
                 let i = num::Complex::<Self>::new(0.0, 1.0);
@@ -33,7 +42,11 @@ macro_rules! implement_exp_structured_operator {
                 let n: Self = num::NumCast::from(npoints).unwrap();
                 (1.0 / (4.0 * pi * n * d))
             }
-            fn helmholtz_structured_operator(dist: Self, npoints: usize, kappa: Self) -> num::Complex<Self> {
+            fn helmholtz_structured_operator(
+                dist: Self,
+                npoints: usize,
+                kappa: Self,
+            ) -> num::Complex<Self> {
                 let pi: Self = if std::any::TypeId::of::<Self>() == std::any::TypeId::of::<f32>() {
                     std::f32::consts::PI as Self
                 } else {
@@ -254,7 +267,11 @@ macro_rules! implement_structured_operator_matrix {
                 points_x: &[bempp_octree::Point],
                 kappa: Self,
             ) -> DynamicArray<num::Complex<Self>, 2> {
-                LowRankMatrix::get_complex_matrix(points_x, Self::exp_complex_structured_operator, kappa)
+                LowRankMatrix::get_complex_matrix(
+                    points_x,
+                    Self::exp_complex_structured_operator,
+                    kappa,
+                )
             }
 
             fn get_laplace_matrix(
@@ -268,7 +285,11 @@ macro_rules! implement_structured_operator_matrix {
                 points_x: &[bempp_octree::Point],
                 kappa: Self,
             ) -> DynamicArray<num::Complex<Self>, 2> {
-                LowRankMatrix::get_complex_matrix(points_x, Self::helmholtz_structured_operator, kappa)
+                LowRankMatrix::get_complex_matrix(
+                    points_x,
+                    Self::helmholtz_structured_operator,
+                    kappa,
+                )
             }
         }
     };

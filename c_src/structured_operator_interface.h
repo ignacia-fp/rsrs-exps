@@ -17,7 +17,7 @@ typedef struct {
     PyObject *pyobj;
 } StructuredOperator;
 
-StructuredOperator* initialize_structured_operator(const char* python_executable, const char *class_name, double arg1, const char *geometry_type, double kappa);
+StructuredOperator* initialize_structured_operator(const char* python_executable, const char *class_name, double arg1, const char *geometry_type, double kappa, const char *precision);
 int mv_structured_operator_real(StructuredOperator *structured_operator, const double *input, double *output, int len);
 int mv_structured_operator_complex(StructuredOperator *k, const double _Complex *input, double _Complex *output, int len);
 const double* get_points(StructuredOperator *k);

@@ -1,8 +1,7 @@
 use cc;
-use std::process::Command;
 use std::fs::File;
 use std::io::Write;
-
+use std::process::Command;
 
 /// Generates a Rust enum from Python class names in a given file.
 fn generate_operator_enum(python_file: &str, output_file: &str) {
@@ -17,11 +16,15 @@ fn generate_operator_enum(python_file: &str, output_file: &str) {
     }
 
     let class_names = String::from_utf8_lossy(&output.stdout);
-    let mut file = File::create(output_file)
-        .unwrap_or_else(|_| panic!("Failed to create {}", output_file));
+    let mut file =
+        File::create(output_file).unwrap_or_else(|_| panic!("Failed to create {}", output_file));
 
-    writeln!(file, "#[derive(Clone, strum_macros::AsRefStr, strum_macros::EnumString, Debug)]
-    pub enum StructuredOperatorType {{").unwrap();
+    writeln!(
+        file,
+        "#[derive(Clone, strum_macros::AsRefStr, strum_macros::EnumString, Debug, serde::Deserialize)]
+    pub enum StructuredOperatorType {{"
+    )
+    .unwrap();
     for name in class_names.lines() {
         writeln!(file, "    {},", name).unwrap();
     }
@@ -30,7 +33,6 @@ fn generate_operator_enum(python_file: &str, output_file: &str) {
     println!("cargo:rerun-if-changed={}", python_file);
     println!("cargo:rerun-if-changed=scripts/class_names.py");
 }
-
 
 fn main() {
     // Ensure build.rs reruns if relevant files or env variables change
@@ -78,7 +80,10 @@ fn main() {
     println!("cargo:rustc-link-search=native={}", python_libdir);
     println!("cargo:rustc-link-lib=dylib={}", python_libname);
 
-    generate_operator_enum("python/structured_operators.py", "src/io/structured_operators_types.rs");
+    generate_operator_enum(
+        "python/structured_operators.py",
+        "src/io/structured_operators_types.rs",
+    );
 
     // Compile C code with the correct includes
     cc::Build::new()

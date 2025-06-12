@@ -50,7 +50,7 @@ StructuredOperator* create_structured_operator(PyObject *structured_operator_ins
     return k;
 }
 
-StructuredOperator* initialize_structured_operator(const char* python_executable, const char *class_name, double arg1, const char *geometry_type, double kappa) {
+StructuredOperator* initialize_structured_operator(const char* python_executable, const char *class_name, double arg1, const char *geometry_type, double kappa, const char *precision) {
     
     if (!Py_IsInitialized()) {
         wchar_t *program_name = Py_DecodeLocale(python_executable, NULL);
@@ -85,13 +85,17 @@ StructuredOperator* initialize_structured_operator(const char* python_executable
     }
 
     // Create Python string object for geometry_type
+    PyObject *kappa_obj = PyFloat_FromDouble(kappa);
     PyObject *geometry_obj = PyUnicode_FromString(geometry_type);
+    PyObject *precision_obj = PyUnicode_FromString(precision);
 
     // Create argument tuple with (arg1, kappa, geometry_type)
-    PyObject *args = PyTuple_Pack(3, arg1_obj, PyFloat_FromDouble(kappa), geometry_obj);
+    PyObject *args = PyTuple_Pack(4, arg1_obj, kappa_obj, geometry_obj, precision_obj);
 
     Py_DECREF(arg1_obj);
+    Py_DECREF(kappa_obj);
     Py_DECREF(geometry_obj);
+    Py_DECREF(precision_obj);
 
 
     PyObject *instance = PyObject_CallObject(structured_operator_class, args);

@@ -188,7 +188,10 @@ where
         let mut el_vec = ArrayVectorSpace::zero(structured_operator.domain());
         el_vec.view_mut()[[i]] = num::One::one();
         let res = structured_operator.apply(el_vec.r_mut(), TransMode::NoTrans);
-        dense_structured_operator.r_mut().slice(1, i).fill_from(res.view());
+        dense_structured_operator
+            .r_mut()
+            .slice(1, i)
+            .fill_from(res.view());
     }
 
     return dense_structured_operator;

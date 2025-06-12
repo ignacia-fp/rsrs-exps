@@ -1,6 +1,8 @@
 use std::sync::{Arc, Mutex};
 
-use super::structured_operator::{StructuredOperator, StructuredOperatorImpl, StructuredOperatorOperator};
+use super::structured_operator::{
+    StructuredOperator, StructuredOperatorImpl, StructuredOperatorOperator,
+};
 use bempp_rsrs::rsrs::rsrs_factors::{
     CommutativeFactors, Factor, FactorMulType, FactorOperations, FactorOptions, FactorType,
     IdFactor, LocalFrom, LuFactor,
@@ -461,7 +463,8 @@ pub fn get_boxes_errors<
         MatrixLuDecomposition<Item = Item>,
     TriangularMatrix<Item>: TriangularOperations<Item = Item>,
 {
-    let (id_error_stats, lu_error_stats) = &el_factors_inv_mul_errors(rsrs_factors, structured_operator_mat);
+    let (id_error_stats, lu_error_stats) =
+        &el_factors_inv_mul_errors(rsrs_factors, structured_operator_mat);
 
     id_error_stats
         .iter()
@@ -488,7 +491,8 @@ pub fn get_boxes_errors<
 
     println!("\n");
 
-    let diag_re = commutative_factors_errors(&rsrs_factors.diag_box_factors, structured_operator_mat);
+    let diag_re =
+        commutative_factors_errors(&rsrs_factors.diag_box_factors, structured_operator_mat);
 
     let diag_re_r;
     let diag_re_s;

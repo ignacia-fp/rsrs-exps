@@ -1,4 +1,6 @@
-use super::structured_operator::{Attr, StructuredOperator, StructuredOperatorImpl, StructuredOperatorOperator};
+use super::structured_operator::{
+    Attr, StructuredOperator, StructuredOperatorImpl, StructuredOperatorOperator,
+};
 use bempp_rsrs::rsrs::rsrs_factors::{LocalFrom, RsrsFactors, RsrsOperator};
 use rlst::{
     dense::{linalg::lu::MatrixLu, tools::RandScalar},
@@ -17,7 +19,7 @@ where
     LuDecomposition<Item, BaseArray<Item, VectorContainer<Item>, 2>>:
         MatrixLuDecomposition<Item = Item>,
     TriangularMatrix<Item>: TriangularOperations<Item = Item>,
-    GivensRotationsData<Item>: GivensRotations<Item>
+    GivensRotationsData<Item>: GivensRotations<Item>,
 {
     let dim = target_op.domain().dimension();
     let rhs = target_op.get_rhs();
@@ -45,7 +47,7 @@ where
     LuDecomposition<Item, BaseArray<Item, VectorContainer<Item>, 2>>:
         MatrixLuDecomposition<Item = Item>,
     TriangularMatrix<Item>: TriangularOperations<Item = Item>,
-     GivensRotationsData<Item>: GivensRotations<Item>
+    GivensRotationsData<Item>: GivensRotations<Item>,
 {
     let dim = target_op.domain().dimension();
     let mut rhs = target_op.get_rhs();
