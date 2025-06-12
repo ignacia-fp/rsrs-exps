@@ -115,7 +115,6 @@ impl<Item: RlstScalar> TestParams<Item> {
 
         // Use `format!` again to prepend "results/" and append version
         let path_str = format!("results/{}/{}", filename, version);
-        println!("path str: {:?}", path_str);
         path_str
     }
 }
