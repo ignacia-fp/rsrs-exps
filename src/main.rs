@@ -66,18 +66,6 @@ fn determine_type_behavior(
     }
 }
 
-/*#[derive(Debug)]
-enum TypedScenarioArgs {
-    Real(ScenarioArgs<f64>),
-    Complex(ScenarioArgs<c64>),
-}
-
-#[derive(Debug)]
-enum TypedRsrsArgs {
-    Real(RsrsArgs<f64>),
-    Complex(RsrsArgs<c64>),
-}*/
-
 
 fn build_and_run_test() {
     let args: Vec<String> = env::args().collect();
@@ -145,7 +133,7 @@ fn build_and_run_test() {
                 let scenario_options =
                     ScenarioOptions::new(None::<ScenarioArgs<f64>>, data_type.clone());
                 let rsrs_options = RsrsOptions::<f64>::new(None::<RsrsArgs<f64>>);
-                let output_options = OutputOptions::new(Solve::False, false, false, Results::All);
+                let output_options = OutputOptions::new(Solve::True(1e-5), false, false, Results::All);
                 let mut test_framework = TestFramework::new(scenario_options, rsrs_options, output_options);
                 test_framework.run_tests();
             }
@@ -154,7 +142,7 @@ fn build_and_run_test() {
                 let scenario_options =
                     ScenarioOptions::new(None::<ScenarioArgs<c64>>, data_type.clone());
                 let rsrs_options = RsrsOptions::<c64>::new(None::<RsrsArgs<c64>>);
-                let output_options = OutputOptions::new(Solve::False, false, false, Results::All);
+                let output_options = OutputOptions::new(Solve::True(1e-5), false, false, Results::All);
                 let mut test_framework = TestFramework::new(scenario_options, rsrs_options, output_options);
                 test_framework.run_tests();
             }

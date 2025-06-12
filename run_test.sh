@@ -1,7 +1,3 @@
 #!/bin/bash
-
-# Set environment variables
 export OPENBLAS_NUM_THREADS=1
-
-# Run Cargo
-cargo run --release
+cargo run --release '{"structured_operator_type": "KiFMMLaplaceOperator", "precision": "Double"}' '{"id_tols": [0.01, 0.0001, 1e-06], "dim_args": [{"Kappa": 31.41592653589793}], "geometry_type": "SphereSurface"}' '{"oversampling": 8, "oversampling_diag_blocks": 16, "initial_num_samples": 420, "null_method": "Projection", "near_block_extraction_method": "LuLstSq", "diag_block_extraction_method": "LuLstSq", "lu_pivot_method": "Lu", "diag_pivot_method": "Lu", "tol_null": 1e-10, "tol_id": 0.01, "tol_ext_near": 1e-10, "tol_diag_ext": 1e-10, "min_rank": 4, "hermitian": true, "rank_picking": "Min"}' '{"solve": {"True": 1e-05}, "plot": true, "dense_errors": false, "results_output": "All"}'

@@ -1,0 +1,4 @@
+Requirement already satisfied: numpy in ./bempp-env/lib/python3.10/site-packages (2.2.6)
+Requirement already satisfied: scipy in ./bempp-env/lib/python3.10/site-packages (1.15.3)
+Requirement already satisfied: numba in ./bempp-env/lib/python3.10/site-packages (0.61.2)
+Requirement already satisfied: meshio in ./bempp-env/lib/python3.10/site-packages (5.3.5)
