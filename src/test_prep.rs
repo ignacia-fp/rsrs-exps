@@ -284,7 +284,7 @@ macro_rules! implement_test_framework {
 
                         let path_str = self.test_params.get_test_dir(dim_num);
 
-                        iterations.no_prec = match self.output_options.solve {
+                        iterations.prec = match self.output_options.solve {
                             Solve::True(tol) => {
                                 Some(solve_prec_system(operator.clone(), &mut rsrs_factors, tol))
                             }

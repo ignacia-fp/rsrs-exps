@@ -100,9 +100,9 @@ class BemppClLaplaceSingleLayer(BaseStructuredOperator):
         super().__init__(dim_param, kappa, geometry_type, precision)
         try:
             if self.precision == 'single':
-                bempp_cl.api.global_parameters.precision = "single"
+                bempp_cl.api.DEFAULT_PRECISION = "single"
             else:
-                bempp_cl.api.global_parameters.precision = "double"
+                bempp_cl.api.DEFAULT_PRECISION = "double"
 
             self.operator_type = 'real'
             self.operator_type = 'BemppClLaplaceSingleLayer'
@@ -139,9 +139,9 @@ class BemppClHelmholtzSingleLayer(BaseStructuredOperator):
         super().__init__(dim_param, kappa, geometry_type, precision)
         try:
             if self.precision == 'single':
-                bempp_cl.api.global_parameters.precision = "single"
+                bempp_cl.api.DEFAULT_PRECISION = "single"
             else:
-                bempp_cl.api.global_parameters.precision = "double"
+                bempp_cl.api.DEFAULT_PRECISION = "double"
 
             self.operator_type = 'complex'
             self.operator_type = 'BemppClHelmholtzSingleLayer'
