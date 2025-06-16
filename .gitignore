@@ -1,2 +1,4 @@
 /target
 *.json
+.python-version
+__pycache__/
