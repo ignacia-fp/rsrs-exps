@@ -27,7 +27,8 @@ def right_hand_side(operator, problem_type):
                                                                     operator.dual_to_range)
             dlp = bempp_cl.api.operators.boundary.laplace.double_layer(operator.domain,
                                                                     operator.range,
-                                                                    operator.domain)
+                                                                    operator.domain,
+                                                                    assembler="fmm")
 
             rhs = (.5 * identity + dlp) * dirichlet_fun
 
@@ -50,7 +51,9 @@ def right_hand_side(operator, problem_type):
                                                                     operator.dual_to_range)
             dlp = bempp_cl.api.operators.boundary.helmholtz.double_layer(operator.domain,
                                                                     operator.range,
-                                                                    operator.domain, kappa)
+                                                                    operator.domain, 
+                                                                    kappa,
+                                                                    assembler="fmm")
 
             rhs = (.5 * identity + dlp) * dirichlet_fun
 
