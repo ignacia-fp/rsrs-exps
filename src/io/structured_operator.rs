@@ -364,7 +364,8 @@ impl<Item: RlstScalar, Op: StructuredOperatorImpl<Item> + Shape<2>> AsApply
                 panic!("TransMode::ConjNoTrans not supported for multiplication.")
             }
             TransMode::Trans => {
-                panic!("TransMode::Trans not supported for multiplication.")
+                self.op
+            .mv(x.imp().view().data(), y.imp_mut().view_mut().data_mut());
             }
             TransMode::ConjTrans => {
                 panic!("TransMode::ConjTrans not supported for multiplication.")

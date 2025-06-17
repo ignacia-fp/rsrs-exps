@@ -110,7 +110,7 @@ class BemppClLaplaceSingleLayer(BaseStructuredOperator):
             self.dual_to_range = self.domain
             self.range = bempp_cl.api.function_space(self.grid, "P", 1)
             self.mat = bempp_cl.api.operators.boundary.laplace.single_layer(
-                self.domain, self.range, self.dual_to_range).weak_form()
+                self.domain, self.range, self.dual_to_range, assembler = "fmm").weak_form()
             self.rhs_data_type = self.mat.dtype
             self.rhs = self.get_rhs()
         except Exception as e:
@@ -149,7 +149,7 @@ class BemppClHelmholtzSingleLayer(BaseStructuredOperator):
             self.dual_to_range = self.domain
             self.range = bempp_cl.api.function_space(self.grid, "P", 1)
             self.mat = bempp_cl.api.operators.boundary.helmholtz.single_layer(
-                self.domain, self.range, self.dual_to_range, kappa).weak_form()
+                self.domain, self.range, self.dual_to_range, kappa, assembler = "fmm").weak_form()
             self.rhs_data_type = self.mat.dtype
             self.rhs = self.get_rhs()
             
