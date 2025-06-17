@@ -28,7 +28,7 @@ where
         .set_callable(|_, res| {
             residuals.push(res);
         })
-        .set_tol(tol);
+        .set_tol(tol).set_max_iter(150);
     let (_sol, _res) = gmres.run();
 
     residuals.len()
@@ -62,7 +62,7 @@ where
         .set_callable(|_, res| {
             residuals.push(res);
         })
-        .set_tol(tol);
+        .set_tol(tol).set_max_iter(100);
     let (_sol, _res) = gmres.run();
 
     residuals.len()
