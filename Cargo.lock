@@ -162,7 +162,7 @@ dependencies = [
 [[package]]
 name = "bempp-rsrs"
 version = "0.0.1-dev"
-source = "git+https://github.com/bempp/rsrs.git?branch=accept_operators#4e3e8b9718d8b972ced24197f4be6bb38635b6fd"
+source = "git+https://github.com/bempp/rsrs.git?branch=accept_operators#22ada84668de126caee1096cb2edb0b9412af8cc"
 dependencies = [
  "bempp-octree",
  "cbindgen",
@@ -1126,9 +1126,9 @@ checksum = "830d08ce1d1d941e6b30645f1a0eb5643013d835ce3779a5fc208261dbe10f55"
 
 [[package]]
 name = "libc"
-version = "0.2.172"
+version = "0.2.173"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d750af042f7ef4f724306de029d18836c26c1765a54a6a3f094cbd23a7267ffa"
+checksum = "d8cfeafaffdbc32176b64fb251369d52ea9f0a8fbc6f8759edffef7b525d64bb"
 
 [[package]]
 name = "libffi"
@@ -1702,9 +1702,9 @@ dependencies = [
 
 [[package]]
 name = "r-efi"
-version = "5.2.0"
+version = "5.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "74765f6d916ee2faa39bc8e68e4f3ed8949b48cccdac59983d287a7cb71ce9c5"
+checksum = "69cdb34c158ceb288df11e18b4bd39de994f6657d83847bdffdbd7f346754b0f"
 
 [[package]]
 name = "rand"
@@ -1821,7 +1821,7 @@ checksum = "2b15c43186be67a4fd63bee50d0303afffcef381492ebe2c5d87f324e1b8815c"
 [[package]]
 name = "rlst"
 version = "0.2.1"
-source = "git+https://github.com/linalg-rs/rlst.git?branch=extend_abstract_operator#29301cedd5f7fbecda048aadd49bfbcfb943e379"
+source = "git+https://github.com/linalg-rs/rlst.git?branch=extend_abstract_operator#804aab7232cd1e3ca2f8a6a1181eb7f9615f5260"
 dependencies = [
  "bempp-distributed-tools",
  "bindgen 0.71.1",
@@ -1848,7 +1848,7 @@ dependencies = [
 [[package]]
 name = "rlst-proc-macro"
 version = "0.2.1"
-source = "git+https://github.com/linalg-rs/rlst.git?branch=extend_abstract_operator#29301cedd5f7fbecda048aadd49bfbcfb943e379"
+source = "git+https://github.com/linalg-rs/rlst.git?branch=extend_abstract_operator#804aab7232cd1e3ca2f8a6a1181eb7f9615f5260"
 dependencies = [
  "darling",
  "quote",

@@ -353,23 +353,23 @@ impl<Item: RlstScalar, Op: StructuredOperatorImpl<Item> + Shape<2>> AsApply
         x: Element<ContainerIn>,
         _beta: <Self::Range as LinearSpace>::F,
         mut y: Element<ContainerOut>,
+        trans_mode: TransMode
     ) {
-        self.op
+        match trans_mode {
+            TransMode::NoTrans => {
+                self.op
             .mv(x.imp().view().data(), y.imp_mut().view_mut().data_mut());
-    }
-
-    fn apply_extended_transpose<
-        //TODO: Implement
-        ContainerIn: ElementContainer<E = <Self::Domain as LinearSpace>::E>,
-        ContainerOut: ElementContainerMut<E = <Self::Range as LinearSpace>::E>,
-    >(
-        &self,
-        _alpha: <Self::Range as LinearSpace>::F,
-        x: Element<ContainerIn>,
-        _beta: <Self::Range as LinearSpace>::F,
-        mut y: Element<ContainerOut>,
-    ) {
-        self.op
-            .mv(x.imp().view().data(), y.imp_mut().view_mut().data_mut());
+            }
+            TransMode::ConjNoTrans => {
+                panic!("TransMode::ConjNoTrans not supported for multiplication.")
+            }
+            TransMode::Trans => {
+                panic!("TransMode::Trans not supported for multiplication.")
+            }
+            TransMode::ConjTrans => {
+                panic!("TransMode::ConjTrans not supported for multiplication.")
+            }
+        }
+        
     }
 }
