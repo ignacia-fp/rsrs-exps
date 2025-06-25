@@ -18,7 +18,7 @@ use std::{
 
 use super::{
     errors::{get_boxes_errors, rsrs_error_estimator},
-    structured_operator::{StructuredOperator, StructuredOperatorImpl, StructuredOperatorOperator},
+    structured_operator::{StructuredOperatorInterface, StructuredOperatorImpl, StructuredOperator},
 };
 
 type Real<T> = <T as rlst::RlstScalar>::Real;
@@ -177,10 +177,10 @@ pub fn save_time_stats<Item: RlstScalar + MatrixInverse + MatrixPseudoInverse + 
 }
 
 fn compute_dense_structured_operator<Item: RlstScalar>(
-    structured_operator: &StructuredOperatorOperator<'_, Item, StructuredOperator>,
+    structured_operator: &StructuredOperator<'_, Item, StructuredOperatorInterface>,
 ) -> DynamicArray<Item, 2>
 where
-    StructuredOperator: StructuredOperatorImpl<Item>,
+    StructuredOperatorInterface: StructuredOperatorImpl<Item>,
 {
     let dim = structured_operator.domain().dimension();
     let mut dense_structured_operator = rlst_dynamic_array2!(Item, [dim, dim]);
@@ -201,7 +201,7 @@ pub fn save_error_stats<
     'a,
     Item: RlstScalar + RandScalar + MatrixInverse + MatrixPseudoInverse + MatrixId + MatrixLu + MatrixQr,
 >(
-    structured_operator_op: &StructuredOperatorOperator<'a, Item, StructuredOperator>,
+    structured_operator_op: &StructuredOperator<'a, Item, StructuredOperatorInterface>,
     rsrs_factors: &mut RsrsFactors<Item>,
     rsrs_data: &Rsrs<Item>,
     iterations: Iterations,
@@ -214,7 +214,7 @@ pub fn save_error_stats<
     LuDecomposition<Item, BaseArray<Item, VectorContainer<Item>, 2>>:
         MatrixLuDecomposition<Item = Item>,
     TriangularMatrix<Item>: TriangularOperations<Item = Item>,
-    StructuredOperator: StructuredOperatorImpl<Item>,
+    StructuredOperatorInterface: StructuredOperatorImpl<Item>,
 {
     fs::create_dir_all(Path::new(&path_str)).unwrap();
     let string_tol = format!("{:e}", tol);

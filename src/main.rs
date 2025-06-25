@@ -11,7 +11,6 @@ use std::collections::HashMap;
 use std::env;
 use std::fs;
 
-
 fn extract_operator_types(python_code: &str) -> HashMap<String, String> {
     let mut map = HashMap::new();
 
@@ -66,7 +65,6 @@ fn determine_type_behavior(
     }
 }
 
-
 fn build_and_run_test() {
     let args: Vec<String> = env::args().collect();
 
@@ -96,7 +94,8 @@ fn build_and_run_test() {
                     serde_json::from_str(&args[4]).expect("Failed to deserialize output args");
                 let scenario_options = ScenarioOptions::new(Some(scenario_args), data_type);
                 let rsrs_options = RsrsOptions::<f64>::new(Some(rsrs_args));
-                let mut test_framework = TestFramework::new(scenario_options, rsrs_options, output_options);
+                let mut test_framework =
+                    TestFramework::new(scenario_options, rsrs_options, output_options);
                 test_framework.run_tests();
             }
 
@@ -110,7 +109,8 @@ fn build_and_run_test() {
 
                 let scenario_options = ScenarioOptions::new(Some(scenario_args), data_type);
                 let rsrs_options = RsrsOptions::<c64>::new(Some(rsrs_args));
-                let mut test_framework = TestFramework::new(scenario_options, rsrs_options, output_options);
+                let mut test_framework =
+                    TestFramework::new(scenario_options, rsrs_options, output_options);
                 test_framework.run_tests();
             }
         }
@@ -133,8 +133,10 @@ fn build_and_run_test() {
                 let scenario_options =
                     ScenarioOptions::new(None::<ScenarioArgs<f64>>, data_type.clone());
                 let rsrs_options = RsrsOptions::<f64>::new(None::<RsrsArgs<f64>>);
-                let output_options = OutputOptions::new(Solve::True(1e-5), false, false, Results::All);
-                let mut test_framework = TestFramework::new(scenario_options, rsrs_options, output_options);
+                let output_options =
+                    OutputOptions::new(Solve::True(1e-5), false, false, Results::All);
+                let mut test_framework =
+                    TestFramework::new(scenario_options, rsrs_options, output_options);
                 test_framework.run_tests();
             }
 
@@ -142,14 +144,14 @@ fn build_and_run_test() {
                 let scenario_options =
                     ScenarioOptions::new(None::<ScenarioArgs<c64>>, data_type.clone());
                 let rsrs_options = RsrsOptions::<c64>::new(None::<RsrsArgs<c64>>);
-                let output_options = OutputOptions::new(Solve::True(1e-5), false, false, Results::All);
-                let mut test_framework = TestFramework::new(scenario_options, rsrs_options, output_options);
+                let output_options =
+                    OutputOptions::new(Solve::True(1e-5), false, false, Results::All);
+                let mut test_framework =
+                    TestFramework::new(scenario_options, rsrs_options, output_options);
                 test_framework.run_tests();
             }
         }
     };
-
-    
 }
 
 fn main() {

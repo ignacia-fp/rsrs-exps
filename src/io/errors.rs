@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use super::structured_operator::{
-    StructuredOperator, StructuredOperatorImpl, StructuredOperatorOperator,
+    StructuredOperator, StructuredOperatorImpl, StructuredOperatorInterface,
 };
 use bempp_rsrs::rsrs::rsrs_factors::{
     CommutativeFactors, Factor, FactorMulType, FactorOperations, FactorOptions, FactorType,
@@ -59,7 +59,7 @@ pub fn app_error<
     Op1: StructuredOperatorImpl<Item> + Shape<2>,
     Op2: RsrsFactorsImpl<Item> + Shape<2>,
 >(
-    target_op: &StructuredOperatorOperator<'a, Item, Op1>,
+    target_op: &StructuredOperator<'a, Item, Op1>,
     rsrs_op: &mut RsrsOperator<'a, Item, Op2>,
     sample_size: usize,
     side: RsrsSide,
@@ -124,7 +124,7 @@ pub fn rsrs_error_estimator<
     'a,
     Item: RlstScalar + RandScalar + MatrixInverse + MatrixId + MatrixPseudoInverse + MatrixLu + MatrixQr,
 >(
-    target_op: &StructuredOperatorOperator<'a, Item, StructuredOperator>,
+    target_op: &StructuredOperator<'a, Item, StructuredOperatorInterface>,
     rsrs_factors: &mut RsrsFactors<Item>,
     sample_size: usize,
 ) -> (Real<Item>, Real<Item>, Real<Item>, Real<Item>, Real<Item>)
@@ -134,7 +134,7 @@ where
     LuDecomposition<Item, BaseArray<Item, VectorContainer<Item>, 2>>:
         MatrixLuDecomposition<Item = Item>,
     TriangularMatrix<Item>: TriangularOperations<Item = Item>,
-    StructuredOperator: StructuredOperatorImpl<Item>,
+    StructuredOperatorInterface: StructuredOperatorImpl<Item>,
 {
     let mut rsrs_operator = RsrsOperator::from_local(rsrs_factors);
 

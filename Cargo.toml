@@ -31,6 +31,9 @@ npy = "0.4.0"
 plotters = "0.3.7"
 paste = "1"
 bempp-rsrs = { git = "https://github.com/bempp/rsrs.git", branch = "accept_operators" }
+bempp = { git = "https://github.com/bempp/bempp-rs.git", rev = "4e59d4202bef86023cf436a0904d78f6fa4b985b", features = ["enable_tracing"]}
+ndelement = { git="https://github.com/bempp/ndelement.git", rev = "c7363aec58d84a91833c00e4ffd25c24c60f2f97", features = ["mpi"]}
+green-kernels = { git = "https://github.com/bempp/green-kernels.git", rev = "e01a482f070e09e114f12b2ea1a1b2c1064881bb", features = ["mpi"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 piechart = "1.0.0"
@@ -39,6 +42,7 @@ libc = "0.2"
 strum = "0.24"
 strum_macros = "0.24"
 regex = "1"
+bempp-quadrature = "0.1.0"
 
 
 [profile.release]

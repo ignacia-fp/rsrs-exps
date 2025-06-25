@@ -285,3 +285,28 @@ class KiFMMHelmholtzOperator(BaseStructuredOperator):
     def get_rhs(self):
         return right_hand_side(self, None)
     
+
+
+class BemppRsLaplaceOperator(BaseStructuredOperator):
+    def __init__(self, dim_param, kappa, geometry_type, precision):
+        super().__init__(dim_param, kappa, geometry_type, precision)
+        self.operator_type = 'real'
+        self.operator_type = 'BemppRsLaplaceOperator'
+        if self.precision == 'single':
+            self.rhs_data_type = np.float32
+        else:
+            self.rhs_data_type = np.float64
+
+    def mv(self, v):
+        raise ValueError("Mv implemented in rust.")
+    
+    @property
+    def cond(self):
+        raise ValueError("Matrix not initialized.")
+    
+    @property
+    def dense(self):
+        raise ValueError("Matrix not initialized.")
+    
+    def get_rhs(self):
+        raise ValueError("Rhs implemented in rust.")

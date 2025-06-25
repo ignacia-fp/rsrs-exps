@@ -48,7 +48,7 @@ extern "C" {
 }
 
 #[derive(Clone)]
-pub struct StructuredOperator {
+pub struct StructuredOperatorInterface {
     raw: *mut StructuredOperatorOpaque,
     pub n_points: usize,
 }
@@ -90,6 +90,13 @@ impl StructuredOperatorParams {
     }
 }
 
+
+type BemppRsOperator<T> = Operator<T>;
+pub enum StructuredOperatorImplType<T: OperatorBase + AsApply> {
+    Python(StructuredOperatorInterface),
+    Rust(BemppRsOperator<T>),
+}
+
 type Real<T> = <T as rlst::RlstScalar>::Real;
 pub trait StructuredOperatorImpl<Item: RlstScalar> {
     type Item: RlstScalar;
@@ -123,7 +130,7 @@ print(sys.prefix)
 
 macro_rules! implement_structured_operator {
     ($scalar:ty, $mv:expr, $rhs_fn:expr) => {
-        impl StructuredOperatorImpl<$scalar> for StructuredOperator {
+        impl StructuredOperatorImpl<$scalar> for StructuredOperatorInterface {
             type Item = $scalar;
 
             fn new(params: StructuredOperatorParams) -> Self {
@@ -197,7 +204,7 @@ macro_rules! implement_structured_operator {
     };
 }
 
-pub fn rhs_real(structured_operator: &StructuredOperator) -> Option<Vec<f64>> {
+pub fn rhs_real(structured_operator: &StructuredOperatorInterface) -> Option<Vec<f64>> {
     let ptr = unsafe { structured_operator_get_real_rhs(structured_operator.raw) };
     if ptr.is_null() {
         return None;
@@ -209,7 +216,7 @@ pub fn rhs_real(structured_operator: &StructuredOperator) -> Option<Vec<f64>> {
     Some(slice.to_vec())
 }
 
-pub fn rhs_complex(structured_operator: &StructuredOperator) -> Option<Vec<c64>> {
+pub fn rhs_complex(structured_operator: &StructuredOperatorInterface) -> Option<Vec<c64>> {
     let ptr = unsafe { structured_operator_get_complex_rhs(structured_operator.raw) };
     if ptr.is_null() {
         return None;
@@ -222,7 +229,20 @@ pub fn rhs_complex(structured_operator: &StructuredOperator) -> Option<Vec<c64>>
 implement_structured_operator!(f64, mv_structured_operator_real, rhs_real);
 implement_structured_operator!(c64, mv_structured_operator_complex, rhs_complex);
 
-pub fn get_bempp_points(structured_operator: &StructuredOperator) -> Option<Vec<Point>> {
+pub fn one_dim_to_bempp_points(raw_points: &[f64]) -> Vec<bempp_octree::Point> {
+    let points: Vec<_> = raw_points
+        .chunks_exact(3)
+        .map(|chunk| {
+            let el = [chunk[0], chunk[1], chunk[2]];
+            let point = bempp_octree::Point::new(el, 000);
+            point
+        })
+        .collect();
+
+    points
+}
+
+pub fn get_bempp_points(structured_operator: &StructuredOperatorInterface) -> Option<Vec<Point>> {
     let ptr = unsafe { get_points(structured_operator.raw) };
     if ptr.is_null() {
         return None;
@@ -249,7 +269,7 @@ pub fn get_bempp_points(structured_operator: &StructuredOperator) -> Option<Vec<
     })
 }
 
-impl Drop for StructuredOperator {
+impl Drop for StructuredOperatorInterface {
     fn drop(&mut self) {
         if !self.raw.is_null() {
             unsafe {
@@ -260,14 +280,14 @@ impl Drop for StructuredOperator {
     }
 }
 
-impl Shape<2> for StructuredOperator {
+impl Shape<2> for StructuredOperatorInterface {
     fn shape(&self) -> [usize; 2] {
         [self.n_points, self.n_points]
     }
 }
 
 #[derive(Clone)]
-pub struct StructuredOperatorOperator<
+pub struct StructuredOperator<
     'a,
     Item: RlstScalar,
     Op: StructuredOperatorImpl<Item> + Shape<2>,
@@ -282,7 +302,7 @@ pub trait Attr<'a, Op, Item: RlstScalar>: Sized {
 }
 
 impl<'a, Item: RlstScalar, Op: StructuredOperatorImpl<Item> + Shape<2>> Attr<'a, Op, Item>
-    for StructuredOperatorOperator<'_, Item, Op>
+    for StructuredOperator<'_, Item, Op>
 where
     Op: StructuredOperatorImpl<Item, Item = Item>,
 {
@@ -298,11 +318,11 @@ where
 }
 
 impl<Item: RlstScalar, Op: StructuredOperatorImpl<Item> + Shape<2>> std::fmt::Debug
-    for StructuredOperatorOperator<'_, Item, Op>
+    for StructuredOperator<'_, Item, Op>
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let shape = self.op.shape();
-        write!(f, "StructuredOperatorOperator: [{}x{}]", shape[0], shape[1]).unwrap();
+        write!(f, "StructuredOperator: [{}x{}]", shape[0], shape[1]).unwrap();
         Ok(())
     }
 }
@@ -312,7 +332,7 @@ pub struct LocalOp<'a, Op> {
 }
 
 impl<Item: RlstScalar, Op: StructuredOperatorImpl<Item> + Shape<2>> OperatorBase
-    for StructuredOperatorOperator<'_, Item, Op>
+    for StructuredOperator<'_, Item, Op>
 {
     type Domain = ArrayVectorSpace<Item>;
     type Range = ArrayVectorSpace<Item>;
@@ -331,18 +351,18 @@ pub trait LocalFrom<'a, Op, Item: RlstScalar>: Sized {
 }
 
 impl<'a, Item: RlstScalar, Op: StructuredOperatorImpl<Item> + Shape<2>> LocalFrom<'a, Op, Item>
-    for StructuredOperatorOperator<'a, Item, Op>
+    for StructuredOperator<'a, Item, Op>
 {
     fn from_local(op: &'a Op) -> Self {
         let shape = op.shape();
         let domain = ArrayVectorSpace::from_dimension(shape[1]);
         let range = ArrayVectorSpace::from_dimension(shape[0]);
-        StructuredOperatorOperator { op, domain, range }
+        StructuredOperator { op, domain, range }
     }
 }
 
 impl<Item: RlstScalar, Op: StructuredOperatorImpl<Item> + Shape<2>> AsApply
-    for StructuredOperatorOperator<'_, Item, Op>
+    for StructuredOperator<'_, Item, Op>
 {
     fn apply_extended<
         ContainerIn: ElementContainer<E = <Self::Domain as LinearSpace>::E>,
@@ -353,24 +373,23 @@ impl<Item: RlstScalar, Op: StructuredOperatorImpl<Item> + Shape<2>> AsApply
         x: Element<ContainerIn>,
         _beta: <Self::Range as LinearSpace>::F,
         mut y: Element<ContainerOut>,
-        trans_mode: TransMode
+        trans_mode: TransMode,
     ) {
         match trans_mode {
             TransMode::NoTrans => {
                 self.op
-            .mv(x.imp().view().data(), y.imp_mut().view_mut().data_mut());
+                    .mv(x.imp().view().data(), y.imp_mut().view_mut().data_mut());
             }
             TransMode::ConjNoTrans => {
                 panic!("TransMode::ConjNoTrans not supported for multiplication.")
             }
             TransMode::Trans => {
                 self.op
-            .mv(x.imp().view().data(), y.imp_mut().view_mut().data_mut());
+                    .mv(x.imp().view().data(), y.imp_mut().view_mut().data_mut());
             }
             TransMode::ConjTrans => {
                 panic!("TransMode::ConjTrans not supported for multiplication.")
             }
         }
-        
     }
 }
