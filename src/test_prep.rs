@@ -1,23 +1,26 @@
 use crate::io::plot_results::time_piechart;
 use crate::io::read_and_write::{save_error_stats, save_rank_stats, save_time_stats, Iterations};
-use crate::io::solve::{solve_system_so, solve_prec_system_so};
-use bempp_rsrs::rsrs::rsrs_factors::{LocalFrom, RsrsOperator};
-use crate::io::structured_operator::one_dim_to_bempp_points;
+use crate::io::solve::solve_system;
+use crate::io::structured_operator::LocalFrom;
 use crate::io::structured_operator::{
     get_bempp_points, GeometryType, StructuredOperator, StructuredOperatorImpl,
     StructuredOperatorInterface, StructuredOperatorParams,
 };
 use crate::io::structured_operators_types::StructuredOperatorType;
-use bempp::boundary_assemblers::BoundaryAssemblerOptions;
-use bempp::evaluator_tools::grid_points_from_space;
 use bempp_octree::Octree;
 use bempp_rsrs::rsrs::rsrs_cycle::{Rsrs, RsrsOptions};
+use bempp_rsrs::rsrs::rsrs_factors::{LocalFromSpaces, RsrsOperator};
+use bempp_rsrs::rsrs::sketch::SamplingSpace;
 use mpi::{topology::SimpleCommunicator, traits::Communicator};
 use rlst::prelude::*;
 use serde::Deserialize;
 type Real<T> = <T as rlst::RlstScalar>::Real;
+use crate::io::structured_operator::Attr;
+use bempp::boundary_assemblers::BoundaryAssemblerOptions;
 use ndelement::ciarlet::LagrangeElementFamily;
 use ndelement::types::ReferenceCellType;
+use ndgrid::traits::{Grid, ParallelGrid, Entity, Geometry, Point};
+use bempp_rsrs::rsrs::rsrs_factors::Inv;
 
 #[derive(Debug, Clone, Deserialize)]
 pub enum Results {
@@ -192,8 +195,9 @@ impl OutputOptions {
     }
 }
 
-pub trait TestFrameworkImpl<Item: RlstScalar> {
+pub trait TestFrameworkImpl<'a, Item: RlstScalar, Space: SamplingSpace<F = Item> + IndexableSpace> {
     type Item: RlstScalar;
+
     fn new(
         scenario_args: ScenarioOptions<Item>,
         rsrs_args: RsrsOptions<Item>,
@@ -205,11 +209,13 @@ pub trait TestFrameworkImpl<Item: RlstScalar> {
 
 macro_rules! implement_test_framework {
     ($scalar:ty) => {
-        impl TestFrameworkImpl<$scalar> for TestFramework<$scalar> {
+        impl<'a> TestFrameworkImpl<'a, $scalar, ArrayVectorSpace<$scalar>>
+            for TestFramework<$scalar>
+        {
             type Item = $scalar;
             fn new(
-                scenario_args: ScenarioOptions<$scalar>,
-                rsrs_options: RsrsOptions<$scalar>,
+                scenario_args: ScenarioOptions<Self::Item>,
+                rsrs_options: RsrsOptions<Self::Item>,
                 output_args: OutputOptions,
             ) -> Self {
                 let test_params = TestParams::new(scenario_args, rsrs_options);
@@ -226,320 +232,7 @@ macro_rules! implement_test_framework {
                 for (dim_num, dim_arg) in
                     self.test_params.scenario_params.dim_args.iter().enumerate()
                 {
-                    if matches!(
-                        self.test_params
-                            .scenario_params
-                            .structured_operator_type
-                            .clone(),
-                        StructuredOperatorType::BemppRsLaplaceOperator
-                    ) {
-                        let universe = mpi::initialize().unwrap();
-                        let world = universe.world();
-                        let rank = world.rank();
-
-                        let refinement_level = 3;
-                        let local_tree_depth = 4;
-                        let global_tree_depth = 4;
-                        let expansion_order = 6;
-                        let grid = bempp::shapes::regular_sphere::<f64, _>(
-                            refinement_level as u32,
-                            1,
-                            &world,
-                        );
-
-
-                        let quad_degree = 6;
-                        // Get the number of cells in the grid.
-
-                        let space = bempp::function::FunctionSpace::new(
-                                &grid,
-                                &LagrangeElementFamily::<f64>::new(
-                                    1,
-                                    ndelement::types::Continuity::Standard,
-                                ),
-                            );
-
-
-                        let mut options = BoundaryAssemblerOptions::default();
-                        options.set_regular_quadrature_degree(
-                            ReferenceCellType::Triangle,
-                            quad_degree,
-                        );
-
-                        let qrule =
-                            options.get_regular_quadrature_rule(ReferenceCellType::Triangle);
-
-                        let kifmm_evaluator =
-                        bempp::greens_function_evaluators::kifmm_evaluator::KiFmmEvaluator::from_spaces(
-                            &space,
-                            &space,
-                            green_kernels::types::GreenKernelEvalType::Value,
-                            local_tree_depth,
-                            global_tree_depth,
-                            expansion_order,
-                            &qrule.points,
-                        );
-
-                        let operator = bempp::laplace::evaluator::single_layer(
-                            &space,
-                            &space,
-                            kifmm_evaluator.r(),
-                            &options,
-                        );
-                        let qrule = bempp_quadrature::simplex_rules::simplex_rule_triangle(1).unwrap();
-
-                        let points = one_dim_to_bempp_points(&grid_points_from_space(&space, &qrule.points));
-
-                        let dim = points.len();
-                        let max_level: usize = 6;
-                        let max_leaf_points: usize = 50;
-                        let tree: Octree<'_, SimpleCommunicator> =
-                            Octree::new(&points, max_level, max_leaf_points, &comm);
-                        let global_number_of_points: usize = tree.global_number_of_points();
-                        let global_max_level: usize = tree.global_max_level();
-
-                        /*let iterations = Iterations {
-                            no_prec: None,
-                            prec: None,
-                        };*/
-
-                        let rhs = zero_element(kifmm_evaluator.domain());
-                        rhs.view_mut().local_mut().fill_from_seed_equally_distributed(rank as usize);
-
-                        let mut iterations = Iterations {
-                            no_prec: None,
-                            prec: None,
-                        };
-
-                        iterations.no_prec = match self.output_options.solve {
-                            Solve::True(tol) => {
-                                let mut residuals = Vec::<$scalar>::new();
-                                let gmres = GmresIteration::new(operator.r(), rhs.r(), dim)
-                                    .set_callable(|_, res| {
-                                        residuals.push(res.into());
-                                    })
-                                    .set_tol(tol)
-                                    .set_max_iter(150);
-                                let (_sol, _res) = gmres.run();
-                                Some(residuals.len())},
-                            Solve::False => None,
-                        };
-
-                        if comm.rank() == 0 {
-                            println!(
-                                "Setup octree with {} points and maximum level {}",
-                                global_number_of_points, global_max_level
-                            );
-                        }
-
-                        for &id_tol in self.test_params.scenario_params.id_tols.iter() {
-                            let mut iterations = iterations.clone();
-                            //let iterations = iterations.clone();
-
-                            println!("Test: {} points, tol:{}", dim, id_tol);
-
-                            self.test_params.rsrs_params.id_options.tol_id = id_tol;
-
-                            let mut rsrs_algo: Rsrs<Self::Item> =
-                                Rsrs::new(dim, &tree, self.test_params.rsrs_params.clone());
-
-                            let mut rsrs_factors = rsrs_algo.run(&operator);
-
-                            let path_str = self.test_params.get_test_dir(dim_num);
-
-                            iterations.prec = match self.output_options.solve {
-                                Solve::True(tol) => {
-                                    let mut rsrs_operator = RsrsOperator::from_local(&mut rsrs_factors);
-                                    rsrs_operator.set_inv(true);
-                                    rhs = rsrs_operator.apply(rhs, TransMode::NoTrans);
-
-                                    let op = rsrs_operator.product(operator);
-
-                                    let mut residuals = Vec::<$scalar>::new();
-                                    let gmres = GmresIteration::new(op.r(), rhs.r(), dim)
-                                        .set_callable(|_, res| {
-                                            residuals.push(res);
-                                        })
-                                        .set_tol(tol)
-                                        .set_max_iter(100);
-                                    let (_sol, _res) = gmres.run();
-                                    
-                                    Some(residuals.len())
-                                }
-                                Solve::False => None,
-                            };
-
-                            match self.output_options.results_output {
-                                Results::All => {
-                                    save_error_stats::<$scalar>(
-                                        &operator,
-                                        &mut rsrs_factors,
-                                        &rsrs_algo,
-                                        iterations,
-                                        id_tol,
-                                        &path_str,
-                                        self.output_options.dense_errors,
-                                    );
-                                    save_time_stats(&rsrs_algo, id_tol, &path_str);
-                                    save_rank_stats(&rsrs_algo, id_tol, &path_str);
-
-                                    if self.output_options.plot {
-                                        time_piechart(id_tol, &path_str);
-                                    }
-                                }
-                                Results::Rank => {
-                                    save_error_stats::<$scalar>(
-                                        &operator,
-                                        &mut rsrs_factors,
-                                        &rsrs_algo,
-                                        iterations,
-                                        id_tol,
-                                        &path_str,
-                                        self.output_options.dense_errors,
-                                    );
-                                    save_rank_stats(&rsrs_algo, id_tol, &path_str);
-                                }
-                                Results::Time => {
-                                    save_error_stats::<$scalar>(
-                                        &operator,
-                                        &mut rsrs_factors,
-                                        &rsrs_algo,
-                                        iterations,
-                                        id_tol,
-                                        &path_str,
-                                        self.output_options.dense_errors,
-                                    );
-                                    save_time_stats(&rsrs_algo, id_tol, &path_str);
-                                    if self.output_options.plot {
-                                        time_piechart(id_tol, &path_str);
-                                    }
-                                }
-                            }
-                        }
-
-                    } else {
-                        let structured_operator_params = StructuredOperatorParams::new(
-                            self.test_params
-                                .scenario_params
-                                .structured_operator_type
-                                .clone(),
-                            self.test_params.scenario_params.precision.clone(),
-                            self.test_params.scenario_params.geometry_type.clone(),
-                            dim_arg.0,
-                            dim_arg.1,
-                        );
-                        let structured_operator: StructuredOperatorInterface =
-                            <StructuredOperatorInterface as StructuredOperatorImpl<$scalar>>::new(
-                                structured_operator_params,
-                            );
-                        let dim = structured_operator.n_points;
-                        let operator = StructuredOperator::from_local(&structured_operator);
-                        let points: Vec<bempp_octree::Point> =
-                            get_bempp_points(&structured_operator).unwrap();
-
-
-                        let max_level: usize = 6;
-                        let max_leaf_points: usize = 50;
-                        let tree: Octree<'_, SimpleCommunicator> =
-                            Octree::new(&points, max_level, max_leaf_points, &comm);
-                        let global_number_of_points: usize = tree.global_number_of_points();
-                        let global_max_level: usize = tree.global_max_level();
-
-                        /*let iterations = Iterations {
-                            no_prec: None,
-                            prec: None,
-                        };*/
-
-                        let mut iterations = Iterations {
-                            no_prec: None,
-                            prec: None,
-                        };
-
-                        iterations.no_prec = match self.output_options.solve {
-                            Solve::True(tol) => Some(solve_system_so(operator.clone(), tol)),
-                            Solve::False => None,
-                        };
-
-                        if comm.rank() == 0 {
-                            println!(
-                                "Setup octree with {} points and maximum level {}",
-                                global_number_of_points, global_max_level
-                            );
-                        }
-
-                        for &id_tol in self.test_params.scenario_params.id_tols.iter() {
-                            let mut iterations = iterations.clone();
-                            //let iterations = iterations.clone();
-
-                            println!("Test: {} points, tol:{}", dim, id_tol);
-
-                            self.test_params.rsrs_params.id_options.tol_id = id_tol;
-
-                            let mut rsrs_algo: Rsrs<Self::Item> =
-                                Rsrs::new(dim, &tree, self.test_params.rsrs_params.clone());
-
-                            let mut rsrs_factors = rsrs_algo.run(&operator);
-
-                            let path_str = self.test_params.get_test_dir(dim_num);
-
-                            iterations.prec = match self.output_options.solve {
-                                Solve::True(tol) => {
-                                    Some(solve_prec_system_so(operator.clone(), &mut rsrs_factors, tol))
-                                }
-                                Solve::False => None,
-                            };
-
-                            match self.output_options.results_output {
-                                Results::All => {
-                                    save_error_stats::<$scalar>(
-                                        &operator,
-                                        &mut rsrs_factors,
-                                        &rsrs_algo,
-                                        iterations,
-                                        id_tol,
-                                        &path_str,
-                                        self.output_options.dense_errors,
-                                    );
-                                    save_time_stats(&rsrs_algo, id_tol, &path_str);
-                                    save_rank_stats(&rsrs_algo, id_tol, &path_str);
-
-                                    if self.output_options.plot {
-                                        time_piechart(id_tol, &path_str);
-                                    }
-                                }
-                                Results::Rank => {
-                                    save_error_stats::<$scalar>(
-                                        &operator,
-                                        &mut rsrs_factors,
-                                        &rsrs_algo,
-                                        iterations,
-                                        id_tol,
-                                        &path_str,
-                                        self.output_options.dense_errors,
-                                    );
-                                    save_rank_stats(&rsrs_algo, id_tol, &path_str);
-                                }
-                                Results::Time => {
-                                    save_error_stats::<$scalar>(
-                                        &operator,
-                                        &mut rsrs_factors,
-                                        &rsrs_algo,
-                                        iterations,
-                                        id_tol,
-                                        &path_str,
-                                        self.output_options.dense_errors,
-                                    );
-                                    save_time_stats(&rsrs_algo, id_tol, &path_str);
-                                    if self.output_options.plot {
-                                        time_piechart(id_tol, &path_str);
-                                    }
-                                }
-                            }
-                        }
-
-                    };
-
-                    /*let structured_operator_params = StructuredOperatorParams::new(
+                    let structured_operator_params = StructuredOperatorParams::new(
                         self.test_params
                             .scenario_params
                             .structured_operator_type
@@ -549,14 +242,16 @@ macro_rules! implement_test_framework {
                         dim_arg.0,
                         dim_arg.1,
                     );
-                    let structured_operator: StructuredOperator =
-                        <StructuredOperator as StructuredOperatorImpl<$scalar>>::new(
-                            structured_operator_params,
+
+                    let structured_operator: StructuredOperatorInterface =
+                        <StructuredOperatorInterface as StructuredOperatorImpl<Self::Item>>::new(
+                            &structured_operator_params,
                         );
-                    let dim = structured_operator.n_points;
-                    let operator = StructuredOperatorOperator::from_local(&structured_operator);
                     let points: Vec<bempp_octree::Point> =
                         get_bempp_points(&structured_operator).unwrap();
+                    let operator = StructuredOperator::from_local(structured_operator);
+                    let rhs = operator.get_rhs();
+                    let dim = points.len();
 
                     let max_level: usize = 6;
                     let max_leaf_points: usize = 50;
@@ -565,18 +260,13 @@ macro_rules! implement_test_framework {
                     let global_number_of_points: usize = tree.global_number_of_points();
                     let global_max_level: usize = tree.global_max_level();
 
-                    /*let iterations = Iterations {
-                        no_prec: None,
-                        prec: None,
-                    };*/
-
                     let mut iterations = Iterations {
                         no_prec: None,
                         prec: None,
                     };
 
                     iterations.no_prec = match self.output_options.solve {
-                        Solve::True(tol) => Some(solve_system(operator.clone(), tol)),
+                        Solve::True(tol) => Some(solve_system(&operator, &rhs, tol)),
                         Solve::False => None,
                     };
 
@@ -589,65 +279,81 @@ macro_rules! implement_test_framework {
 
                     for &id_tol in self.test_params.scenario_params.id_tols.iter() {
                         let mut iterations = iterations.clone();
-                        //let iterations = iterations.clone();
 
                         println!("Test: {} points, tol:{}", dim, id_tol);
 
                         self.test_params.rsrs_params.id_options.tol_id = id_tol;
 
                         let mut rsrs_algo: Rsrs<Self::Item> =
-                            Rsrs::new(dim, &tree, self.test_params.rsrs_params.clone());
+                            Rsrs::new(&tree, self.test_params.rsrs_params.clone(), dim);
 
-                        let mut rsrs_factors = rsrs_algo.run(&operator);
+                        let domain = std::rc::Rc::clone(&operator.domain());
+                        let range = std::rc::Rc::clone(&operator.range());
+
+                        let rsrs_factors = rsrs_algo.run(&operator);
+
+                        let mut rsrs_operator =
+                            RsrsOperator::from_local_spaces(rsrs_factors, domain, range);
 
                         let path_str = self.test_params.get_test_dir(dim_num);
 
                         iterations.prec = match self.output_options.solve {
                             Solve::True(tol) => {
-                                Some(solve_prec_system(operator.clone(), &mut rsrs_factors, tol))
+                                rsrs_operator.inv(true);
+                                let rhs_prec = rsrs_operator.apply(rhs.r(), TransMode::NoTrans);
+                                let prec_operator = rsrs_operator.r().product(operator.r());
+                                let its = solve_system(&prec_operator, &rhs_prec, tol);
+                                rsrs_operator.inv(false);
+                                Some(its)
                             }
                             Solve::False => None,
                         };
 
                         match self.output_options.results_output {
                             Results::All => {
-                                save_error_stats::<$scalar>(
+                                save_error_stats(
                                     &operator,
-                                    &mut rsrs_factors,
+                                    &mut rsrs_operator,
                                     &rsrs_algo,
                                     iterations,
                                     id_tol,
                                     &path_str,
-                                    self.output_options.dense_errors,
                                 );
                                 save_time_stats(&rsrs_algo, id_tol, &path_str);
                                 save_rank_stats(&rsrs_algo, id_tol, &path_str);
-
                                 if self.output_options.plot {
                                     time_piechart(id_tol, &path_str);
                                 }
+
+                                if self.output_options.dense_errors {
+                                    panic!("Not implemented");
+                                    /*let mut structured_operator_mat = compute_dense_structured_operator(&operator);
+                                    get_boxes_errors(
+                                        &mut structured_operator_mat,
+                                        &mut rsrs_factors,
+                                        num::NumCast::from(id_tol).unwrap(),
+                                    );*/
+                                }
                             }
                             Results::Rank => {
-                                save_error_stats::<$scalar>(
+                                save_error_stats(
                                     &operator,
-                                    &mut rsrs_factors,
+                                    &mut rsrs_operator,
                                     &rsrs_algo,
                                     iterations,
                                     id_tol,
                                     &path_str,
-                                    self.output_options.dense_errors,
                                 );
                                 save_rank_stats(&rsrs_algo, id_tol, &path_str);
                             }
                             Results::Time => {
-                                save_error_stats::<$scalar>(
+                                save_error_stats(
                                     &operator,
-                                    &mut rsrs_factors,
+                                    &mut rsrs_operator,
                                     &rsrs_algo,
                                     iterations,
                                     id_tol,
                                     &path_str,
-                                    self.output_options.dense_errors,
                                 );
                                 save_time_stats(&rsrs_algo, id_tol, &path_str);
                                 if self.output_options.plot {
@@ -655,7 +361,7 @@ macro_rules! implement_test_framework {
                                 }
                             }
                         }
-                    }*/
+                    }
                 }
             }
         }
@@ -664,3 +370,207 @@ macro_rules! implement_test_framework {
 
 implement_test_framework!(f64);
 implement_test_framework!(c64);
+
+
+macro_rules! implement_distributed_test_framework {
+    ($scalar:ty) => {
+        impl<'a> TestFrameworkImpl<'a, $scalar, DistributedArrayVectorSpace<'a, SimpleCommunicator, $scalar>>
+            for TestFramework<$scalar>
+        {
+            type Item = $scalar;
+
+            fn new(
+                scenario_args: ScenarioOptions<Self::Item>,
+                rsrs_options: RsrsOptions<Self::Item>,
+                output_args: OutputOptions,
+            ) -> Self {
+                let test_params = TestParams::new(scenario_args, rsrs_options);
+
+                Self {
+                    test_params,
+                    output_options: output_args,
+                }
+            }
+
+            fn run_tests(&mut self) {
+                let universe: mpi::environment::Universe = mpi::initialize().unwrap();
+                let comm: SimpleCommunicator = universe.world();
+                for (dim_num, _dim_arg) in self.test_params.scenario_params.dim_args.iter().enumerate() {
+
+                    let rank = comm.rank();
+                    let refinement_level = 5;
+                    let local_tree_depth = 1;
+                    let global_tree_depth = 1;
+                    let expansion_order = 6;
+                    let grid = bempp::shapes::regular_sphere::<Self::Item, _>(refinement_level as u32, 1, &comm);
+
+                    let quad_degree = 6;
+
+                    let space = bempp::function::FunctionSpace::new(
+                        &grid,
+                        &LagrangeElementFamily::<Self::Item>::new(0, ndelement::types::Continuity::Discontinuous),
+                    );
+
+                    let mut options = BoundaryAssemblerOptions::default();
+                    options.set_regular_quadrature_degree(ReferenceCellType::Triangle, quad_degree);
+
+                    let qrule = options.get_regular_quadrature_rule(ReferenceCellType::Triangle);
+
+                    let kifmm_evaluator =
+                        bempp::greens_function_evaluators::kifmm_evaluator::KiFmmEvaluator::from_spaces(
+                            &space,
+                            &space,
+                            green_kernels::types::GreenKernelEvalType::Value,
+                            local_tree_depth,
+                            global_tree_depth,
+                            expansion_order,
+                            &qrule.points,
+                        );
+
+                    let operator = bempp::laplace::evaluator::single_layer(
+                        &space,
+                        &space,
+                        kifmm_evaluator.r(),
+                        &options,
+                    );
+
+
+                    let mut points = Vec::new();
+                    let mut p = vec![0.0; 3];
+                    for cell in grid.local_grid().entity_iter(2) {
+                        let mut barycentre = [0.0; 3];
+                        for point in cell.geometry().points() {
+                            point.coords(&mut p);
+                            barycentre[0] += p[0]/3.0;
+                            barycentre[1] += p[1]/3.0;
+                            barycentre[2] += p[2]/3.0;
+                        }
+                        let point = bempp_octree::Point::new(barycentre, 000);
+                        points.push(point);
+                    }
+  
+
+                    let mut rhs: Element<rlst::operator::ConcreteElementContainer<_>> =
+                        zero_element(operator.domain());
+                    rhs.view_mut()
+                        .local_mut()
+                        .fill_from_seed_equally_distributed(rank as usize);
+
+                    let dim = points.len();
+
+                    let max_level: usize = 6;
+                    let max_leaf_points: usize = 50;
+                    let tree: Octree<'_, SimpleCommunicator> =
+                        Octree::new(&points, max_level, max_leaf_points, &comm);
+                    let global_number_of_points: usize = tree.global_number_of_points();
+                    let global_max_level: usize = tree.global_max_level();
+
+                    let mut iterations = Iterations {
+                        no_prec: None,
+                        prec: None,
+                    };
+
+                    iterations.no_prec = match self.output_options.solve {
+                        Solve::True(tol) => Some(solve_system(&operator, &rhs, tol)),
+                        Solve::False => None,
+                    };
+
+                    if comm.rank() == 0 {
+                        println!(
+                            "Setup octree with {} points and maximum level {}",
+                            global_number_of_points, global_max_level
+                        );
+                    }
+
+                    for &id_tol in self.test_params.scenario_params.id_tols.iter() {
+                        let mut iterations = iterations.clone();
+
+                        println!("Test: {} points, tol:{}", dim, id_tol);
+
+                        self.test_params.rsrs_params.id_options.tol_id = id_tol;
+
+                        let mut rsrs_algo: Rsrs<Self::Item> =
+                            Rsrs::new(&tree, self.test_params.rsrs_params.clone(), dim);
+
+                        let domain = std::rc::Rc::clone(&operator.domain());
+                        let range = std::rc::Rc::clone(&operator.range());
+
+                        let rsrs_factors = rsrs_algo.run(&operator);
+
+                        let mut rsrs_operator =
+                            RsrsOperator::from_local_spaces(rsrs_factors, domain, range);
+
+                        let path_str = self.test_params.get_test_dir(dim_num);
+
+                        iterations.prec = match self.output_options.solve {
+                            Solve::True(tol) => {
+                                rsrs_operator.inv(true);
+                                let rhs_prec = rsrs_operator.apply(rhs.r(), TransMode::NoTrans);
+                                let prec_operator = rsrs_operator.r().product(operator.r());
+                                let its = solve_system(&prec_operator, &rhs_prec, tol);
+                                rsrs_operator.inv(false);
+                                Some(its)
+                            }
+                            Solve::False => None,
+                        };
+
+                        match self.output_options.results_output {
+                            Results::All => {
+                                save_error_stats(
+                                    &operator,
+                                    &mut rsrs_operator,
+                                    &rsrs_algo,
+                                    iterations,
+                                    id_tol,
+                                    &path_str,
+                                );
+                                save_time_stats(&rsrs_algo, id_tol, &path_str);
+                                save_rank_stats(&rsrs_algo, id_tol, &path_str);
+                                if self.output_options.plot {
+                                    time_piechart(id_tol, &path_str);
+                                }
+
+                                if self.output_options.dense_errors {
+                                    panic!("Dense operator not implemented");
+                                    /*let mut structured_operator_mat = compute_dense_structured_operator(&operator);
+                                    get_boxes_errors(
+                                        &mut structured_operator_mat,
+                                        &mut rsrs_factors,
+                                        num::NumCast::from(id_tol).unwrap(),
+                                    );*/
+                                }
+                            }
+                            Results::Rank => {
+                                save_error_stats(
+                                    &operator,
+                                    &mut rsrs_operator,
+                                    &rsrs_algo,
+                                    iterations,
+                                    id_tol,
+                                    &path_str,
+                                );
+                                save_rank_stats(&rsrs_algo, id_tol, &path_str);
+                            }
+                            Results::Time => {
+                                save_error_stats(
+                                    &operator,
+                                    &mut rsrs_operator,
+                                    &rsrs_algo,
+                                    iterations,
+                                    id_tol,
+                                    &path_str,
+                                );
+                                save_time_stats(&rsrs_algo, id_tol, &path_str);
+                                if self.output_options.plot {
+                                    time_piechart(id_tol, &path_str);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+implement_distributed_test_framework!(f64);

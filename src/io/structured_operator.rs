@@ -2,6 +2,8 @@
 use crate::io::structured_operators_types::StructuredOperatorType;
 use crate::test_prep::Precision;
 use bempp_octree::Point;
+use rlst::dense::linalg::lu::MatrixLu;
+use rlst::dense::tools::RandScalar;
 use rlst::operator::ConcreteElementContainer;
 use rlst::prelude::*;
 use rlst::RlstScalar;
@@ -65,7 +67,7 @@ pub enum GeometryType {
 }
 
 pub struct StructuredOperatorParams {
-    structured_operator_type: StructuredOperatorType,
+    pub structured_operator_type: StructuredOperatorType,
     precision: Precision,
     geometry_type: GeometryType,
     dim_arg: f64,
@@ -90,7 +92,6 @@ impl StructuredOperatorParams {
     }
 }
 
-
 type BemppRsOperator<T> = Operator<T>;
 pub enum StructuredOperatorImplType<T: OperatorBase + AsApply> {
     Python(StructuredOperatorInterface),
@@ -100,7 +101,7 @@ pub enum StructuredOperatorImplType<T: OperatorBase + AsApply> {
 type Real<T> = <T as rlst::RlstScalar>::Real;
 pub trait StructuredOperatorImpl<Item: RlstScalar> {
     type Item: RlstScalar;
-    fn new(params: StructuredOperatorParams) -> Self;
+    fn new(params: &StructuredOperatorParams) -> Self;
     fn mv(&self, input: &[Item], output: &mut [Item]);
     //fn get_points(&self) -> Option<&[[f64; 3]]>;
     fn get_points(&self) -> Option<Vec<Point>>;
@@ -133,7 +134,7 @@ macro_rules! implement_structured_operator {
         impl StructuredOperatorImpl<$scalar> for StructuredOperatorInterface {
             type Item = $scalar;
 
-            fn new(params: StructuredOperatorParams) -> Self {
+            fn new(params: &StructuredOperatorParams) -> Self {
                 let class_name = params.structured_operator_type.as_ref();
                 let c_str = std::ffi::CString::new(class_name).unwrap();
                 let precision_str = match params.precision {
@@ -287,22 +288,18 @@ impl Shape<2> for StructuredOperatorInterface {
 }
 
 #[derive(Clone)]
-pub struct StructuredOperator<
-    'a,
-    Item: RlstScalar,
-    Op: StructuredOperatorImpl<Item> + Shape<2>,
-> {
-    op: &'a Op,
+pub struct StructuredOperator<Item: RlstScalar, Op: StructuredOperatorImpl<Item> + Shape<2>> {
+    op: Op,
     domain: Rc<ArrayVectorSpace<Item>>,
     range: Rc<ArrayVectorSpace<Item>>,
 }
 
-pub trait Attr<'a, Op, Item: RlstScalar>: Sized {
+pub trait Attr<Op, Item: RlstScalar>: Sized {
     fn get_rhs(&self) -> Element<ConcreteElementContainer<ArrayVectorSpaceElement<Item>>>;
 }
 
-impl<'a, Item: RlstScalar, Op: StructuredOperatorImpl<Item> + Shape<2>> Attr<'a, Op, Item>
-    for StructuredOperator<'_, Item, Op>
+impl<Item: RlstScalar, Op: StructuredOperatorImpl<Item> + Shape<2>> Attr<Op, Item>
+    for StructuredOperator<Item, Op>
 where
     Op: StructuredOperatorImpl<Item, Item = Item>,
 {
@@ -318,7 +315,7 @@ where
 }
 
 impl<Item: RlstScalar, Op: StructuredOperatorImpl<Item> + Shape<2>> std::fmt::Debug
-    for StructuredOperator<'_, Item, Op>
+    for StructuredOperator<Item, Op>
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let shape = self.op.shape();
@@ -332,7 +329,7 @@ pub struct LocalOp<'a, Op> {
 }
 
 impl<Item: RlstScalar, Op: StructuredOperatorImpl<Item> + Shape<2>> OperatorBase
-    for StructuredOperator<'_, Item, Op>
+    for StructuredOperator<Item, Op>
 {
     type Domain = ArrayVectorSpace<Item>;
     type Range = ArrayVectorSpace<Item>;
@@ -346,14 +343,23 @@ impl<Item: RlstScalar, Op: StructuredOperatorImpl<Item> + Shape<2>> OperatorBase
     }
 }
 
-pub trait LocalFrom<'a, Op, Item: RlstScalar>: Sized {
-    fn from_local(op: &'a Op) -> Self;
+pub trait LocalFrom<Op, Item: RlstScalar>: Sized {
+    fn from_local(op: Op) -> Self;
 }
 
-impl<'a, Item: RlstScalar, Op: StructuredOperatorImpl<Item> + Shape<2>> LocalFrom<'a, Op, Item>
-    for StructuredOperator<'a, Item, Op>
+impl<
+        'a,
+        Item: RlstScalar
+            + MatrixInverse
+            + MatrixId
+            + MatrixPseudoInverse
+            + MatrixLu
+            + RandScalar
+            + MatrixQr,
+        Op: StructuredOperatorImpl<Item> + Shape<2>,
+    > LocalFrom<Op, Item> for StructuredOperator<Item, Op>
 {
-    fn from_local(op: &'a Op) -> Self {
+    fn from_local(op: Op) -> Self {
         let shape = op.shape();
         let domain = ArrayVectorSpace::from_dimension(shape[1]);
         let range = ArrayVectorSpace::from_dimension(shape[0]);
@@ -362,7 +368,7 @@ impl<'a, Item: RlstScalar, Op: StructuredOperatorImpl<Item> + Shape<2>> LocalFro
 }
 
 impl<Item: RlstScalar, Op: StructuredOperatorImpl<Item> + Shape<2>> AsApply
-    for StructuredOperator<'_, Item, Op>
+    for StructuredOperator<Item, Op>
 {
     fn apply_extended<
         ContainerIn: ElementContainer<E = <Self::Domain as LinearSpace>::E>,

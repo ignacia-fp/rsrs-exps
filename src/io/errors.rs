@@ -1,13 +1,15 @@
 use std::sync::{Arc, Mutex};
 
-use super::structured_operator::{
+/*use super::structured_operator::{
     StructuredOperator, StructuredOperatorImpl, StructuredOperatorInterface,
-};
+};*/
+use bempp_rsrs::rsrs::rsrs_factors::Inv;
 use bempp_rsrs::rsrs::rsrs_factors::{
     CommutativeFactors, Factor, FactorMulType, FactorOperations, FactorOptions, FactorType,
-    IdFactor, LocalFrom, LuFactor,
+    IdFactor, LuFactor,
 };
-use bempp_rsrs::rsrs::rsrs_factors::{RsrsFactors, RsrsFactorsImpl, RsrsOperator, RsrsSide};
+use bempp_rsrs::rsrs::rsrs_factors::{RsrsFactors, RsrsSide};
+use bempp_rsrs::rsrs::sketch::{SampleType, SamplingSpace};
 use bempp_rsrs::utils::data_ins_ext::{ExtInsType, Extraction, MatrixExtraction};
 use num::NumCast;
 use rand_distr::{Distribution, Standard, StandardNormal};
@@ -18,20 +20,22 @@ use rlst::{
 };
 type Real<T> = <T as rlst::RlstScalar>::Real;
 
-fn gen_sample_frame<Item: RlstScalar + RandScalar>(
+fn _gen_sample_frame<Item: RlstScalar + RandScalar, Space: SamplingSpace<F = Item> + Clone>(
     sample_size: usize,
-    space: std::rc::Rc<ArrayVectorSpace<Item>>,
-) -> VectorFrame<ArrayVectorSpaceElement<Item>>
+    space: Space,
+) -> VectorFrame<<Space as rlst::LinearSpace>::E>
 where
     StandardNormal: Distribution<Item::Real>,
     Standard: Distribution<Item::Real>,
+    <Item as rlst::RlstScalar>::Real: RandScalar,
 {
     let mut frame = VectorFrame::default();
     let mut rng: rand::rngs::StdRng = rand::SeedableRng::from_entropy();
 
     for _ in 0..sample_size {
-        let mut sample_vec = ArrayVectorSpace::zero(space.clone());
-        sample_vec.view_mut().fill_from_standard_normal(&mut rng);
+        let mut sample_vec = SamplingSpace::zero(std::rc::Rc::new(space.clone()));
+        space.sampling(&mut sample_vec, &mut rng, SampleType::StandardNormal);
+        //sample_vec.view_mut().fill_from_standard_normal(&mut rng);
         frame.push(sample_vec);
     }
     frame
@@ -39,12 +43,13 @@ where
 
 fn mul_op<
     Item: RlstScalar + RandScalar + MatrixInverse + MatrixId + MatrixPseudoInverse + MatrixLu + MatrixQr,
-    OpImpl: AsApply<Domain = ArrayVectorSpace<Item>, Range = ArrayVectorSpace<Item>>,
+    Space: SamplingSpace<F = Item>,
+    OpImpl: AsApply<Domain = Space, Range = Space>,
 >(
     operator: &OpImpl,
-    sample_frame: &VectorFrame<ArrayVectorSpaceElement<Item>>,
+    sample_frame: &VectorFrame<<Space as rlst::LinearSpace>::E>,
     trans_mode: TransMode,
-) -> VectorFrame<ArrayVectorSpaceElement<Item>> {
+) -> VectorFrame<<Space as rlst::LinearSpace>::E> {
     let mut frame = VectorFrame::default();
     for sample_vec in sample_frame.iter() {
         frame.push(operator.apply(sample_vec.r(), trans_mode));
@@ -56,11 +61,12 @@ fn mul_op<
 pub fn app_error<
     'a,
     Item: RlstScalar + RandScalar + MatrixInverse + MatrixId + MatrixPseudoInverse + MatrixLu + MatrixQr,
-    Op1: StructuredOperatorImpl<Item> + Shape<2>,
-    Op2: RsrsFactorsImpl<Item> + Shape<2>,
+    Space: SamplingSpace<F = Item>,
+    OpImpl: AsApply<Domain = Space, Range = Space>,
+    OpImpl2: AsApply<Domain = Space, Range = Space> + Inv,
 >(
-    target_op: &StructuredOperator<'a, Item, Op1>,
-    rsrs_op: &mut RsrsOperator<'a, Item, Op2>,
+    target_op: &OpImpl,
+    rsrs_op: &OpImpl2,
     sample_size: usize,
     side: RsrsSide,
     inv: bool,
@@ -68,20 +74,30 @@ pub fn app_error<
 where
     StandardNormal: Distribution<Item::Real>,
     Standard: Distribution<Item::Real>,
+    <Item as rlst::RlstScalar>::Real: RandScalar,
     LuDecomposition<Item, BaseArray<Item, VectorContainer<Item>, 2>>:
         MatrixLuDecomposition<Item = Item>,
     TriangularMatrix<Item>: TriangularOperations<Item = Item>,
+    <<Space as rlst::LinearSpace>::E as rlst::ElementImpl>::Space: rlst::InnerProductSpace,
 {
-    let trans_mode = if matches!(side, RsrsSide::Left) {
+    let trans_mode = TransMode::NoTrans;/*if matches!(side, RsrsSide::Left) {
         TransMode::NoTrans
     } else {
         TransMode::Trans
-    };
+    };*/
 
-    let mut sample_frame = gen_sample_frame(sample_size, target_op.range());
-    let mut mod_sample_frame = mul_op(target_op, &sample_frame, trans_mode);
+    let mut sample_frame = VectorFrame::default();
+    let mut rng: rand::rngs::StdRng = rand::SeedableRng::from_entropy();
+    let space = target_op.range();
 
-    rsrs_op.set_inv(inv);
+    for _ in 0..sample_size {
+        let mut sample_vec = SamplingSpace::zero(space.clone());
+        space.sampling(&mut sample_vec, &mut rng, SampleType::StandardNormal);
+        sample_frame.push(sample_vec);
+    }
+
+    //let mut sample_frame = gen_sample_frame(sample_size, target_op.range());
+    let mut mod_sample_frame = mul_op(target_op, &sample_frame, TransMode::NoTrans);
 
     let max_err = if inv {
         mod_sample_frame = mul_op(rsrs_op, &mod_sample_frame, trans_mode);
@@ -123,62 +139,29 @@ where
 pub fn rsrs_error_estimator<
     'a,
     Item: RlstScalar + RandScalar + MatrixInverse + MatrixId + MatrixPseudoInverse + MatrixLu + MatrixQr,
+    Space: SamplingSpace<F = Item>,
+    OpImpl: AsApply<Domain = Space, Range = Space>,
+    OpImpl2: AsApply<Domain = Space, Range = Space> + Inv,
 >(
-    target_op: &StructuredOperator<'a, Item, StructuredOperatorInterface>,
-    rsrs_factors: &mut RsrsFactors<Item>,
+    target_op: &OpImpl,
+    rsrs_operator: &OpImpl2,
     sample_size: usize,
-) -> (Real<Item>, Real<Item>, Real<Item>, Real<Item>, Real<Item>)
+    inv: bool,
+) -> (Real<Item>, Real<Item>)
 where
     StandardNormal: Distribution<Item::Real>,
     Standard: Distribution<Item::Real>,
+    <Item as rlst::RlstScalar>::Real: RandScalar,
     LuDecomposition<Item, BaseArray<Item, VectorContainer<Item>, 2>>:
         MatrixLuDecomposition<Item = Item>,
     TriangularMatrix<Item>: TriangularOperations<Item = Item>,
-    StructuredOperatorInterface: StructuredOperatorImpl<Item>,
+    <<Space as rlst::LinearSpace>::E as rlst::ElementImpl>::Space: rlst::InnerProductSpace,
 {
-    let mut rsrs_operator = RsrsOperator::from_local(rsrs_factors);
+    let app_err_left = app_error(target_op, rsrs_operator, sample_size, RsrsSide::Left, inv);
 
-    let app_err_left = app_error(
-        target_op,
-        &mut rsrs_operator,
-        sample_size,
-        RsrsSide::Left,
-        false,
-    );
+    let app_err_right = app_error(target_op, rsrs_operator, sample_size, RsrsSide::Right, inv);
 
-    let app_err_right = app_error(
-        target_op,
-        &mut rsrs_operator,
-        sample_size,
-        RsrsSide::Right,
-        false,
-    );
-
-    let app_inv_err_left = app_error(
-        target_op,
-        &mut rsrs_operator,
-        sample_size,
-        RsrsSide::Left,
-        true,
-    );
-
-    let app_inv_err_right = app_error(
-        target_op,
-        &mut rsrs_operator,
-        sample_size,
-        RsrsSide::Right,
-        true,
-    );
-
-    let cond = num::One::one();
-
-    (
-        app_inv_err_left,
-        app_inv_err_right,
-        app_err_left,
-        app_err_right,
-        cond,
-    )
+    (app_err_left, app_err_right)
 }
 
 /////////////Dense matrix error extraction
@@ -192,6 +175,7 @@ pub fn spectral_norm_estimator<Item: RlstScalar + RandScalar>(
     sample_size: usize,
 ) -> std::option::Option<f64>
 where
+    <Item as rlst::RlstScalar>::Real: RandScalar,
     StandardNormal: Distribution<Item::Real>,
     Standard: Distribution<Item::Real>,
 {
@@ -223,6 +207,7 @@ fn box_errors_id<Item: RlstScalar + RandScalar>(
 where
     StandardNormal: Distribution<Item::Real>,
     Standard: Distribution<Item::Real>,
+    <Item as rlst::RlstScalar>::Real: RandScalar,
 {
     let ind_r = &id_factor.ind_r;
     let far_indices = &id_factor.ind_f;
@@ -253,6 +238,7 @@ fn box_errors_lu<Item: RlstScalar + RandScalar>(
 where
     StandardNormal: Distribution<Item::Real>,
     Standard: Distribution<Item::Real>,
+    <Item as rlst::RlstScalar>::Real: RandScalar,
 {
     let ind_r = &lu_factor.ind_r;
     let ind_t = &lu_factor.ind_t;
@@ -288,6 +274,7 @@ where
     LuDecomposition<Item, BaseArray<Item, VectorContainer<Item>, 2>>:
         MatrixLuDecomposition<Item = Item>,
     TriangularMatrix<Item>: TriangularOperations<Item = Item>,
+    <Item as rlst::RlstScalar>::Real: RandScalar,
 {
     let target_arr = Arc::new(Mutex::new(target_arr));
     let mul_type_left = FactorMulType {
@@ -397,6 +384,7 @@ where
     LuDecomposition<Item, BaseArray<Item, VectorContainer<Item>, 2>>:
         MatrixLuDecomposition<Item = Item>,
     TriangularMatrix<Item>: TriangularOperations<Item = Item>,
+    <Item as rlst::RlstScalar>::Real: RandScalar,
 {
     let errors: Vec<(Vec<Errors>, Vec<Errors>)> = (0..rsrs_factors.num_levels)
         .map(|level_it| {
@@ -462,6 +450,7 @@ pub fn get_boxes_errors<
     LuDecomposition<Item, BaseArray<Item, VectorContainer<Item>, 2>>:
         MatrixLuDecomposition<Item = Item>,
     TriangularMatrix<Item>: TriangularOperations<Item = Item>,
+    <Item as rlst::RlstScalar>::Real: RandScalar,
 {
     let (id_error_stats, lu_error_stats) =
         &el_factors_inv_mul_errors(rsrs_factors, structured_operator_mat);

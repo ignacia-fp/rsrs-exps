@@ -65,7 +65,12 @@ fn determine_type_behavior(
     }
 }
 
-fn build_and_run_test() {
+fn build_and_run_test<'a, SimpleCommunicator>()
+where
+    TestFramework<f64>:
+        TestFrameworkImpl<'a, f64, rlst::DistributedArrayVectorSpace<'a, SimpleCommunicator, f64>>,
+    SimpleCommunicator: mpi::topology::Communicator + 'a,
+{
     let args: Vec<String> = env::args().collect();
 
     let python_source = fs::read_to_string("python/structured_operators.py").unwrap();
@@ -94,9 +99,23 @@ fn build_and_run_test() {
                     serde_json::from_str(&args[4]).expect("Failed to deserialize output args");
                 let scenario_options = ScenarioOptions::new(Some(scenario_args), data_type);
                 let rsrs_options = RsrsOptions::<f64>::new(Some(rsrs_args));
-                let mut test_framework =
-                    TestFramework::new(scenario_options, rsrs_options, output_options);
-                test_framework.run_tests();
+
+                if matches!(
+                    scenario_options.structured_operator_type,
+                    StructuredOperatorType::BemppRsLaplaceOperator
+                ) {
+                    let mut test_framework =
+                        TestFramework::<f64>::new(scenario_options, rsrs_options, output_options);
+                    <TestFramework<f64> as TestFrameworkImpl<
+                        'a,
+                        f64,
+                        DistributedArrayVectorSpace<'a, SimpleCommunicator, f64>,
+                    >>::run_tests(&mut test_framework);
+                } else {
+                    let mut test_framework =
+                        TestFramework::<f64>::new(scenario_options, rsrs_options, output_options);
+                    <TestFramework<f64> as TestFrameworkImpl<f64, ArrayVectorSpace<f64>>>::run_tests(&mut test_framework);
+                }
             }
 
             ScalarType::C64 => {
@@ -110,8 +129,10 @@ fn build_and_run_test() {
                 let scenario_options = ScenarioOptions::new(Some(scenario_args), data_type);
                 let rsrs_options = RsrsOptions::<c64>::new(Some(rsrs_args));
                 let mut test_framework =
-                    TestFramework::new(scenario_options, rsrs_options, output_options);
-                test_framework.run_tests();
+                    TestFramework::<c64>::new(scenario_options, rsrs_options, output_options);
+                <TestFramework<c64> as TestFrameworkImpl<c64, ArrayVectorSpace<c64>>>::run_tests(
+                    &mut test_framework,
+                );
             }
         }
     } else {
@@ -136,8 +157,10 @@ fn build_and_run_test() {
                 let output_options =
                     OutputOptions::new(Solve::True(1e-5), false, false, Results::All);
                 let mut test_framework =
-                    TestFramework::new(scenario_options, rsrs_options, output_options);
-                test_framework.run_tests();
+                    TestFramework::<f64>::new(scenario_options, rsrs_options, output_options);
+                <TestFramework<f64> as TestFrameworkImpl<f64, ArrayVectorSpace<f64>>>::run_tests(
+                    &mut test_framework,
+                );
             }
 
             ScalarType::C64 => {
@@ -147,8 +170,10 @@ fn build_and_run_test() {
                 let output_options =
                     OutputOptions::new(Solve::True(1e-5), false, false, Results::All);
                 let mut test_framework =
-                    TestFramework::new(scenario_options, rsrs_options, output_options);
-                test_framework.run_tests();
+                    TestFramework::<c64>::new(scenario_options, rsrs_options, output_options);
+                <TestFramework<c64> as TestFrameworkImpl<c64, ArrayVectorSpace<c64>>>::run_tests(
+                    &mut test_framework,
+                );
             }
         }
     };

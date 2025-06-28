@@ -1,7 +1,10 @@
+use super::errors::rsrs_error_estimator;
+use bempp_rsrs::rsrs::rsrs_factors::Inv;
+use bempp_rsrs::rsrs::sketch::SamplingSpace;
 use bempp_rsrs::rsrs::{
     box_skeletonisation::UpdateTimes,
     rsrs_cycle::Rsrs,
-    rsrs_factors::{IdTimes, LuTimes, RsrsFactors},
+    rsrs_factors::{IdTimes, LuTimes},
 };
 use rand_distr::{Distribution, Standard, StandardNormal};
 use rlst::{
@@ -16,11 +19,6 @@ use std::{
     path::Path,
 };
 
-use super::{
-    errors::{get_boxes_errors, rsrs_error_estimator},
-    structured_operator::{StructuredOperatorInterface, StructuredOperatorImpl, StructuredOperator},
-};
-
 type Real<T> = <T as rlst::RlstScalar>::Real;
 
 #[derive(Serialize, Clone)]
@@ -30,7 +28,7 @@ pub struct Iterations {
 }
 
 #[derive(Serialize)]
-struct ErrorStatsOutput<Item: RlstScalar> {
+pub struct ErrorStatsOutput<Item: RlstScalar> {
     app_inv_err_left: Real<Item>,
     app_inv_err_right: Real<Item>,
     app_err_left: Real<Item>,
@@ -176,23 +174,24 @@ pub fn save_time_stats<Item: RlstScalar + MatrixInverse + MatrixPseudoInverse + 
     file.write_all(json_string.as_bytes()).unwrap();
 }
 
-fn compute_dense_structured_operator<Item: RlstScalar>(
-    structured_operator: &StructuredOperator<'_, Item, StructuredOperatorInterface>,
-) -> DynamicArray<Item, 2>
-where
-    StructuredOperatorInterface: StructuredOperatorImpl<Item>,
-{
+pub fn compute_dense_structured_operator<
+    Item: RlstScalar,
+    Space: SamplingSpace<F = Item> + IndexableSpace,
+    OpImpl: AsApply<Domain = Space, Range = Space>,
+>(
+    structured_operator: &OpImpl,
+) -> DynamicArray<Item, 2> {
     let dim = structured_operator.domain().dimension();
-    let mut dense_structured_operator = rlst_dynamic_array2!(Item, [dim, dim]);
-    for i in 0..dim {
-        let mut el_vec = ArrayVectorSpace::zero(structured_operator.domain());
+    let dense_structured_operator = rlst_dynamic_array2!(Item, [dim, dim]);
+    /*for i in 0..dim {
+        let mut el_vec = <Space as rlst::LinearSpace>::zero(structured_operator.domain());
         el_vec.view_mut()[[i]] = num::One::one();
         let res = structured_operator.apply(el_vec.r_mut(), TransMode::NoTrans);
         dense_structured_operator
             .r_mut()
             .slice(1, i)
             .fill_from(res.view());
-    }
+    }*/
 
     return dense_structured_operator;
 }
@@ -200,21 +199,24 @@ where
 pub fn save_error_stats<
     'a,
     Item: RlstScalar + RandScalar + MatrixInverse + MatrixPseudoInverse + MatrixId + MatrixLu + MatrixQr,
+    Space: SamplingSpace<F = Item> + IndexableSpace,
+    OpImpl: AsApply<Domain = Space, Range = Space>,
+    OpImpl2: AsApply<Domain = Space, Range = Space> + Inv,
 >(
-    structured_operator_op: &StructuredOperator<'a, Item, StructuredOperatorInterface>,
-    rsrs_factors: &mut RsrsFactors<Item>,
+    structured_operator_op: &OpImpl,
+    rsrs_operator: &mut OpImpl2,
     rsrs_data: &Rsrs<Item>,
     iterations: Iterations,
     tol: Real<Item>,
     path_str: &str,
-    dense_errors: bool,
 ) where
     StandardNormal: Distribution<Real<Item>>,
     Standard: Distribution<Real<Item>>,
     LuDecomposition<Item, BaseArray<Item, VectorContainer<Item>, 2>>:
         MatrixLuDecomposition<Item = Item>,
     TriangularMatrix<Item>: TriangularOperations<Item = Item>,
-    StructuredOperatorInterface: StructuredOperatorImpl<Item>,
+    <Item as rlst::RlstScalar>::Real: RandScalar,
+    <<Space as rlst::LinearSpace>::E as rlst::ElementImpl>::Space: InnerProductSpace,
 {
     fs::create_dir_all(Path::new(&path_str)).unwrap();
     let string_tol = format!("{:e}", tol);
@@ -223,10 +225,17 @@ pub fn save_error_stats<
     stats_path.push_str(&string_tol);
     stats_path.push_str(".json");
 
-    let rsrs_factors: &mut RsrsFactors<Item> = rsrs_factors;
-    let (app_inv_err_left, app_inv_err_right, app_err_left, app_err_right, condition_number) =
-        rsrs_error_estimator::<Item>(structured_operator_op, rsrs_factors, 10);
+    //let rsrs_factors: &mut RsrsFactors<Item> = rsrs_factors;
 
+    let (app_err_left, app_err_right) =
+        rsrs_error_estimator(structured_operator_op, rsrs_operator, 10, false);
+
+    rsrs_operator.inv(true);
+
+    let (app_inv_err_left, app_inv_err_right) =
+        rsrs_error_estimator(structured_operator_op, rsrs_operator, 10, true);
+
+    let condition_number = num::One::one();
     let stats = ErrorStatsOutput::<Item> {
         app_inv_err_left,
         app_inv_err_right,
@@ -242,14 +251,14 @@ pub fn save_error_stats<
     let mut file = File::create(stats_path).unwrap();
     file.write_all(json_string.as_bytes()).unwrap();
 
-    if dense_errors {
+    /*if dense_errors {
         let mut structured_operator_mat = compute_dense_structured_operator(structured_operator_op);
         get_boxes_errors(
             &mut structured_operator_mat,
             rsrs_factors,
             num::NumCast::from(tol).unwrap(),
         );
-    }
+    }*/
 }
 
 pub fn save_rank_stats<Item: RlstScalar + MatrixInverse + MatrixPseudoInverse + MatrixId>(
