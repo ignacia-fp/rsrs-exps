@@ -18,6 +18,7 @@ use rlst::{
     dense::{linalg::lu::MatrixLu, tools::RandScalar},
     prelude::*,
 };
+
 type Real<T> = <T as rlst::RlstScalar>::Real;
 
 fn _gen_sample_frame<Item: RlstScalar + RandScalar, Space: SamplingSpace<F = Item> + Clone>(
@@ -35,7 +36,6 @@ where
     for _ in 0..sample_size {
         let mut sample_vec = SamplingSpace::zero(std::rc::Rc::new(space.clone()));
         space.sampling(&mut sample_vec, &mut rng, SampleType::StandardNormal);
-        //sample_vec.view_mut().fill_from_standard_normal(&mut rng);
         frame.push(sample_vec);
     }
     frame
@@ -80,11 +80,11 @@ where
     TriangularMatrix<Item>: TriangularOperations<Item = Item>,
     <<Space as rlst::LinearSpace>::E as rlst::ElementImpl>::Space: rlst::InnerProductSpace,
 {
-    let trans_mode = TransMode::NoTrans;/*if matches!(side, RsrsSide::Left) {
+    let trans_mode = if matches!(side, RsrsSide::Left) {
         TransMode::NoTrans
     } else {
         TransMode::Trans
-    };*/
+    };
 
     let mut sample_frame = VectorFrame::default();
     let mut rng: rand::rngs::StdRng = rand::SeedableRng::from_entropy();
@@ -96,7 +96,6 @@ where
         sample_frame.push(sample_vec);
     }
 
-    //let mut sample_frame = gen_sample_frame(sample_size, target_op.range());
     let mut mod_sample_frame = mul_op(target_op, &sample_frame, TransMode::NoTrans);
 
     let max_err = if inv {

@@ -21,6 +21,7 @@ use ndelement::ciarlet::LagrangeElementFamily;
 use ndelement::types::ReferenceCellType;
 use ndgrid::traits::{Grid, ParallelGrid, Entity, Geometry, Point};
 use bempp_rsrs::rsrs::rsrs_factors::Inv;
+// use crate::io::errors::get_boxes_errors;
 
 #[derive(Debug, Clone, Deserialize)]
 pub enum Results {
@@ -327,9 +328,18 @@ macro_rules! implement_test_framework {
 
                                 if self.output_options.dense_errors {
                                     panic!("Not implemented");
-                                    /*let mut structured_operator_mat = compute_dense_structured_operator(&operator);
+                                    /*let mut dense_structured_operator = rlst_dynamic_array2!($scalar, [dim, dim]);
+                                    for i in 0..dim {
+                                        let mut el_vec  = <rlst::ArrayVectorSpace<_> as SamplingSpace>::zero(domain.clone());
+                                        el_vec.view_mut()[[i]] = num::One::one();
+                                        let res = operator.apply(el_vec.r_mut(), TransMode::NoTrans);
+                                        dense_structured_operator
+                                            .r_mut()
+                                            .slice(1, i)
+                                            .fill_from(res.view());
+                                    }
                                     get_boxes_errors(
-                                        &mut structured_operator_mat,
+                                        &mut dense_structured_operator,
                                         &mut rsrs_factors,
                                         num::NumCast::from(id_tol).unwrap(),
                                     );*/

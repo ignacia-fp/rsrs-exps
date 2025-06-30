@@ -19,6 +19,7 @@ use std::{
     path::Path,
 };
 
+
 type Real<T> = <T as rlst::RlstScalar>::Real;
 
 #[derive(Serialize, Clone)]
@@ -174,27 +175,6 @@ pub fn save_time_stats<Item: RlstScalar + MatrixInverse + MatrixPseudoInverse + 
     file.write_all(json_string.as_bytes()).unwrap();
 }
 
-pub fn compute_dense_structured_operator<
-    Item: RlstScalar,
-    Space: SamplingSpace<F = Item> + IndexableSpace,
-    OpImpl: AsApply<Domain = Space, Range = Space>,
->(
-    structured_operator: &OpImpl,
-) -> DynamicArray<Item, 2> {
-    let dim = structured_operator.domain().dimension();
-    let dense_structured_operator = rlst_dynamic_array2!(Item, [dim, dim]);
-    /*for i in 0..dim {
-        let mut el_vec = <Space as rlst::LinearSpace>::zero(structured_operator.domain());
-        el_vec.view_mut()[[i]] = num::One::one();
-        let res = structured_operator.apply(el_vec.r_mut(), TransMode::NoTrans);
-        dense_structured_operator
-            .r_mut()
-            .slice(1, i)
-            .fill_from(res.view());
-    }*/
-
-    return dense_structured_operator;
-}
 
 pub fn save_error_stats<
     'a,
