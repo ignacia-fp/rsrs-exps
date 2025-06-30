@@ -21,6 +21,7 @@ use ndelement::ciarlet::LagrangeElementFamily;
 use ndelement::types::ReferenceCellType;
 use ndgrid::traits::{Grid, ParallelGrid, Entity, Geometry, Point};
 use bempp_rsrs::rsrs::rsrs_factors::Inv;
+use crate::io::solve::solve_prec_system;
 // use crate::io::errors::get_boxes_errors;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -301,9 +302,9 @@ macro_rules! implement_test_framework {
                         iterations.prec = match self.output_options.solve {
                             Solve::True(tol) => {
                                 rsrs_operator.inv(true);
-                                let rhs_prec = rsrs_operator.apply(rhs.r(), TransMode::NoTrans);
-                                let prec_operator = rsrs_operator.r().product(operator.r());
-                                let its = solve_system(&prec_operator, &rhs_prec, tol);
+                                //let rhs_prec = rsrs_operator.apply(rhs.r(), TransMode::NoTrans);
+                                //let prec_operator = rsrs_operator.r().product(operator.r());
+                                let its = solve_prec_system(&operator, &rsrs_operator, &rhs, tol);
                                 rsrs_operator.inv(false);
                                 Some(its)
                             }
@@ -408,9 +409,9 @@ macro_rules! implement_distributed_test_framework {
                 for (dim_num, _dim_arg) in self.test_params.scenario_params.dim_args.iter().enumerate() {
 
                     let rank = comm.rank();
-                    let refinement_level = 5;
-                    let local_tree_depth = 1;
-                    let global_tree_depth = 1;
+                    let refinement_level = 8;
+                    let local_tree_depth = 3;
+                    let global_tree_depth = 3;
                     let expansion_order = 6;
                     let grid = bempp::shapes::regular_sphere::<Self::Item, _>(refinement_level as u32, 1, &comm);
 
@@ -515,9 +516,9 @@ macro_rules! implement_distributed_test_framework {
                         iterations.prec = match self.output_options.solve {
                             Solve::True(tol) => {
                                 rsrs_operator.inv(true);
-                                let rhs_prec = rsrs_operator.apply(rhs.r(), TransMode::NoTrans);
-                                let prec_operator = rsrs_operator.r().product(operator.r());
-                                let its = solve_system(&prec_operator, &rhs_prec, tol);
+                                //let rhs_prec = rsrs_operator.apply(rhs.r(), TransMode::NoTrans);
+                                //let prec_operator = rsrs_operator.r().product(operator.r());
+                                let its = solve_prec_system(&operator, &rsrs_operator, &rhs, tol);
                                 rsrs_operator.inv(false);
                                 Some(its)
                             }
