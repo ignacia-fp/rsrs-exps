@@ -21,7 +21,7 @@ itertools = "0.13.*"
 rand = { version = "0.8.5", features = ["alloc"] }
 rand_chacha = "0.3.*"
 num = "0.4.*"
-rlst = {git = "https://github.com/linalg-rs/rlst.git", branch = "extend_abstract_operator"}
+rlst = {git = "https://github.com/linalg-rs/rlst.git", branch = "extend_abstract_operator", features = ["enable_tracing"]}
 bempp-octree = { git = "https://github.com/bempp/octree.git" }
 mpi = { version = "0.8.*", features = ["derive", "user-operations"] }
 ndarray = "0.16.1"
@@ -44,6 +44,7 @@ strum = "0.24"
 strum_macros = "0.24"
 regex = "1"
 bempp-quadrature = "0.1.0"
+env_logger = "0.11"
 
 
 [profile.release]

@@ -22,7 +22,7 @@ use bempp_rsrs::rsrs::rsrs_factors::Inv;
 use ndelement::ciarlet::LagrangeElementFamily;
 use ndelement::types::ReferenceCellType;
 use ndgrid::traits::{Entity, Geometry, Grid, ParallelGrid, Point};
-// use crate::io::errors::get_boxes_errors;
+use rlst::tracing::trace_call;
 
 #[derive(Debug, Clone, Deserialize)]
 pub enum Results {
@@ -411,21 +411,23 @@ macro_rules! implement_distributed_test_framework {
             fn run_tests(&mut self) {
                 let universe: mpi::environment::Universe = mpi::initialize().unwrap();
                 let comm: SimpleCommunicator = universe.world();
+                env_logger::init();
                 for (dim_num, _dim_arg) in self.test_params.scenario_params.dim_args.iter().enumerate() {
 
                     let rank = comm.rank();
-                    let refinement_level = 5;
-                    let local_tree_depth = 3;
-                    let global_tree_depth = 1;
+                    let refinement_level = 9;
+                    let local_tree_depth = 1;
+                    let global_tree_depth = 5;
                     let expansion_order = 6;
                     let grid = bempp::shapes::regular_sphere::<Self::Item, _>(refinement_level as u32, 1, &comm);
 
                     let quad_degree = 6;
 
-                    let space = bempp::function::FunctionSpace::new(
+                    let space = trace_call("instantiate_space", || {bempp::function::FunctionSpace::new(
                         &grid,
                         &LagrangeElementFamily::<Self::Item>::new(0, ndelement::types::Continuity::Discontinuous),
-                    );
+                        )
+                    });
 
                     let mut options = BoundaryAssemblerOptions::default();
                     options.set_regular_quadrature_degree(ReferenceCellType::Triangle, quad_degree);
@@ -450,6 +452,12 @@ macro_rules! implement_distributed_test_framework {
                         &options,
                     );
 
+                    let mut x = zero_element(operator.domain());
+
+                    x.view_mut()
+                        .local_mut()
+                        .fill_from_seed_equally_distributed(rank as usize);
+                    let _res = trace_call("apply_laplace", || operator.apply(x.r(), TransMode::NoTrans));
 
                     let mut points = Vec::new();
                     let mut p = vec![0.0; 3];
