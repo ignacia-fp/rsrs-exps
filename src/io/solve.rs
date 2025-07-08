@@ -13,7 +13,7 @@ pub fn solve_system<
     target_op: &OpImpl,
     rhs: &Element<rlst::operator::ConcreteElementContainer<<Space as LinearSpace>::E>>,
     tol: <Item as rlst::RlstScalar>::Real,
-) -> (usize, <Item as RlstScalar>::Real)
+) -> (Vec<<Item as rlst::RlstScalar>::Real>, <Item as RlstScalar>::Real)
 where
     LuDecomposition<Item, BaseArray<Item, VectorContainer<Item>, 2>>:
         MatrixLuDecomposition<Item = Item>,
@@ -38,7 +38,7 @@ where
     let rel_norm = diff.norm() / rhs.norm();
     println!("Rel norm: {}", rel_norm);
 
-    (residuals.len(), rel_norm)
+    (residuals, rel_norm)
 }
 
 pub fn solve_prec_system<
@@ -52,7 +52,7 @@ pub fn solve_prec_system<
     rsrs_operator: &OpImpl2,
     rhs: &Element<rlst::operator::ConcreteElementContainer<<Space as LinearSpace>::E>>,
     tol: <Item as rlst::RlstScalar>::Real,
-) -> (usize, <Item as RlstScalar>::Real)
+) -> (Vec<<Item as rlst::RlstScalar>::Real>, <Item as RlstScalar>::Real)
 where
     LuDecomposition<Item, BaseArray<Item, VectorContainer<Item>, 2>>:
         MatrixLuDecomposition<Item = Item>,
@@ -81,5 +81,5 @@ where
     let rel_norm = diff.norm() / rhs.norm();
     println!("Rel norm: {}", rel_norm);
 
-    (residuals.len(), rel_norm)
+    (residuals, rel_norm)
 }

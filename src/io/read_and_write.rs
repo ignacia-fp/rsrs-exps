@@ -27,8 +27,8 @@ type Real<T> = <T as rlst::RlstScalar>::Real;
 
 #[derive(Serialize, Clone)]
 pub struct Iterations<Item: RlstScalar> {
-    pub no_prec: Option<usize>,
-    pub prec: Option<usize>,
+    pub no_prec: Option<Vec<Real<Item>>>,
+    pub prec: Option<Vec<Real<Item>>>,
     pub rel_err_no_prec: Option<Real<Item>>,
     pub rel_err_prec: Option<Real<Item>>,
 }
