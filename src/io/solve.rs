@@ -1,6 +1,4 @@
-use bempp_rsrs::rsrs::{
-    sketch::SamplingSpace,
-};
+use bempp_rsrs::rsrs::sketch::SamplingSpace;
 use rlst::{
     dense::{linalg::lu::MatrixLu, tools::RandScalar},
     prelude::*,
@@ -15,7 +13,7 @@ pub fn solve_system<
     target_op: &OpImpl,
     rhs: &Element<rlst::operator::ConcreteElementContainer<<Space as LinearSpace>::E>>,
     tol: <Item as rlst::RlstScalar>::Real,
-) -> usize
+) -> (usize, <Item as RlstScalar>::Real)
 where
     LuDecomposition<Item, BaseArray<Item, VectorContainer<Item>, 2>>:
         MatrixLuDecomposition<Item = Item>,
@@ -37,9 +35,10 @@ where
     let mut diff = rhs.duplicate();
     diff -= target_op.apply(sol, TransMode::NoTrans);
 
-    println!("Rel norm: {}", diff.norm()/rhs.norm());
+    let rel_norm = diff.norm() / rhs.norm();
+    println!("Rel norm: {}", rel_norm);
 
-    residuals.len()
+    (residuals.len(), rel_norm)
 }
 
 pub fn solve_prec_system<
@@ -53,13 +52,13 @@ pub fn solve_prec_system<
     rsrs_operator: &OpImpl2,
     rhs: &Element<rlst::operator::ConcreteElementContainer<<Space as LinearSpace>::E>>,
     tol: <Item as rlst::RlstScalar>::Real,
-) -> usize
+) -> (usize, <Item as RlstScalar>::Real)
 where
     LuDecomposition<Item, BaseArray<Item, VectorContainer<Item>, 2>>:
         MatrixLuDecomposition<Item = Item>,
     TriangularMatrix<Item>: TriangularOperations<Item = Item>,
     GivensRotationsData<Item>: GivensRotations<Item>,
-    <<Space as rlst::LinearSpace>::E as rlst::ElementImpl>::Space: rlst::InnerProductSpace
+    <<Space as rlst::LinearSpace>::E as rlst::ElementImpl>::Space: rlst::InnerProductSpace,
 {
     let dim = target_op.domain().dimension();
 
@@ -79,7 +78,8 @@ where
     let mut diff = rhs.duplicate();
     diff -= target_op.apply(sol, TransMode::NoTrans);
 
-    println!("Rel norm: {}", diff.norm()/rhs.norm());
+    let rel_norm = diff.norm() / rhs.norm();
+    println!("Rel norm: {}", rel_norm);
 
-    residuals.len()
+    (residuals.len(), rel_norm)
 }

@@ -1,3 +1,5 @@
+use crate::io::errors::{DiffOperator, IdOperator};
+
 use super::errors::rsrs_error_estimator;
 use bempp_rsrs::rsrs::rsrs_factors::Inv;
 use bempp_rsrs::rsrs::sketch::SamplingSpace;
@@ -7,6 +9,8 @@ use bempp_rsrs::rsrs::{
     rsrs_factors::{IdTimes, LuTimes},
 };
 use rand_distr::{Distribution, Standard, StandardNormal};
+use rlst::dense::linalg::naupd::NonSymmetricArnoldiUpdate;
+use rlst::dense::linalg::neupd::NonSymmetricArnoldiExtract;
 use rlst::{
     dense::{linalg::lu::MatrixLu, tools::RandScalar},
     prelude::*,
@@ -19,13 +23,14 @@ use std::{
     path::Path,
 };
 
-
 type Real<T> = <T as rlst::RlstScalar>::Real;
 
 #[derive(Serialize, Clone)]
-pub struct Iterations {
+pub struct Iterations<Item: RlstScalar> {
     pub no_prec: Option<usize>,
     pub prec: Option<usize>,
+    pub rel_err_no_prec: Option<Real<Item>>,
+    pub rel_err_prec: Option<Real<Item>>,
 }
 
 #[derive(Serialize)]
@@ -34,10 +39,12 @@ pub struct ErrorStatsOutput<Item: RlstScalar> {
     app_inv_err_right: Real<Item>,
     app_err_left: Real<Item>,
     app_err_right: Real<Item>,
-    condition_number: Real<Item>,
+    norm_2_error: Real<Item>,
+    norm_2_error_inv: Real<Item>,
+    app_condition_number: Real<Item>,
     tot_num_samples: usize,
     residual_size: usize,
-    iterations: Iterations,
+    iterations: Iterations<Item>,
 }
 
 #[derive(Serialize)]
@@ -175,10 +182,17 @@ pub fn save_time_stats<Item: RlstScalar + MatrixInverse + MatrixPseudoInverse + 
     file.write_all(json_string.as_bytes()).unwrap();
 }
 
-
 pub fn save_error_stats<
     'a,
-    Item: RlstScalar + RandScalar + MatrixInverse + MatrixPseudoInverse + MatrixId + MatrixLu + MatrixQr,
+    Item: RlstScalar<Real = f64>
+        + RandScalar
+        + MatrixInverse
+        + MatrixPseudoInverse
+        + MatrixId
+        + MatrixLu
+        + MatrixQr
+        + NonSymmetricArnoldiUpdate
+        + NonSymmetricArnoldiExtract,
     Space: SamplingSpace<F = Item> + IndexableSpace,
     OpImpl: AsApply<Domain = Space, Range = Space>,
     OpImpl2: AsApply<Domain = Space, Range = Space> + Inv,
@@ -186,7 +200,7 @@ pub fn save_error_stats<
     structured_operator_op: &OpImpl,
     rsrs_operator: &mut OpImpl2,
     rsrs_data: &Rsrs<Item>,
-    iterations: Iterations,
+    iterations: Iterations<Item>,
     tol: Real<Item>,
     path_str: &str,
 ) where
@@ -197,6 +211,8 @@ pub fn save_error_stats<
     TriangularMatrix<Item>: TriangularOperations<Item = Item>,
     <Item as rlst::RlstScalar>::Real: RandScalar,
     <<Space as rlst::LinearSpace>::E as rlst::ElementImpl>::Space: InnerProductSpace,
+    IdOperator<Item, Space>: rlst::AsApply,
+    IdOperator<Item, Space>: OperatorBase<Domain = Space, Range = Space>,
 {
     fs::create_dir_all(Path::new(&path_str)).unwrap();
     let string_tol = format!("{:e}", tol);
@@ -205,23 +221,62 @@ pub fn save_error_stats<
     stats_path.push_str(&string_tol);
     stats_path.push_str(".json");
 
-    //let rsrs_factors: &mut RsrsFactors<Item> = rsrs_factors;
+    rsrs_operator.inv(false);
 
     let (app_err_left, app_err_right) =
         rsrs_error_estimator(structured_operator_op, rsrs_operator, 10, false);
 
+    let diff = DiffOperator(structured_operator_op.r(), rsrs_operator.r());
+
+    let prod1 = diff.r().product(diff.r());
+    let mut eigs1 = Eigs::new(prod1.r(), 1e-10, None, None, None);
+    let (sigma_1, _) = eigs1.run(None, 1, None, false);
+
+    let prod2 = structured_operator_op
+        .r()
+        .product(structured_operator_op.r());
+    let mut eigs2 = Eigs::new(prod2.r(), 1e-10, None, None, None);
+    let (sigma_2, _) = eigs2.run(None, 1, None, false);
+
+    let prod3 = rsrs_operator.r().product(rsrs_operator.r());
+    let mut eigs3 = Eigs::new(prod3.r(), 1e-10, None, None, None);
+    let (c_1, _) = eigs3.run(None, 1, None, false);
+
+    let norm_2_error = sigma_1[0].abs().sqrt() / sigma_2[0].abs().sqrt();
+
     rsrs_operator.inv(true);
+
+    let domain = std::rc::Rc::clone(&structured_operator_op.domain());
+    let range = std::rc::Rc::clone(&structured_operator_op.range());
+    let id_op = IdOperator::new(domain, range);
+
+    let prod1 = rsrs_operator.r().product(structured_operator_op.r());
+    let diff = DiffOperator(prod1.r(), id_op.r());
+
+    let prod2 = diff.r().product(diff.r());
+
+    let mut eigs1 = Eigs::new(prod2.r(), 1e-10, None, None, None);
+    let (sigma_1, _) = eigs1.run(None, 1, None, false);
+
+    let prod3 = rsrs_operator.r().product(rsrs_operator.r());
+    let mut eigs2 = Eigs::new(prod3.r(), 1e-10, None, None, None);
+    let (c_2, _) = eigs2.run(None, 1, None, false);
+
+    let norm_2_error_inv = sigma_1[0].abs().sqrt();
+
+    let condition_number = (c_2[0].abs() * c_1[0].abs()).sqrt();
 
     let (app_inv_err_left, app_inv_err_right) =
         rsrs_error_estimator(structured_operator_op, rsrs_operator, 10, true);
 
-    let condition_number = num::One::one();
     let stats = ErrorStatsOutput::<Item> {
         app_inv_err_left,
         app_inv_err_right,
         app_err_left,
         app_err_right,
-        condition_number,
+        app_condition_number: condition_number,
+        norm_2_error,
+        norm_2_error_inv,
         tot_num_samples: rsrs_data.y_data.num_samples,
         residual_size: rsrs_data.stats.residual_size,
         iterations,
@@ -230,15 +285,6 @@ pub fn save_error_stats<
     let json_string = serde_json::to_string_pretty(&stats).expect("Failed to serialize");
     let mut file = File::create(stats_path).unwrap();
     file.write_all(json_string.as_bytes()).unwrap();
-
-    /*if dense_errors {
-        let mut structured_operator_mat = compute_dense_structured_operator(structured_operator_op);
-        get_boxes_errors(
-            &mut structured_operator_mat,
-            rsrs_factors,
-            num::NumCast::from(tol).unwrap(),
-        );
-    }*/
 }
 
 pub fn save_rank_stats<Item: RlstScalar + MatrixInverse + MatrixPseudoInverse + MatrixId>(

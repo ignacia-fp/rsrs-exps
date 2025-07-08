@@ -140,6 +140,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "arpack-ng-sys"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c3e13e46e29a9dd15a48d57e4fa16fd398215a9eefc517763f2e05c5d839fde2"
+dependencies = [
+ "bindgen 0.66.1",
+ "cmake",
+]
+
+[[package]]
 name = "atty"
 version = "0.2.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -257,7 +267,7 @@ dependencies = [
 [[package]]
 name = "bempp-rsrs"
 version = "0.0.1-dev"
-source = "git+https://github.com/bempp/rsrs.git?branch=extend_to_distributed_spaces#a9cc776bab3187e2a70928ef9d66f90b6cadada1"
+source = "git+https://github.com/bempp/rsrs.git?branch=extend_to_distributed_spaces#35952208a44e0a3bd6fd301d510f366a50dedc91"
 dependencies = [
  "bempp-octree",
  "cbindgen 0.27.0",
@@ -275,6 +285,29 @@ dependencies = [
  "rlst",
  "rustc-hash 1.1.0",
  "serde",
+]
+
+[[package]]
+name = "bindgen"
+version = "0.66.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f2b84e06fc203107bfbad243f4aba2af864eb7db3b1cf46ea0a023b0b433d2a7"
+dependencies = [
+ "bitflags 2.9.1",
+ "cexpr",
+ "clang-sys",
+ "lazy_static 1.5.0",
+ "lazycell",
+ "log",
+ "peeking_take_while",
+ "prettyplease",
+ "proc-macro2",
+ "quote",
+ "regex 1.11.1",
+ "rustc-hash 1.1.0",
+ "shlex",
+ "syn 2.0.104",
+ "which",
 ]
 
 [[package]]
@@ -2149,6 +2182,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "peeking_take_while"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "19b17cddbe7ec3f8bc800887bab5e717348c95ea2ca0b1bf0837fb964dc67099"
+
+[[package]]
 name = "percent-encoding"
 version = "2.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2461,8 +2500,9 @@ checksum = "2b15c43186be67a4fd63bee50d0303afffcef381492ebe2c5d87f324e1b8815c"
 [[package]]
 name = "rlst"
 version = "0.2.1"
-source = "git+https://github.com/linalg-rs/rlst.git?branch=extend_abstract_operator#7a48dd87eb0e21b9c7ac33b4d7251084df0fca8d"
+source = "git+https://github.com/linalg-rs/rlst.git?branch=extend_abstract_operator#8ee3ee0022ce4551fca2d4dae60562cc74349f6e"
 dependencies = [
+ "arpack-ng-sys",
  "bempp-distributed-tools",
  "bindgen 0.71.1",
  "blas",
@@ -2489,7 +2529,7 @@ dependencies = [
 [[package]]
 name = "rlst-proc-macro"
 version = "0.2.1"
-source = "git+https://github.com/linalg-rs/rlst.git?branch=extend_abstract_operator#7a48dd87eb0e21b9c7ac33b4d7251084df0fca8d"
+source = "git+https://github.com/linalg-rs/rlst.git?branch=extend_abstract_operator#8ee3ee0022ce4551fca2d4dae60562cc74349f6e"
 dependencies = [
  "darling",
  "quote",

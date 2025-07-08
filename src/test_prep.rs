@@ -15,13 +15,13 @@ use mpi::{topology::SimpleCommunicator, traits::Communicator};
 use rlst::prelude::*;
 use serde::Deserialize;
 type Real<T> = <T as rlst::RlstScalar>::Real;
+use crate::io::solve::solve_prec_system;
 use crate::io::structured_operator::Attr;
 use bempp::boundary_assemblers::BoundaryAssemblerOptions;
+use bempp_rsrs::rsrs::rsrs_factors::Inv;
 use ndelement::ciarlet::LagrangeElementFamily;
 use ndelement::types::ReferenceCellType;
-use ndgrid::traits::{Grid, ParallelGrid, Entity, Geometry, Point};
-use bempp_rsrs::rsrs::rsrs_factors::Inv;
-use crate::io::solve::solve_prec_system;
+use ndgrid::traits::{Entity, Geometry, Grid, ParallelGrid, Point};
 // use crate::io::errors::get_boxes_errors;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -265,11 +265,17 @@ macro_rules! implement_test_framework {
                     let mut iterations = Iterations {
                         no_prec: None,
                         prec: None,
+                        rel_err_no_prec: None,
+                        rel_err_prec: None,
                     };
 
-                    iterations.no_prec = match self.output_options.solve {
-                        Solve::True(tol) => Some(solve_system(&operator, &rhs, tol)),
-                        Solve::False => None,
+                    match self.output_options.solve {
+                        Solve::True(tol) => {
+                            let (its, rel_err) = solve_system(&operator, &rhs, tol);
+                            iterations.no_prec = Some(its);
+                            iterations.rel_err_no_prec = Some(rel_err);
+                        }
+                        Solve::False => {}
                     };
 
                     if comm.rank() == 0 {
@@ -292,23 +298,23 @@ macro_rules! implement_test_framework {
                         let domain = std::rc::Rc::clone(&operator.domain());
                         let range = std::rc::Rc::clone(&operator.range());
 
-                        let rsrs_factors = rsrs_algo.run(&operator);
+                        let mut rsrs_factors = rsrs_algo.run(operator.r());
 
                         let mut rsrs_operator =
-                            RsrsOperator::from_local_spaces(rsrs_factors, domain, range);
+                            RsrsOperator::from_local_spaces(&mut rsrs_factors, domain, range);
 
                         let path_str = self.test_params.get_test_dir(dim_num);
 
-                        iterations.prec = match self.output_options.solve {
+                        match self.output_options.solve {
                             Solve::True(tol) => {
                                 rsrs_operator.inv(true);
-                                //let rhs_prec = rsrs_operator.apply(rhs.r(), TransMode::NoTrans);
-                                //let prec_operator = rsrs_operator.r().product(operator.r());
-                                let its = solve_prec_system(&operator, &rsrs_operator, &rhs, tol);
+                                let (its, rel_err) =
+                                    solve_prec_system(&operator, &rsrs_operator, &rhs, tol);
                                 rsrs_operator.inv(false);
-                                Some(its)
+                                iterations.prec = Some(its);
+                                iterations.rel_err_prec = Some(rel_err);
                             }
-                            Solve::False => None,
+                            Solve::False => {}
                         };
 
                         match self.output_options.results_output {
@@ -382,7 +388,6 @@ macro_rules! implement_test_framework {
 implement_test_framework!(f64);
 implement_test_framework!(c64);
 
-
 macro_rules! implement_distributed_test_framework {
     ($scalar:ty) => {
         impl<'a> TestFrameworkImpl<'a, $scalar, DistributedArrayVectorSpace<'a, SimpleCommunicator, $scalar>>
@@ -409,9 +414,9 @@ macro_rules! implement_distributed_test_framework {
                 for (dim_num, _dim_arg) in self.test_params.scenario_params.dim_args.iter().enumerate() {
 
                     let rank = comm.rank();
-                    let refinement_level = 8;
+                    let refinement_level = 5;
                     let local_tree_depth = 3;
-                    let global_tree_depth = 3;
+                    let global_tree_depth = 1;
                     let expansion_order = 6;
                     let grid = bempp::shapes::regular_sphere::<Self::Item, _>(refinement_level as u32, 1, &comm);
 
@@ -459,7 +464,7 @@ macro_rules! implement_distributed_test_framework {
                         let point = bempp_octree::Point::new(barycentre, 000);
                         points.push(point);
                     }
-  
+
 
                     let mut rhs: Element<rlst::operator::ConcreteElementContainer<_>> =
                         zero_element(operator.domain());
@@ -479,11 +484,17 @@ macro_rules! implement_distributed_test_framework {
                     let mut iterations = Iterations {
                         no_prec: None,
                         prec: None,
+                        rel_err_prec: None,
+                        rel_err_no_prec: None
                     };
 
-                    iterations.no_prec = match self.output_options.solve {
-                        Solve::True(tol) => Some(solve_system(&operator, &rhs, tol)),
-                        Solve::False => None,
+                    match self.output_options.solve {
+                        Solve::True(tol) => {
+                                let (its, rel_err) = solve_system(&operator, &rhs, tol);
+                                iterations.no_prec = Some(its);
+                                iterations.rel_err_no_prec = Some(rel_err);
+                            },
+                        Solve::False => {},
                     };
 
                     if comm.rank() == 0 {
@@ -502,27 +513,19 @@ macro_rules! implement_distributed_test_framework {
 
                         let mut rsrs_algo: Rsrs<Self::Item> =
                             Rsrs::new(&tree, self.test_params.rsrs_params.clone(), dim);
-
-                        let domain = std::rc::Rc::clone(&operator.domain());
-                        let range = std::rc::Rc::clone(&operator.range());
-
-                        let rsrs_factors = rsrs_algo.run(&operator);
-
-                        let mut rsrs_operator =
-                            RsrsOperator::from_local_spaces(rsrs_factors, domain, range);
+                        let mut rsrs_operator = rsrs_algo.get_rsrs_operator(operator.r());
 
                         let path_str = self.test_params.get_test_dir(dim_num);
 
-                        iterations.prec = match self.output_options.solve {
+                        match self.output_options.solve {
                             Solve::True(tol) => {
                                 rsrs_operator.inv(true);
-                                //let rhs_prec = rsrs_operator.apply(rhs.r(), TransMode::NoTrans);
-                                //let prec_operator = rsrs_operator.r().product(operator.r());
-                                let its = solve_prec_system(&operator, &rsrs_operator, &rhs, tol);
+                                let (its, rel_err) = solve_prec_system(&operator, &rsrs_operator, &rhs, tol);
                                 rsrs_operator.inv(false);
-                                Some(its)
+                                iterations.prec = Some(its);
+                                iterations.rel_err_prec = Some(rel_err);
                             }
-                            Solve::False => None,
+                            Solve::False => {},
                         };
 
                         match self.output_options.results_output {

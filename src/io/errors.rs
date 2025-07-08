@@ -1,16 +1,13 @@
-use std::sync::{Arc, Mutex};
-
-/*use super::structured_operator::{
-    StructuredOperator, StructuredOperatorImpl, StructuredOperatorInterface,
-};*/
 use bempp_rsrs::rsrs::rsrs_factors::Inv;
+use bempp_rsrs::rsrs::rsrs_factors::RsrsFactors;
 use bempp_rsrs::rsrs::rsrs_factors::{
     CommutativeFactors, Factor, FactorMulType, FactorOperations, FactorOptions, FactorType,
     IdFactor, LuFactor,
 };
-use bempp_rsrs::rsrs::rsrs_factors::{RsrsFactors, RsrsSide};
 use bempp_rsrs::rsrs::sketch::{SampleType, SamplingSpace};
 use bempp_rsrs::utils::data_ins_ext::{ExtInsType, Extraction, MatrixExtraction};
+use mpi::traits::Communicator;
+use mpi::traits::Equivalence;
 use num::NumCast;
 use rand_distr::{Distribution, Standard, StandardNormal};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
@@ -18,8 +15,219 @@ use rlst::{
     dense::{linalg::lu::MatrixLu, tools::RandScalar},
     prelude::*,
 };
+use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 
 type Real<T> = <T as rlst::RlstScalar>::Real;
+
+pub struct IdOperator<
+    Item: RlstScalar + RandScalar,
+    Space: SamplingSpace<F = Item> + IndexableSpace,
+> {
+    domain: Rc<Space>,
+    range: Rc<Space>,
+}
+
+impl<Item: RlstScalar + RandScalar, Space: SamplingSpace<F = Item> + IndexableSpace> std::fmt::Debug
+    for IdOperator<Item, Space>
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let dim_1 = self.domain().dimension();
+        let dim_2 = self.range().dimension();
+        write!(f, "Id Operator: [{}x{}]", dim_1, dim_2).unwrap();
+        Ok(())
+    }
+}
+
+impl<
+        Item: RlstScalar + RandScalar,
+        Space: SamplingSpace<F = Item> + LinearSpace + IndexableSpace,
+    > OperatorBase for IdOperator<Item, Space>
+{
+    type Domain = Space;
+    type Range = Space;
+
+    fn domain(&self) -> Rc<Self::Domain> {
+        self.domain.clone()
+    }
+
+    fn range(&self) -> Rc<Self::Range> {
+        self.range.clone()
+    }
+}
+
+impl<Item: RlstScalar + RandScalar> AsApply for IdOperator<Item, ArrayVectorSpace<Item>>
+where
+    <Item as rlst::RlstScalar>::Real: RandScalar,
+    StandardNormal: Distribution<<Item as rlst::RlstScalar>::Real>,
+    Standard: Distribution<<Item as rlst::RlstScalar>::Real>,
+{
+    fn apply_extended<
+        ContainerIn: ElementContainer<E = <Self::Domain as LinearSpace>::E>,
+        ContainerOut: ElementContainerMut<E = <Self::Range as LinearSpace>::E>,
+    >(
+        &self,
+        _alpha: <Self::Range as LinearSpace>::F,
+        x: Element<ContainerIn>,
+        _beta: <Self::Range as LinearSpace>::F,
+        mut y: Element<ContainerOut>,
+        _trans_mode: TransMode,
+    ) {
+        y.r_mut().fill_inplace(x);
+    }
+
+    fn apply<ContainerIn: ElementContainer<E = <Self::Domain as LinearSpace>::E>>(
+        &self,
+        x: Element<ContainerIn>,
+        trans_mode: rlst::TransMode,
+    ) -> rlst::operator::ElementType<<Self::Range as LinearSpace>::E> {
+        let mut y = zero_element(self.range());
+        self.apply_extended(
+            <<Self::Range as LinearSpace>::F as num::One>::one(),
+            x,
+            <<Self::Range as LinearSpace>::F as num::Zero>::zero(),
+            y.r_mut(),
+            trans_mode,
+        );
+        y
+    }
+}
+
+impl<C: Communicator, Item: RlstScalar + Equivalence + RandScalar> AsApply
+    for IdOperator<Item, DistributedArrayVectorSpace<'_, C, Item>>
+where
+    <Item as rlst::RlstScalar>::Real: RandScalar,
+    StandardNormal: Distribution<<Item as rlst::RlstScalar>::Real>,
+    Standard: Distribution<<Item as rlst::RlstScalar>::Real>,
+{
+    fn apply_extended<
+        ContainerIn: ElementContainer<E = <Self::Domain as LinearSpace>::E>,
+        ContainerOut: ElementContainerMut<E = <Self::Range as LinearSpace>::E>,
+    >(
+        &self,
+        _alpha: <Self::Range as LinearSpace>::F,
+        x: Element<ContainerIn>,
+        _beta: <Self::Range as LinearSpace>::F,
+        mut y: Element<ContainerOut>,
+        _trans_mode: TransMode,
+    ) {
+        y.r_mut().fill_inplace(x);
+    }
+
+    fn apply<ContainerIn: ElementContainer<E = <Self::Domain as LinearSpace>::E>>(
+        &self,
+        x: Element<ContainerIn>,
+        trans_mode: rlst::TransMode,
+    ) -> rlst::operator::ElementType<<Self::Range as LinearSpace>::E> {
+        let mut y = zero_element(self.range());
+        self.apply_extended(
+            <<Self::Range as LinearSpace>::F as num::One>::one(),
+            x,
+            <<Self::Range as LinearSpace>::F as num::Zero>::zero(),
+            y.r_mut(),
+            trans_mode,
+        );
+        y
+    }
+}
+
+impl<Item: RlstScalar + RandScalar, Space: SamplingSpace<F = Item> + IndexableSpace>
+    IdOperator<Item, Space>
+{
+    pub fn new(domain: Rc<Space>, range: Rc<Space>) -> Self {
+        IdOperator { domain, range }
+    }
+}
+
+pub struct DiffOperator<
+    Item: RlstScalar + RandScalar,
+    Space: SamplingSpace<F = Item> + IndexableSpace,
+    Op1: OperatorBase<Domain = Space, Range = Space>,
+    Op2: OperatorBase<Domain = Space, Range = Space>,
+>(pub Op1, pub Op2);
+
+impl<
+        Item: RlstScalar + RandScalar,
+        Space: SamplingSpace<F = Item> + IndexableSpace,
+        Op1: OperatorBase<Domain = Space, Range = Space>,
+        Op2: OperatorBase<Domain = Space, Range = Space>,
+    > std::fmt::Debug for DiffOperator<Item, Space, Op1, Op2>
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let dim_1 = self.0.domain().dimension();
+        let dim_2 = self.0.range().dimension();
+        write!(f, "Id Operator: [{}x{}]", dim_1, dim_2).unwrap();
+        Ok(())
+    }
+}
+
+impl<
+        Item: RlstScalar + RandScalar,
+        Space: SamplingSpace<F = Item> + LinearSpace + IndexableSpace,
+        Op1: OperatorBase<Domain = Space, Range = Space>,
+        Op2: OperatorBase<Domain = Space, Range = Space>,
+    > OperatorBase for DiffOperator<Item, Space, Op1, Op2>
+{
+    type Domain = Space;
+    type Range = Space;
+
+    fn domain(&self) -> Rc<Self::Domain> {
+        self.0.domain().clone()
+    }
+
+    fn range(&self) -> Rc<Self::Range> {
+        self.0.range().clone()
+    }
+}
+
+impl<
+        Item: RlstScalar + RandScalar,
+        Space: SamplingSpace<F = Item> + LinearSpace + IndexableSpace,
+        Op1: AsApply<Domain = Space, Range = Space>,
+        Op2: AsApply<Domain = Space, Range = Space>,
+    > AsApply for DiffOperator<Item, Space, Op1, Op2>
+where
+    <Item as rlst::RlstScalar>::Real: RandScalar,
+    StandardNormal: Distribution<<Item as rlst::RlstScalar>::Real>,
+    Standard: Distribution<<Item as rlst::RlstScalar>::Real>,
+{
+    fn apply_extended<
+        ContainerIn: ElementContainer<E = <Self::Domain as LinearSpace>::E>,
+        ContainerOut: ElementContainerMut<E = <Self::Range as LinearSpace>::E>,
+    >(
+        &self,
+        alpha: <Self::Range as LinearSpace>::F,
+        x: Element<ContainerIn>,
+        beta: <Self::Range as LinearSpace>::F,
+        mut y: Element<ContainerOut>,
+        trans_mode: TransMode,
+    ) {
+        let mut y_aux = zero_element(self.range());
+
+        self.0
+            .apply_extended(alpha, x.r(), beta, y_aux.r_mut(), trans_mode);
+        self.1
+            .apply_extended(alpha, x.r(), beta, y.r_mut(), trans_mode);
+
+        y.r_mut().sub_inplace(y_aux.r());
+    }
+
+    fn apply<ContainerIn: ElementContainer<E = <Self::Domain as LinearSpace>::E>>(
+        &self,
+        x: Element<ContainerIn>,
+        trans_mode: rlst::TransMode,
+    ) -> rlst::operator::ElementType<<Self::Range as LinearSpace>::E> {
+        let mut y = zero_element(self.range());
+        self.apply_extended(
+            <<Self::Range as LinearSpace>::F as num::One>::one(),
+            x,
+            <<Self::Range as LinearSpace>::F as num::Zero>::zero(),
+            y.r_mut(),
+            trans_mode,
+        );
+        y
+    }
+}
 
 fn _gen_sample_frame<Item: RlstScalar + RandScalar, Space: SamplingSpace<F = Item> + Clone>(
     sample_size: usize,
@@ -58,7 +266,7 @@ fn mul_op<
     frame
 }
 
-pub fn app_error<
+pub fn app_error_right<
     'a,
     Item: RlstScalar + RandScalar + MatrixInverse + MatrixId + MatrixPseudoInverse + MatrixLu + MatrixQr,
     Space: SamplingSpace<F = Item>,
@@ -68,7 +276,6 @@ pub fn app_error<
     target_op: &OpImpl,
     rsrs_op: &OpImpl2,
     sample_size: usize,
-    side: RsrsSide,
     inv: bool,
 ) -> Real<Item>
 where
@@ -80,11 +287,79 @@ where
     TriangularMatrix<Item>: TriangularOperations<Item = Item>,
     <<Space as rlst::LinearSpace>::E as rlst::ElementImpl>::Space: rlst::InnerProductSpace,
 {
-    let trans_mode = if matches!(side, RsrsSide::Left) {
-        TransMode::NoTrans
+    let trans_mode = TransMode::Trans;
+
+    let mut sample_frame = VectorFrame::default();
+    let mut rng: rand::rngs::StdRng = rand::SeedableRng::from_entropy();
+    let space = target_op.range();
+
+    for _ in 0..sample_size {
+        let mut sample_vec = SamplingSpace::zero(space.clone());
+        space.sampling(&mut sample_vec, &mut rng, SampleType::StandardNormal);
+        sample_frame.push(sample_vec);
+    }
+
+    let mut mod_sample_frame = mul_op(rsrs_op, &sample_frame, trans_mode);
+
+    let max_err = if inv {
+        mod_sample_frame = mul_op(target_op, &mod_sample_frame, TransMode::NoTrans);
+        mod_sample_frame
+            .iter_mut()
+            .zip(sample_frame.iter())
+            .map(|(approx_vec, ref_vec)| {
+                approx_vec.sub_inplace(ref_vec.r());
+                if approx_vec.r().norm() == num::Zero::zero() {
+                    num::One::one()
+                } else {
+                    approx_vec.r().norm() / ref_vec.r().norm()
+                }
+            })
+            .collect::<Vec<_>>()
+            .into_iter()
+            .max_by(|a, b| a.partial_cmp(b).unwrap())
     } else {
-        TransMode::Trans
+        sample_frame = mul_op(target_op, &sample_frame, TransMode::NoTrans);
+        sample_frame
+            .iter_mut()
+            .zip(mod_sample_frame.iter_mut())
+            .map(|(ref_vec, approx_vec)| {
+                approx_vec.sub_inplace(ref_vec.r());
+                if ref_vec.r().norm() == num::Zero::zero() {
+                    num::One::one()
+                } else {
+                    approx_vec.r().norm() / ref_vec.r().norm()
+                }
+            })
+            .collect::<Vec<_>>()
+            .into_iter()
+            .max_by(|a, b| a.partial_cmp(b).unwrap())
     };
+
+    max_err.unwrap()
+}
+
+pub fn app_error_left<
+    'a,
+    Item: RlstScalar + RandScalar + MatrixInverse + MatrixId + MatrixPseudoInverse + MatrixLu + MatrixQr,
+    Space: SamplingSpace<F = Item>,
+    OpImpl: AsApply<Domain = Space, Range = Space>,
+    OpImpl2: AsApply<Domain = Space, Range = Space> + Inv,
+>(
+    target_op: &OpImpl,
+    rsrs_op: &OpImpl2,
+    sample_size: usize,
+    inv: bool,
+) -> Real<Item>
+where
+    StandardNormal: Distribution<Item::Real>,
+    Standard: Distribution<Item::Real>,
+    <Item as rlst::RlstScalar>::Real: RandScalar,
+    LuDecomposition<Item, BaseArray<Item, VectorContainer<Item>, 2>>:
+        MatrixLuDecomposition<Item = Item>,
+    TriangularMatrix<Item>: TriangularOperations<Item = Item>,
+    <<Space as rlst::LinearSpace>::E as rlst::ElementImpl>::Space: rlst::InnerProductSpace,
+{
+    let trans_mode = TransMode::NoTrans;
 
     let mut sample_frame = VectorFrame::default();
     let mut rng: rand::rngs::StdRng = rand::SeedableRng::from_entropy();
@@ -156,9 +431,9 @@ where
     TriangularMatrix<Item>: TriangularOperations<Item = Item>,
     <<Space as rlst::LinearSpace>::E as rlst::ElementImpl>::Space: rlst::InnerProductSpace,
 {
-    let app_err_left = app_error(target_op, rsrs_operator, sample_size, RsrsSide::Left, inv);
+    let app_err_left = app_error_left(target_op, rsrs_operator, sample_size, inv);
 
-    let app_err_right = app_error(target_op, rsrs_operator, sample_size, RsrsSide::Right, inv);
+    let app_err_right = app_error_right(target_op, rsrs_operator, sample_size, inv);
 
     (app_err_left, app_err_right)
 }
