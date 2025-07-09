@@ -23,8 +23,8 @@ use bempp_rsrs::rsrs::rsrs_factors::Inv;
 use ndelement::ciarlet::LagrangeElementFamily;
 use ndelement::types::ReferenceCellType;
 use ndgrid::traits::{Entity, Geometry, Grid, ParallelGrid, Point};
-use rlst::tracing::trace_call;
 use num::ToPrimitive;
+use rlst::tracing::trace_call;
 
 #[derive(Debug, Clone, Deserialize)]
 pub enum Results {
@@ -118,7 +118,8 @@ impl<Item: RlstScalar> TestParams<Item> {
             self.scenario_params.structured_operator_type,
             StructuredOperatorType::BemppRsLaplaceOperator
         ) {
-            let (ref_level, depth):(Real<Item>, Real<Item>) = self.scenario_params.dim_args[dim_num];
+            let (ref_level, depth): (Real<Item>, Real<Item>) =
+                self.scenario_params.dim_args[dim_num];
             let ref_level = ref_level.to_usize().unwrap();
             let depth = depth.to_usize().unwrap();
             let dim_pred = format!("ref_level_{}_depth_{}", ref_level, depth);

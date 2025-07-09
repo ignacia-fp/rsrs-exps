@@ -2548,7 +2548,7 @@ checksum = "2b15c43186be67a4fd63bee50d0303afffcef381492ebe2c5d87f324e1b8815c"
 [[package]]
 name = "rlst"
 version = "0.2.1"
-source = "git+https://github.com/linalg-rs/rlst.git?branch=extend_abstract_operator#8ee3ee0022ce4551fca2d4dae60562cc74349f6e"
+source = "git+https://github.com/linalg-rs/rlst.git?branch=extend_abstract_operator#ac4e23543b2d0765530a04d5f37a0b0c682352d7"
 dependencies = [
  "arpack-ng-sys",
  "bempp-distributed-tools",
@@ -2577,7 +2577,7 @@ dependencies = [
 [[package]]
 name = "rlst-proc-macro"
 version = "0.2.1"
-source = "git+https://github.com/linalg-rs/rlst.git?branch=extend_abstract_operator#8ee3ee0022ce4551fca2d4dae60562cc74349f6e"
+source = "git+https://github.com/linalg-rs/rlst.git?branch=extend_abstract_operator#ac4e23543b2d0765530a04d5f37a0b0c682352d7"
 dependencies = [
  "darling",
  "quote",

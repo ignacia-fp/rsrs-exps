@@ -1,8 +1,10 @@
 use bempp_rsrs::rsrs::sketch::SamplingSpace;
+use rlst::operator::RlstOperatorReference;
 use rlst::{
     dense::{linalg::lu::MatrixLu, tools::RandScalar},
     prelude::*,
 };
+use rlst::operator::ConcreteElementContainerRef;
 
 pub fn solve_system<
     'a,
@@ -26,7 +28,13 @@ where
 {
     let dim = target_op.domain().dimension();
     let mut residuals = Vec::<<Item as rlst::RlstScalar>::Real>::new();
-    let gmres = GmresIteration::new(target_op.r(), rhs.r(), dim)
+    let gmres: GmresIteration<
+        '_,                                                         // Lifetime
+        Space,                                                      // Vector space
+        RlstOperatorReference<'_, OpImpl>,                          // Main operator
+        RlstOperatorReference<'_, OpImpl>,                          // Identity preconditioner
+        ConcreteElementContainerRef<'_, <Space as LinearSpace>::E>, // RHS container
+    > = GmresIteration::new(target_op.r(), rhs.r(), dim)
         .set_callable(|_, res| {
             residuals.push(res);
             println!("res: {}, {:?}", residuals.len(), res);
@@ -68,17 +76,23 @@ where
 {
     let dim = target_op.domain().dimension();
 
-    let rhs_prec = rsrs_operator.apply(rhs.r(), TransMode::NoTrans);
-    let prec_operator = rsrs_operator.r().product(target_op.r());
-
+    //let rhs_prec = rsrs_operator.apply(rhs.r(), TransMode::NoTrans);
+    //let prec_operator = rsrs_operator.r().product(target_op.r());
     let mut residuals = Vec::<<Item as rlst::RlstScalar>::Real>::new();
-    let gmres = GmresIteration::new(prec_operator.r(), rhs_prec.r(), dim)
+    let gmres: GmresIteration<
+        '_,                                                         // lifetime
+        Space,                                                      // your vector space
+        RlstOperatorReference<'_, OpImpl>,                          // type of target_op.r()
+        RlstOperatorReference<'_, OpImpl2>,                         // type of rsrs_operator.r()
+        ConcreteElementContainerRef<'_, <Space as LinearSpace>::E>, // container for rhs.r()
+    > = GmresIteration::new(target_op.r(), rhs.r(), dim)
         .set_callable(|_, res| {
             residuals.push(res);
             println!("res: {}, {:?}", residuals.len(), res);
         })
         .set_tol(tol)
-        .set_max_iter(500);
+        .set_max_iter(500)
+        .set_preconditioner(rsrs_operator.r());
     let (sol, _res) = gmres.run();
 
     let mut diff = rhs.duplicate();
