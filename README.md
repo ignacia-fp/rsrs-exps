@@ -205,6 +205,8 @@ print(RSRSBenchmarkConfig.__init__.__doc__)
 
 ```python
 ## Generate the test case either to run the test or retrieve results
+## recommendations: if operator_type = 5, and if ref_level = 8, pick depth = 4 (this is a problem of around 500k dofs)
+## if ref_level = 9, pick depth = 5 (this is a problem of around 2MM dofs)
 config = RSRSBenchmarkConfig(operator_type=5, dim_arg_type=3, ref_level=5, depth=2)
 ```
 
@@ -246,9 +248,10 @@ print(config.plot_errors_vs_tolerance.__doc__)
                 3 - 'app_condition_number'
                 4 - 'tot_num_samples'
                 5 - 'residual_size'
-            loglog : bool, optional
-                If True, plot both axes on a logarithmic scale (log-log plot).
-                Default is True.
+            logx : bool
+                If True, use logarithmic scale for the x-axis (tolerance).
+            logy : bool
+                If True, use logarithmic scale for the y-axis (metric).
     
             Raises
             ------
@@ -281,7 +284,7 @@ config.plot_errors_vs_tolerance(2)
 
 
 ```python
-config.plot_errors_vs_tolerance(3)
+config.plot_errors_vs_tolerance(3, logy=False)
 ```
 
 
@@ -292,7 +295,7 @@ config.plot_errors_vs_tolerance(3)
 
 
 ```python
-config.plot_errors_vs_tolerance(4, False)
+config.plot_errors_vs_tolerance(4, logy=False)
 ```
 
 
@@ -303,7 +306,7 @@ config.plot_errors_vs_tolerance(4, False)
 
 
 ```python
-config.plot_errors_vs_tolerance(5, False)
+config.plot_errors_vs_tolerance(5, logy=False)
 ```
 
 
@@ -325,7 +328,7 @@ config.plot_gmres_residuals()
 
 
 ```python
-config.plot_residual_convergence()
+config.plot_residual_convergence(False)
 ```
 
 

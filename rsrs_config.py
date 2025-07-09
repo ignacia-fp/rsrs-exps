@@ -575,7 +575,7 @@ cargo run --release '{data_type_args_json}' '{scenario_args_json}' '{rsrs_args_j
             plt.xscale("log")
             plt.yscale("log")
         else:
-            plt.xscale("linear")
+            plt.xscale("log")
             plt.yscale("linear")
 
         plt.grid(True, which="both" if log_scale else "major", ls="--", alpha=0.5)
