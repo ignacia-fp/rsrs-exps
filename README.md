@@ -64,10 +64,6 @@ NOTE: Exafmm will not work o Apple Silicon. To run these operators on your mac, 
 
 
 
-After this installation, you should be good to go and you can run tests from test_rsrs.ipynb. The first cell builds the test case and then you can either run 
+## Example of usage:
 
-```bash
-./run_test.sh
-```
-
-or run the second cell in the notebook.
+📓 [Notebook Preview](./demo.md)

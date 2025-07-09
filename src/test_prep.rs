@@ -497,6 +497,8 @@ macro_rules! implement_distributed_test_framework {
 
                     let dim = points.len();
 
+                    println!("{} degrees of freedom", dim);
+
                     let max_level: usize = 6;
                     let max_leaf_points: usize = 50;
                     let tree: Octree<'_, SimpleCommunicator> =
