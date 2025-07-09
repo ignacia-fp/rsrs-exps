@@ -15,6 +15,7 @@ use mpi::{topology::SimpleCommunicator, traits::Communicator};
 use rlst::prelude::*;
 use serde::Deserialize;
 type Real<T> = <T as rlst::RlstScalar>::Real;
+use crate::io::errors::get_boxes_errors;
 use crate::io::solve::solve_prec_system;
 use crate::io::structured_operator::Attr;
 use bempp::boundary_assemblers::BoundaryAssemblerOptions;
@@ -23,6 +24,7 @@ use ndelement::ciarlet::LagrangeElementFamily;
 use ndelement::types::ReferenceCellType;
 use ndgrid::traits::{Entity, Geometry, Grid, ParallelGrid, Point};
 use rlst::tracing::trace_call;
+use num::ToPrimitive;
 
 #[derive(Debug, Clone, Deserialize)]
 pub enum Results {
@@ -43,6 +45,7 @@ pub enum DimArg<Item: RlstScalar> {
     Kappa(Real<Item>),
     KappaAndMeshwidth(Real<Item>, Real<Item>),
     MeshWidth(Real<Item>),
+    RefinementLevelAndDepth(Real<Item>, Real<Item>),
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -111,18 +114,24 @@ impl<Item: RlstScalar> TestParams<Item> {
         let structured_operator = self.get_structured_operator_name();
         let version = self.rsrs_params.to_identifier();
 
-        let (h, kappa) = self.scenario_params.dim_args[dim_num];
-
-        let dim_part = format!("mesh_width_{:e}", h);
-        let kappa = format!("{:.2}", kappa);
-
-        let filename = format!(
-            "{}_{}_{}_{}",
-            geometry,
-            structured_operator,
-            dim_part,
-            kappa, // temporarily omit version
-        );
+        let filename = if matches!(
+            self.scenario_params.structured_operator_type,
+            StructuredOperatorType::BemppRsLaplaceOperator
+        ) {
+            let (ref_level, depth):(Real<Item>, Real<Item>) = self.scenario_params.dim_args[dim_num];
+            let ref_level = ref_level.to_usize().unwrap();
+            let depth = depth.to_usize().unwrap();
+            let dim_pred = format!("ref_level_{}_depth_{}", ref_level, depth);
+            format!("{}_{}_{}", geometry, structured_operator, dim_pred)
+        } else {
+            let (h, kappa) = self.scenario_params.dim_args[dim_num];
+            let dim_pred = format!("mesh_width_{:e}", h);
+            let kappa = format!("{:.2}", kappa);
+            format!(
+                "{}_{}_{}_{}",
+                geometry, structured_operator, dim_pred, kappa
+            )
+        };
 
         // Use `format!` again to prepend "results/" and append version
         let path_str = format!("results/{}/{}", filename, version);
@@ -166,6 +175,7 @@ impl<Item: RlstScalar> ScenarioOptions<Item> {
                 }
                 DimArg::KappaAndMeshwidth(kappa, h) => (*h, *kappa),
                 DimArg::MeshWidth(h) => (num::Zero::zero(), *h),
+                DimArg::RefinementLevelAndDepth(ref_level, depth) => (*ref_level, *depth),
             })
             .collect();
         Self {
@@ -334,12 +344,17 @@ macro_rules! implement_test_framework {
                                 }
 
                                 if self.output_options.dense_errors {
-                                    panic!("Not implemented");
-                                    /*let mut dense_structured_operator = rlst_dynamic_array2!($scalar, [dim, dim]);
+                                    let mut dense_structured_operator =
+                                        rlst_dynamic_array2!($scalar, [dim, dim]);
+                                    let domain = std::rc::Rc::clone(&operator.domain());
                                     for i in 0..dim {
-                                        let mut el_vec  = <rlst::ArrayVectorSpace<_> as SamplingSpace>::zero(domain.clone());
+                                        let mut el_vec =
+                                            <rlst::ArrayVectorSpace<_> as SamplingSpace>::zero(
+                                                domain.clone(),
+                                            );
                                         el_vec.view_mut()[[i]] = num::One::one();
-                                        let res = operator.apply(el_vec.r_mut(), TransMode::NoTrans);
+                                        let res =
+                                            operator.apply(el_vec.r_mut(), TransMode::NoTrans);
                                         dense_structured_operator
                                             .r_mut()
                                             .slice(1, i)
@@ -349,7 +364,7 @@ macro_rules! implement_test_framework {
                                         &mut dense_structured_operator,
                                         &mut rsrs_factors,
                                         num::NumCast::from(id_tol).unwrap(),
-                                    );*/
+                                    );
                                 }
                             }
                             Results::Rank => {
@@ -412,12 +427,12 @@ macro_rules! implement_distributed_test_framework {
                 let universe: mpi::environment::Universe = mpi::initialize().unwrap();
                 let comm: SimpleCommunicator = universe.world();
                 env_logger::init();
-                for (dim_num, _dim_arg) in self.test_params.scenario_params.dim_args.iter().enumerate() {
+                for (dim_num, dim_arg) in self.test_params.scenario_params.dim_args.iter().enumerate() {
 
                     let rank = comm.rank();
-                    let refinement_level = 9;
+                    let refinement_level = dim_arg.0 as usize;
                     let local_tree_depth = 1;
-                    let global_tree_depth = 5;
+                    let global_tree_depth = dim_arg.1 as usize;
                     let expansion_order = 6;
                     let grid = bempp::shapes::regular_sphere::<Self::Item, _>(refinement_level as u32, 1, &comm);
 

@@ -13,7 +13,10 @@ pub fn solve_system<
     target_op: &OpImpl,
     rhs: &Element<rlst::operator::ConcreteElementContainer<<Space as LinearSpace>::E>>,
     tol: <Item as rlst::RlstScalar>::Real,
-) -> (Vec<<Item as rlst::RlstScalar>::Real>, <Item as RlstScalar>::Real)
+) -> (
+    Vec<<Item as rlst::RlstScalar>::Real>,
+    <Item as RlstScalar>::Real,
+)
 where
     LuDecomposition<Item, BaseArray<Item, VectorContainer<Item>, 2>>:
         MatrixLuDecomposition<Item = Item>,
@@ -52,7 +55,10 @@ pub fn solve_prec_system<
     rsrs_operator: &OpImpl2,
     rhs: &Element<rlst::operator::ConcreteElementContainer<<Space as LinearSpace>::E>>,
     tol: <Item as rlst::RlstScalar>::Real,
-) -> (Vec<<Item as rlst::RlstScalar>::Real>, <Item as RlstScalar>::Real)
+) -> (
+    Vec<<Item as rlst::RlstScalar>::Real>,
+    <Item as RlstScalar>::Real,
+)
 where
     LuDecomposition<Item, BaseArray<Item, VectorContainer<Item>, 2>>:
         MatrixLuDecomposition<Item = Item>,
