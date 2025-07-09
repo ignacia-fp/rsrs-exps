@@ -66,7 +66,7 @@ NOTE: Exafmm will not work o Apple Silicon. To run these operators on your mac, 
 
 ## Example of usage:
 
-This is a particular example of the use of RSRS
+This is a compilation of examples of uses of RSRS
 
 
 ```python
@@ -295,7 +295,7 @@ config.plot_errors_vs_tolerance(3, logy=False)
 
 
 ```python
-config.plot_errors_vs_tolerance(4, logy=False)
+config.plot_errors_vs_tolerance(4, False)
 ```
 
 
@@ -306,7 +306,7 @@ config.plot_errors_vs_tolerance(4, logy=False)
 
 
 ```python
-config.plot_errors_vs_tolerance(5, logy=False)
+config.plot_errors_vs_tolerance(5, False)
 ```
 
 
@@ -328,7 +328,7 @@ config.plot_gmres_residuals()
 
 
 ```python
-config.plot_residual_convergence(False)
+config.plot_residual_convergence()
 ```
 
 
