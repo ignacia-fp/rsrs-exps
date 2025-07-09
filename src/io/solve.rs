@@ -76,8 +76,6 @@ where
 {
     let dim = target_op.domain().dimension();
 
-    //let rhs_prec = rsrs_operator.apply(rhs.r(), TransMode::NoTrans);
-    //let prec_operator = rsrs_operator.r().product(target_op.r());
     let mut residuals = Vec::<<Item as rlst::RlstScalar>::Real>::new();
     let gmres: GmresIteration<
         '_,                                                         // lifetime
