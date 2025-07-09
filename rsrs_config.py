@@ -420,7 +420,7 @@ cargo run --release '{data_type_args_json}' '{scenario_args_json}' '{rsrs_args_j
         return stats
 
     
-    def plot_errors_vs_tolerance(self, metric_index=1, loglog=True):
+    def plot_errors_vs_tolerance(self, metric_index=1, logx=True, logy=True):
         """
         Plot a specified error metric vs tolerance.
 
@@ -433,9 +433,10 @@ cargo run --release '{data_type_args_json}' '{scenario_args_json}' '{rsrs_args_j
             3 - 'app_condition_number'
             4 - 'tot_num_samples'
             5 - 'residual_size'
-        loglog : bool, optional
-            If True, plot both axes on a logarithmic scale (log-log plot).
-            Default is True.
+        logx : bool
+            If True, use logarithmic scale for the x-axis (tolerance).
+        logy : bool
+            If True, use logarithmic scale for the y-axis (metric).
 
         Raises
         ------
@@ -465,7 +466,7 @@ cargo run --release '{data_type_args_json}' '{scenario_args_json}' '{rsrs_args_j
         ylabel = pretty_names.get(metric, metric.replace("_", " ").title())
         title = f"{ylabel} vs Tolerance"
 
-        all_stats = self.load_all_stats()
+        all_stats = self.load_all_stats(kind="error")
 
         # Sort by tolerance for clean plotting
         all_stats.sort(key=lambda d: float(d["tolerance"]))
@@ -476,15 +477,17 @@ cargo run --release '{data_type_args_json}' '{scenario_args_json}' '{rsrs_args_j
 
         # Plot
         plt.figure(figsize=(6, 4))
-        if loglog:
-            plt.loglog(tolerances, y_values, marker="o")
-        else:
-            plt.plot(tolerances, y_values, marker="o")
+        plt.plot(tolerances, y_values, marker="o")
+
+        if logx:
+            plt.xscale("log")
+        if logy:
+            plt.yscale("log")
 
         plt.xlabel("Tolerance")
         plt.ylabel(ylabel)
         plt.title(title)
-        plt.grid(True, which='both', ls='--', alpha=0.5)
+        plt.grid(True, which="both" if (logx or logy) else "major", ls='--', alpha=0.5)
         plt.tight_layout()
         plt.show()
 
