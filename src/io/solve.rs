@@ -32,8 +32,8 @@ where
         '_,                                                         // Lifetime
         Space,                                                      // Vector space
         RlstOperatorReference<'_, OpImpl>,                          // Main operator
-        RlstOperatorReference<'_, OpImpl>,                          // Identity preconditioner
         ConcreteElementContainerRef<'_, <Space as LinearSpace>::E>, // RHS container
+        RlstOperatorReference<'_, OpImpl>,                          // Identity preconditioner
     > = GmresIteration::new(target_op.r(), rhs.r(), dim)
         .set_callable(|_, res| {
             residuals.push(res);
@@ -76,13 +76,14 @@ where
 {
     let dim = target_op.domain().dimension();
 
+
     let mut residuals = Vec::<<Item as rlst::RlstScalar>::Real>::new();
     let gmres: GmresIteration<
         '_,                                                         // lifetime
         Space,                                                      // your vector space
         RlstOperatorReference<'_, OpImpl>,                          // type of target_op.r()
-        RlstOperatorReference<'_, OpImpl2>,                         // type of rsrs_operator.r()
         ConcreteElementContainerRef<'_, <Space as LinearSpace>::E>, // container for rhs.r()
+        RlstOperatorReference<'_, OpImpl2>,                         // type of rsrs_operator.r()
     > = GmresIteration::new(target_op.r(), rhs.r(), dim)
         .set_callable(|_, res| {
             residuals.push(res);
