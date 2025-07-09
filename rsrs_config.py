@@ -376,20 +376,34 @@ cargo run --release '{data_type_args_json}' '{scenario_args_json}' '{rsrs_args_j
             f"_tol_lstsq_{args['tol_diag_ext']:.0e}"
         )
 
-    def load_all_error_stats(self):
+    def load_all_stats(self, kind="error"):
         """
-        Load all JSON error stats files in the scenario's result directory and extract the tolerance from filename.
-        Returns a list of dicts, each augmented with the tolerance value.
+        Load all JSON stats files of a given kind from the scenario's result directory.
+        
+        Parameters
+        ----------
+        kind : str
+            Type of statistics to load. Must be one of: 'error', 'time', 'rank'.
+            Corresponds to files named like 'error_stats_{tol}.json', etc.
+        
+        Returns
+        -------
+        List[dict]
+            List of dictionaries containing parsed JSON data, each augmented with a 'tolerance' key.
         """
+        valid_kinds = {"error", "time", "rank"}
+        if kind not in valid_kinds:
+            raise ValueError(f"Invalid kind '{kind}'. Must be one of: {valid_kinds}.")
+
         folder = self.generate_folder_name()
         subfolder = self.generate_sub_folder_name()
         base_path = Path(os.getcwd()) / "results" / folder / subfolder
 
-        error_stats = []
-        pattern = re.compile(r"error_stats_(.+)\.json")
+        stats = []
+        pattern = re.compile(fr"{kind}_stats_(.+)\.json")
 
         for file in base_path.iterdir():
-            if file.is_file() and file.name.startswith("error_stats_") and file.suffix == ".json":
+            if file.is_file() and file.name.startswith(f"{kind}_stats_") and file.suffix == ".json":
                 match = pattern.match(file.name)
                 if match:
                     tol_str = match.group(1)
@@ -400,10 +414,10 @@ cargo run --release '{data_type_args_json}' '{scenario_args_json}' '{rsrs_args_j
 
                     with open(file, "r", encoding="utf-8") as f:
                         data = json.load(f)
-                        data["tolerance"] = tolerance  # Add tolerance to the data dict
-                        error_stats.append(data)
+                        data["tolerance"] = tolerance
+                        stats.append(data)
 
-        return error_stats
+        return stats
 
     
     def plot_errors_vs_tolerance(self, metric_index=1, loglog=True):
@@ -451,7 +465,7 @@ cargo run --release '{data_type_args_json}' '{scenario_args_json}' '{rsrs_args_j
         ylabel = pretty_names.get(metric, metric.replace("_", " ").title())
         title = f"{ylabel} vs Tolerance"
 
-        all_stats = self.load_all_error_stats()
+        all_stats = self.load_all_stats()
 
         # Sort by tolerance for clean plotting
         all_stats.sort(key=lambda d: float(d["tolerance"]))
@@ -476,7 +490,7 @@ cargo run --release '{data_type_args_json}' '{scenario_args_json}' '{rsrs_args_j
 
 
     def plot_gmres_residuals(self, log_scale=True):
-        all_stats = self.load_all_error_stats()
+        all_stats = self.load_all_stats()
         if not all_stats:
             print("No data found.")
             return
@@ -524,7 +538,7 @@ cargo run --release '{data_type_args_json}' '{scenario_args_json}' '{rsrs_args_j
         log_scale : bool
             If True, use log scale on both axes; if False, use linear scale.
         """
-        all_stats = self.load_all_error_stats()
+        all_stats = self.load_all_stats()
         if not all_stats:
             print("No data found.")
             return
@@ -565,3 +579,124 @@ cargo run --release '{data_type_args_json}' '{scenario_args_json}' '{rsrs_args_j
         plt.legend()
         plt.tight_layout()
         plt.show()
+
+    def plot_total_elapsed_time_vs_tolerance(self, logx=True, logy=True):
+        """
+        Plot total elapsed time without sampling vs tolerance (in seconds).
+
+        Parameters
+        ----------
+        logx : bool, optional
+            If True, use log scale on the x-axis (tolerance).
+        logy : bool, optional
+            If True, use log scale on the y-axis (time).
+        """
+        time_stats = self.load_all_stats(kind="time")
+
+        if not time_stats:
+            print("No time statistics found.")
+            return
+
+        # Sort by tolerance
+        time_stats.sort(key=lambda d: d["tolerance"])
+
+        # Extract and convert values
+        tolerances = [d["tolerance"] for d in time_stats]
+        elapsed_times_sec = [d.get("total_elapsed_time_wo_sampling", float("nan")) / 1000.0 for d in time_stats]
+
+        # Plot
+        plt.figure(figsize=(6, 4))
+        plt.plot(tolerances, elapsed_times_sec, marker="o")
+
+        if logx:
+            plt.xscale("log")
+        if logy:
+            plt.yscale("log")
+
+        plt.xlabel("Tolerance")
+        plt.ylabel("RSRS Time (s)")
+        plt.title("RSRS Elapsed Time vs Tolerance")
+        plt.grid(True, which="both" if (logx or logy) else "major", ls="--", alpha=0.5)
+        plt.tight_layout()
+        plt.show()
+
+    def get_degrees_of_freedom(self):
+        """
+        Return the number of degrees of freedom (dim) from the first available time_stats file.
+
+        Returns
+        -------
+        int or None
+            The number of degrees of freedom, or None if not found.
+        """
+        time_stats = self.load_all_stats(kind="time")
+        if not time_stats:
+            print("No time statistics found.")
+            return None
+
+        return time_stats[0].get("dim", None)
+
+    def plot_time_breakdown_piecharts(self, max_charts=None):
+        """
+        Plot a pie chart of time breakdown for each tolerance.
+
+        Parameters
+        ----------
+        max_charts : int or None
+            Maximum number of pie charts to display. If None, shows all.
+        """
+
+        time_stats = self.load_all_stats(kind="time")
+        if not time_stats:
+            print("No time statistics found.")
+            return
+
+        # Sort by tolerance
+        time_stats.sort(key=lambda d: float(d["tolerance"]))
+
+        if max_charts is not None:
+            time_stats = time_stats[:max_charts]
+
+        for stat in time_stats:
+            tol = stat["tolerance"]
+            label = f"tol = {tol:g}"
+
+            # Extract times
+            tot_id_time = stat.get("tot_id_time", 0)
+            tot_lu_time = stat.get("tot_lu_time", 0)
+            extraction_time = stat.get("extraction_time", 0)
+
+            update_times = stat.get("update_times", [])
+            update_id_time = sum(entry.get("id", 0) for entry in update_times)
+            update_lu_time = sum(entry.get("lu", 0) for entry in update_times)
+
+            other = (
+                stat.get("index_calculation", 0)
+                + stat.get("sorting_near_field", 0)
+                + stat.get("residual_calculation", 0)
+            )
+
+            # Convert all times to seconds
+            data = {
+                "tot_id_time": tot_id_time / 1000,
+                "update_id_time": update_id_time / 1000,
+                "tot_lu_time": tot_lu_time / 1000,
+                "update_lu_time": update_lu_time / 1000,
+                "extraction_time": extraction_time / 1000,
+                "other": other / 1000,
+            }
+
+            # Remove zero entries to simplify the pie chart
+            data = {k: v for k, v in data.items() if v > 0}
+
+            plt.figure(figsize=(6, 6))
+            plt.pie(
+                data.values(),
+                labels=[f"{k}\n{v:.2f} s" for k, v in data.items()],
+                autopct="%1.1f%%",
+                startangle=140
+            )
+            plt.title(f"Time Breakdown for {label}")
+            plt.tight_layout()
+            plt.show()
+

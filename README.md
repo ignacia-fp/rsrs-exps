@@ -66,7 +66,7 @@ NOTE: Exafmm will not work o Apple Silicon. To run these operators on your mac, 
 
 ## Example of usage:
 
-This is a compilation of examples of uses of RSRS
+This is a particular example of the use of RSRS
 
 
 ```python
@@ -216,15 +216,18 @@ config.generate_bash_script("run_test.sh")
 
 
 ```python
+## Running test in Rust
 
+#!./run_test.sh
 ```
 
 
 ```python
-## Running test in Rust
-
-!./run_test.sh
+print("This problem has " + str(config.get_degrees_of_freedom()) + " degrees of freedom")
 ```
+
+    This problem has 8192 degrees of freedom
+
 
 
 ```python
@@ -328,5 +331,77 @@ config.plot_residual_convergence()
 
     
 ![png](demo_files/demo_13_0.png)
+    
+
+
+
+```python
+print(config.plot_total_elapsed_time_vs_tolerance.__doc__)
+```
+
+    
+            Plot total elapsed time without sampling vs tolerance (in seconds).
+    
+            Parameters
+            ----------
+            logx : bool, optional
+                If True, use log scale on the x-axis (tolerance).
+            logy : bool, optional
+                If True, use log scale on the y-axis (time).
+            
+
+
+
+```python
+config.plot_total_elapsed_time_vs_tolerance(logy=False)
+```
+
+
+    
+![png](demo_files/demo_15_0.png)
+    
+
+
+
+```python
+print(config.plot_time_breakdown_piecharts.__doc__)
+```
+
+    
+            Plot a pie chart of time breakdown for each tolerance.
+    
+            Parameters
+            ----------
+            max_charts : int or None
+                Maximum number of pie charts to display. If None, shows all.
+            
+
+
+
+```python
+config.plot_time_breakdown_piecharts()
+```
+
+
+    
+![png](demo_files/demo_17_0.png)
+    
+
+
+
+    
+![png](demo_files/demo_17_1.png)
+    
+
+
+
+    
+![png](demo_files/demo_17_2.png)
+    
+
+
+
+    
+![png](demo_files/demo_17_3.png)
     
 
