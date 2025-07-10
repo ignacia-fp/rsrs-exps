@@ -39,6 +39,8 @@ class RSRSBenchmarkConfig:
         block_extraction_method: int = 0,
         pivot_method: int = 0,
         rank_picking: int = 0,
+        min_rank: int = 4,
+        min_level: int = 1
     ):
         
         """
@@ -241,6 +243,8 @@ class RSRSBenchmarkConfig:
         self.solve = solve
         self.plot = plot
         self.dense_errors = dense_errors
+        self.min_rank = min_rank
+        self.min_level = min_level
 
         if self.dim_arg_types[self.dim_arg_type_index] == "RefinementLevelAndDepth":
             if self.ref_level is None or self.depth is None:
@@ -311,8 +315,8 @@ class RSRSBenchmarkConfig:
             "tol_id": self.id_tols[0],  ## ID tolerance (Irrelevant, since it is set with the scenario arguments)
             "tol_ext_near": 1e-10,  ## Tolerance used to compute pseudo inverses when extracting near field.
             "tol_diag_ext": 1e-16,  ## Tolerance used to compute pseudo inverses when extracting diagonal blocks.
-            "min_rank": 4,  ## Minimum size of the box. If the box is smaller, it will be saved for the next level.
-            "min_level": 1, ## Level at which the algorithm stops
+            "min_rank": self.min_rank,  ## Minimum size of the box. If the box is smaller, it will be saved for the next level.
+            "min_level": self.min_level, ## Level at which the algorithm stops
             "hermitian": True,  ## Indicates if we should run RSRS for hermitian matrices (half the time and memory)
             "rank_picking": self.rank_pickings[self.rank_picking_index],
         }
@@ -369,6 +373,7 @@ cargo run --release '{data_type_args_json}' '{scenario_args_json}' '{rsrs_args_j
             f"_osdiag_{args['oversampling_diag_blocks']}"
             f"_initsam_{args['initial_num_samples']}"
             f"_mrnk_{args['min_rank']}"
+            f"_mlvl_{args['min_level']}"
             f"_herm_{camel_to_snake(str(args['hermitian']))}"
             f"_rpick_{args['rank_picking']}"
             f"_next_{args['near_block_extraction_method']}"
