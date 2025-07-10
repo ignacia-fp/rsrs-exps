@@ -312,6 +312,7 @@ class RSRSBenchmarkConfig:
             "tol_ext_near": 1e-10,  ## Tolerance used to compute pseudo inverses when extracting near field.
             "tol_diag_ext": 1e-16,  ## Tolerance used to compute pseudo inverses when extracting diagonal blocks.
             "min_rank": 4,  ## Minimum size of the box. If the box is smaller, it will be saved for the next level.
+            "min_level": 1, ## Level at which the algorithm stops
             "hermitian": True,  ## Indicates if we should run RSRS for hermitian matrices (half the time and memory)
             "rank_picking": self.rank_pickings[self.rank_picking_index],
         }
