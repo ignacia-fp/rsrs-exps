@@ -155,7 +155,7 @@ where
                     ScenarioOptions::new(None::<ScenarioArgs<f64>>, data_type.clone());
                 let rsrs_options = RsrsOptions::<f64>::new(None::<RsrsArgs<f64>>);
                 let output_options =
-                    OutputOptions::new(Solve::True(1e-5), false, false, Results::All);
+                    OutputOptions::new(Solve::True(1e-5), false, false, false, Results::All);
                 let mut test_framework =
                     TestFramework::<f64>::new(scenario_options, rsrs_options, output_options);
                 <TestFramework<f64> as TestFrameworkImpl<f64, ArrayVectorSpace<f64>>>::run_tests(
@@ -168,7 +168,7 @@ where
                     ScenarioOptions::new(None::<ScenarioArgs<c64>>, data_type.clone());
                 let rsrs_options = RsrsOptions::<c64>::new(None::<RsrsArgs<c64>>);
                 let output_options =
-                    OutputOptions::new(Solve::True(1e-5), false, false, Results::All);
+                    OutputOptions::new(Solve::True(1e-5), false, false, false, Results::All);
                 let mut test_framework =
                     TestFramework::<c64>::new(scenario_options, rsrs_options, output_options);
                 <TestFramework<c64> as TestFrameworkImpl<c64, ArrayVectorSpace<c64>>>::run_tests(

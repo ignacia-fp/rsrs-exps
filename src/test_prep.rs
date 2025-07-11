@@ -16,6 +16,7 @@ use rlst::prelude::*;
 use serde::Deserialize;
 type Real<T> = <T as rlst::RlstScalar>::Real;
 use crate::io::errors::get_boxes_errors;
+use crate::io::read_and_write::ConditionNumberOutput;
 use crate::io::solve::solve_prec_system;
 use crate::io::structured_operator::Attr;
 use bempp::boundary_assemblers::BoundaryAssemblerOptions;
@@ -194,15 +195,23 @@ pub struct OutputOptions {
     solve: Solve,
     plot: bool,
     dense_errors: bool,
+    factors_cn: bool,
     results_output: Results,
 }
 
 impl OutputOptions {
-    pub fn new(solve: Solve, plot: bool, dense_errors: bool, results_output: Results) -> Self {
+    pub fn new(
+        solve: Solve,
+        plot: bool,
+        dense_errors: bool,
+        factors_cn: bool,
+        results_output: Results,
+    ) -> Self {
         Self {
             solve,
             plot,
             dense_errors,
+            factors_cn,
             results_output,
         }
     }
@@ -344,6 +353,11 @@ macro_rules! implement_test_framework {
                                     time_piechart(id_tol, &path_str);
                                 }
 
+                                if self.output_options.factors_cn {
+                                    let cn: ConditionNumberOutput<$scalar> = ConditionNumberOutput::new(rsrs_operator.get_condition_numbers());
+                                    cn.save(&path_str, id_tol);
+                                }
+
                                 if self.output_options.dense_errors {
                                     let mut dense_structured_operator =
                                         rlst_dynamic_array2!($scalar, [dim, dim]);
@@ -378,6 +392,11 @@ macro_rules! implement_test_framework {
                                     &path_str,
                                 );
                                 save_rank_stats(&rsrs_algo, id_tol, &path_str);
+
+                                if self.output_options.factors_cn {
+                                    let cn: ConditionNumberOutput<$scalar> = ConditionNumberOutput::new(rsrs_operator.get_condition_numbers());
+                                    cn.save(&path_str, id_tol);
+                                }
                             }
                             Results::Time => {
                                 save_error_stats(
@@ -389,6 +408,12 @@ macro_rules! implement_test_framework {
                                     &path_str,
                                 );
                                 save_time_stats(&rsrs_algo, id_tol, &path_str);
+
+                                if self.output_options.factors_cn {
+                                    let cn: ConditionNumberOutput<$scalar> = ConditionNumberOutput::new(rsrs_operator.get_condition_numbers());
+                                    cn.save(&path_str, id_tol);
+                                }
+
                                 if self.output_options.plot {
                                     time_piechart(id_tol, &path_str);
                                 }
@@ -570,6 +595,11 @@ macro_rules! implement_distributed_test_framework {
                                     time_piechart(id_tol, &path_str);
                                 }
 
+                                if self.output_options.factors_cn{
+                                    let cn: ConditionNumberOutput<$scalar> = ConditionNumberOutput::new(rsrs_operator.get_condition_numbers());
+                                    cn.save(&path_str, id_tol);
+                                }
+
                                 if self.output_options.dense_errors {
                                     panic!("Not implemented yet");
                                     /*let mut dense_structured_operator =
@@ -605,6 +635,10 @@ macro_rules! implement_distributed_test_framework {
                                     &path_str,
                                 );
                                 save_rank_stats(&rsrs_algo, id_tol, &path_str);
+                                if self.output_options.factors_cn{
+                                    let cn: ConditionNumberOutput<$scalar> = ConditionNumberOutput::new(rsrs_operator.get_condition_numbers());
+                                    cn.save(&path_str, id_tol);
+                                }
                             }
                             Results::Time => {
                                 save_error_stats(
@@ -616,6 +650,12 @@ macro_rules! implement_distributed_test_framework {
                                     &path_str,
                                 );
                                 save_time_stats(&rsrs_algo, id_tol, &path_str);
+
+                                if self.output_options.factors_cn{
+                                    let cn: ConditionNumberOutput<$scalar> = ConditionNumberOutput::new(rsrs_operator.get_condition_numbers());
+                                    cn.save(&path_str, id_tol);
+                                }
+
                                 if self.output_options.plot {
                                     time_piechart(id_tol, &path_str);
                                 }

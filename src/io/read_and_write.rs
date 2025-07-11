@@ -48,6 +48,36 @@ pub struct ErrorStatsOutput<Item: RlstScalar> {
 }
 
 #[derive(Serialize)]
+pub struct ConditionNumberOutput<Item: RlstScalar> {
+    id: Vec<Vec<(Real<Item>, Real<Item>)>>,
+    lu: Vec<Vec<(Real<Item>, Real<Item>)>>,
+    dfactors: Vec<(Real<Item>, Real<Item>)>,
+}
+
+impl<Item: RlstScalar> ConditionNumberOutput<Item> {
+    pub fn new(res: (
+        Vec<Vec<(Real<Item>, Real<Item>)>>,
+        Vec<Vec<(Real<Item>, Real<Item>)>>,
+        Vec<(Real<Item>, Real<Item>)>,
+    )) -> Self {
+        let (id, lu, dfactors) = res;
+        Self { id, lu, dfactors }
+    }
+    pub fn save(&self, path_str: &str, tol: Real<Item>) {
+        fs::create_dir_all(Path::new(&path_str)).unwrap();
+        let string_tol = format!("{:e}", tol);
+        let mut stats_path = path_str.to_string();
+        stats_path.push_str("/condition_number_stats_");
+        stats_path.push_str(&string_tol);
+        stats_path.push_str(".json");
+
+        let json_string = serde_json::to_string_pretty(&self).expect("Failed to serialize");
+        let mut file = File::create(stats_path).unwrap();
+        file.write_all(json_string.as_bytes()).unwrap();
+    }
+}
+
+#[derive(Serialize)]
 struct TimeStatsOutput {
     tot_num_samples: usize,
     min_samples: usize,

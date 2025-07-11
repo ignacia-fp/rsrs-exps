@@ -1,10 +1,10 @@
 use bempp_rsrs::rsrs::sketch::SamplingSpace;
+use rlst::operator::ConcreteElementContainerRef;
 use rlst::operator::RlstOperatorReference;
 use rlst::{
     dense::{linalg::lu::MatrixLu, tools::RandScalar},
     prelude::*,
 };
-use rlst::operator::ConcreteElementContainerRef;
 
 pub fn solve_system<
     'a,
@@ -75,7 +75,6 @@ where
     <<Space as rlst::LinearSpace>::E as rlst::ElementImpl>::Space: rlst::InnerProductSpace,
 {
     let dim = target_op.domain().dimension();
-
 
     let mut residuals = Vec::<<Item as rlst::RlstScalar>::Real>::new();
     let gmres: GmresIteration<
