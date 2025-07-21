@@ -1,7 +1,7 @@
 use bempp_rsrs::rsrs::rsrs_factors::Inv;
 use bempp_rsrs::rsrs::rsrs_factors::RsrsFactors;
 use bempp_rsrs::rsrs::rsrs_factors::{
-    CommutativeFactors, Factor, FactorMulType, FactorOperations, FactorOptions, FactorType,
+    CommutativeFactors, Factor, FactorOperations, MulOptions, FactorType,
     IdFactor, LuFactor,
 };
 use bempp_rsrs::rsrs::sketch::{SampleType, SamplingSpace};
@@ -551,7 +551,7 @@ where
     <Item as rlst::RlstScalar>::Real: RandScalar,
 {
     let target_arr = Arc::new(Mutex::new(target_arr));
-    let mul_type_left = FactorMulType {
+    /*let mul_type_left = FactorMulType {
         side: Side::Left,
         factor_type: FactorType::F,
         right_trans: false,
@@ -560,11 +560,22 @@ where
         side: Side::Right,
         factor_type: FactorType::S,
         right_trans: false,
-    };
+    };*/
 
-    let factor_options = FactorOptions {
+    let factor_options_left = MulOptions {
         inv: true,
         trans: false,
+        side: Side::Left,
+        factor_type: FactorType::F,
+        t_trans: false,
+    };
+
+    let factor_options_right = MulOptions {
+        inv: true,
+        trans: false,
+        side: Side::Right,
+        factor_type: FactorType::S,
+        t_trans: false,
     };
 
     let errors: Vec<_> = factors
@@ -574,16 +585,16 @@ where
             match factor {
                 Factor::Lu(lu_factor) => {
                     let (arr_rt, arr_tr) = box_errors_lu(lu_factor, &mut target_arr);
-                    lu_factor.mul(&mut target_arr, &factor_options, &mul_type_left);
-                    lu_factor.mul(&mut target_arr, &factor_options, &mul_type_right);
+                    lu_factor.mul(&mut target_arr, &factor_options_left);
+                    lu_factor.mul(&mut target_arr, &factor_options_right);
                     let (arr_rt_ae, arr_tr_ae) = box_errors_lu(lu_factor, &mut target_arr);
                     let rel_errs: Errors = (arr_rt_ae / arr_rt, arr_tr_ae / arr_tr);
                     rel_errs
                 }
                 Factor::Id(id_factor) => {
                     let (arr_rf, arr_fr) = box_errors_id(id_factor, &mut target_arr);
-                    id_factor.mul(&mut target_arr, &factor_options, &mul_type_left);
-                    id_factor.mul(&mut target_arr, &factor_options, &mul_type_right);
+                    id_factor.mul(&mut target_arr, &factor_options_left);
+                    id_factor.mul(&mut target_arr, &factor_options_right);
                     let (arr_rf_ae, arr_fr_ae) = box_errors_id(id_factor, &mut target_arr);
                     let rel_errs: Errors = (arr_rf_ae / arr_rf, arr_fr_ae / arr_fr);
                     rel_errs
@@ -604,9 +615,12 @@ where
                     let mut app_dbox = rlst_dynamic_array2!(Item, shape);
                     app_dbox.set_identity();
 
-                    let options = FactorOptions {
+                    let options = MulOptions {
                         inv: false,
                         trans: false,
+                        side: Side::Left,
+                        factor_type: FactorType::F,
+                        t_trans: false,
                     };
                     diag_box_factor.arr.mul(&mut app_dbox, Side::Left, &options);
 
@@ -619,9 +633,12 @@ where
                     let mut app_inv_dbox = rlst_dynamic_array2!(Item, shape);
                     app_inv_dbox.set_identity();
 
-                    let options = FactorOptions {
+                    let options = MulOptions {
                         inv: true,
                         trans: false,
+                        side: Side::Left,
+                        factor_type: FactorType::F,
+                        t_trans: false,
                     };
 
                     diag_box_factor

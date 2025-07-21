@@ -18,6 +18,7 @@ def camel_to_snake(name):
     snake = re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1).lower()
     return snake
 
+
 class RSRSBenchmarkConfig:
     def __init__(
         self,
@@ -41,7 +42,8 @@ class RSRSBenchmarkConfig:
         pivot_method: int = 0,
         rank_picking: int = 0,
         min_rank: int = 1,
-        min_level: int = 1
+        min_level: int = 1,
+        max_tree_depth: int = 6
     ):
         
         """
@@ -159,6 +161,18 @@ class RSRSBenchmarkConfig:
             4: "DoubleMin" — use double the minimum rank of previous level
             5: "Tol" — use the defined tolerance as rank
 
+        min_rank: int, optional,
+            Minimum rank that a block should have to be processed for RSRS.
+            Default is 1.
+
+        min_level: int, optional
+            Minimum octree level.
+            Default is 1.
+
+        max_tree_depth: int, optional
+            Maximum tree depth for the octree.
+            Default is 6.
+
         Raises
         ------
         ValueError
@@ -251,6 +265,7 @@ class RSRSBenchmarkConfig:
         self.factors_cn = factors_cn
         self.min_rank = min_rank
         self.min_level = min_level
+        self.max_tree_depth = max_tree_depth
 
         if self.dim_arg_types[self.dim_arg_type_index] == "RefinementLevelAndDepth":
             if self.ref_level is None or self.depth is None:
@@ -284,7 +299,7 @@ class RSRSBenchmarkConfig:
             "precision": self.precision_types[self.precision_index],
         }
 
-    def scenario_args(self) -> Dict[str, Union[List[float], List[Dict], str]]:
+    def scenario_args(self) -> Dict[str, Union[List[float], List[Dict], str, int]]:
         dim_type = self.dim_arg_types[self.dim_arg_type_index]
         dim_args_map = {
             "Kappa": {"Kappa": self.kappa},
@@ -297,6 +312,7 @@ class RSRSBenchmarkConfig:
             "id_tols": self.id_tols,
             "dim_args": [dim_args_map[dim_type]],
             "geometry_type": self.geometry_types[self.geometry],
+            "max_tree_depth": self.max_tree_depth
         }
 
     def output_args(self) -> Dict:
@@ -718,8 +734,6 @@ cargo run --release '{data_type_args_json}' '{scenario_args_json}' '{rsrs_args_j
 
     def plot_condition_numbers(self):
         stats = self.load_all_stats("condition_number")
-
-        # Sort by tolerance
         stats.sort(key=lambda d: float(d["tolerance"]))
 
         for data in stats:
@@ -727,61 +741,86 @@ cargo run --release '{data_type_args_json}' '{scenario_args_json}' '{rsrs_args_j
                 continue
 
             tol = data["tolerance"]
-            fig, axs = plt.subplots(1, 3, figsize=(15, 4))
+            fig, axs = plt.subplots(1, 4, figsize=(20, 4))
             fig.suptitle(f"Condition Numbers for Tolerance = {tol}")
 
-            # --- ID Factors (use first entry only) ---
+            # --- ID Rectangular Factors ---
             id_levels = data.get("id", [])
             id_vals = []
             for level in id_levels:
-                clean = [vec[0] for vec in level if vec and len(vec) >= 1]
-                if clean:
-                    id_vals.append(clean)
+                clean = [entry[0][0] for entry in level if entry and entry[0] and entry[0][0] is not None]
+                id_vals.append(clean if clean else [])
 
-            if id_vals:
+            if any(id_vals):
                 axs[0].boxplot(id_vals, vert=True)
-                axs[0].set_title("ID Factor Condition Numbers")
+                axs[0].set_title("ID Rectangular Factor")
                 axs[0].set_xlabel("Level")
                 axs[0].set_ylabel("cond")
+                axs[0].set_xticks(range(1, len(id_vals) + 1))
+                axs[0].set_xticklabels([str(i) for i in range(len(id_vals))])
             else:
                 axs[0].set_visible(False)
 
-            # --- LU Factors (use second entry only) ---
+            # --- LU Rectangular Factors ---
             lu_levels = data.get("lu", [])
-            lu_vals = []
+            lu_rect_vals = []
             for level in lu_levels:
-                clean = [vec[1] for vec in level if vec and len(vec) >= 2]
-                if clean:
-                    lu_vals.append(clean)
+                clean = [entry[0][0] for entry in level if entry and entry[0] and entry[0][0] is not None]
+                lu_rect_vals.append(clean if clean else [])
 
-            if lu_vals:
-                axs[1].boxplot(lu_vals, vert=True)
-                axs[1].set_title("LU Factor Condition Numbers")
+            if any(lu_rect_vals):
+                axs[1].boxplot(lu_rect_vals, vert=True)
+                axs[1].set_title("LU Rectangular Factor")
                 axs[1].set_xlabel("Level")
                 axs[1].set_ylabel("cond")
+                axs[1].set_xticks(range(1, len(lu_rect_vals) + 1))
+                axs[1].set_xticklabels([str(i) for i in range(len(lu_rect_vals))])
             else:
                 axs[1].set_visible(False)
 
-            # --- DFactors (use both entries) ---
-            dfactors = data.get("dfactors", [])
-            dfactor_vals = [(vec[0], vec[1]) for vec in dfactors if vec and len(vec) == 2]
-            if dfactor_vals:
-                cond1_vals, cond2_vals = zip(*dfactor_vals)
-                axs[2].boxplot([cond1_vals, cond2_vals], vert=True)
-                axs[2].set_title("Diagonal Factor Condition Numbers")
-                axs[2].set_xlabel("Factor")
+            # --- LU L and U Factors (Side-by-side) ---
+            lu_l_vals, lu_u_vals = [], []
+            for level in lu_levels:
+                l_clean = [entry[0][1][0] for entry in level if entry and entry[0] and entry[0][1] and entry[0][1][0] is not None]
+                u_clean = [entry[0][1][1] for entry in level if entry and entry[0] and entry[0][1] and entry[0][1][1] is not None]
+                lu_l_vals.append(l_clean if l_clean else [])
+                lu_u_vals.append(u_clean if u_clean else [])
+
+            if any(lu_l_vals) and any(lu_u_vals):
+                positions = np.arange(1, len(lu_l_vals) + 1)
+                axs[2].boxplot(lu_l_vals, positions=positions - 0.15, widths=0.3, patch_artist=True,
+                            boxprops=dict(facecolor='lightblue'))
+                axs[2].boxplot(lu_u_vals, positions=positions + 0.15, widths=0.3, patch_artist=True,
+                            boxprops=dict(facecolor='lightgreen'))
+                axs[2].set_title("LU L and U Factors")
+                axs[2].set_xlabel("Level")
                 axs[2].set_ylabel("cond")
-                axs[2].set_xticklabels(["diagonal_factor_1", "diagonal_factor_2"])
+                axs[2].set_xticks(positions)
+                axs[2].set_xticklabels([str(i) for i in range(len(lu_l_vals))])
+                axs[2].legend(["L", "U"])
             else:
                 axs[2].set_visible(False)
+
+            # --- Diagonal Factors (labeled L/U) ---
+            dfactors = data.get("dfactors", [])
+            diag_L = [entry[0][1][0] for entry in dfactors if entry and entry[0] and entry[0][1]]
+            diag_U = [entry[0][1][1] for entry in dfactors if entry and entry[0] and entry[0][1]]
+
+            if diag_L and diag_U:
+                axs[3].boxplot([diag_L, diag_U], vert=True)
+                axs[3].set_title("Diagonal L/U Factors")
+                axs[3].set_xlabel("Factor")
+                axs[3].set_ylabel("cond")
+                axs[3].set_xticklabels(["L factor", "U factor"])
+            else:
+                axs[3].set_visible(False)
 
             plt.tight_layout(rect=[0, 0.03, 1, 0.95])
             plt.show()
 
+
     def plot_condition_numbers_scatter(self):
         stats = self.load_all_stats("condition_number")
-
-        # Sort by tolerance
         stats.sort(key=lambda d: float(d["tolerance"]))
 
         for data in stats:
@@ -789,22 +828,20 @@ cargo run --release '{data_type_args_json}' '{scenario_args_json}' '{rsrs_args_j
                 continue
 
             tol = data["tolerance"]
-            fig, axs = plt.subplots(1, 3, figsize=(15, 4))
+            fig, axs = plt.subplots(1, 4, figsize=(24, 4))
             fig.suptitle(f"Condition Numbers for Tolerance = {tol}")
 
-            # --- ID Factors (first entry only) ---
+            # --- ID Factors ---
             id_levels = data.get("id", [])
             id_vals = [
-                [vec[0] for vec in level if vec and len(vec) >= 1]
+                [vec[0][0] for vec in level if vec and vec[0] and vec[0][0] is not None]
                 for level in id_levels
             ]
-            id_vals = [level for level in id_vals if level]  # Filter empty
-            if id_vals:
+            if any(id_vals):
                 for i, level_vals in enumerate(id_vals):
                     sorted_vals = sorted(level_vals)
-                    x = np.arange(len(sorted_vals))
-                    jitter = np.random.normal(loc=0, scale=0.1, size=len(x))
-                    axs[0].scatter(x + jitter, sorted_vals, alpha=0.7, label=f"Level {i}", s=10)
+                    x = np.arange(len(sorted_vals)) + np.random.normal(0, 0.1, size=len(sorted_vals))
+                    axs[0].scatter(x, sorted_vals, alpha=0.7, label=f"Level {i}", s=10)
                 axs[0].set_title("ID Factor Condition Numbers")
                 axs[0].set_xlabel("Sorted element index")
                 axs[0].set_ylabel("cond")
@@ -812,90 +849,89 @@ cargo run --release '{data_type_args_json}' '{scenario_args_json}' '{rsrs_args_j
             else:
                 axs[0].set_visible(False)
 
-            # --- LU Factors (second entry only) ---
+            # --- LU L and U Factors ---
             lu_levels = data.get("lu", [])
-            lu_vals = [
-                [vec[1] for vec in level if vec and len(vec) >= 2]
-                for level in lu_levels
-            ]
-            lu_vals = [level for level in lu_vals if level]  # Filter empty
-            if lu_vals:
-                for i, level_vals in enumerate(lu_vals):
-                    sorted_vals = sorted(level_vals)
-                    x = np.arange(len(sorted_vals))
-                    jitter = np.random.normal(loc=0, scale=0.1, size=len(x))
-                    axs[1].scatter(x + jitter, sorted_vals, alpha=0.7, label=f"Level {i}", s=10)
-                axs[1].set_title("LU Factor Condition Numbers")
-                axs[1].set_xlabel("Sorted element index")
-                axs[1].set_ylabel("cond")
-                axs[1].legend()
-            else:
-                axs[1].set_visible(False)
+            for i, level in enumerate(lu_levels):
+                l_vals = [vec[0][1][0] for vec in level if vec and vec[0] and vec[0][1]]
+                u_vals = [vec[0][1][1] for vec in level if vec and vec[0] and vec[0][1]]
 
-            # --- DFactors (two separate sorted scatter plots) ---
+                if l_vals:
+                    x_l = np.arange(len(l_vals)) + np.random.normal(0, 0.1, size=len(l_vals))
+                    axs[1].scatter(x_l, sorted(l_vals), alpha=0.7, label=f"L Level {i}", s=10, color='blue')
+                if u_vals:
+                    x_u = np.arange(len(u_vals)) + np.random.normal(0, 0.1, size=len(u_vals))
+                    axs[1].scatter(x_u, sorted(u_vals), alpha=0.7, label=f"U Level {i}", s=10, color='green')
+
+            axs[1].set_title("LU L and U Factors")
+            axs[1].set_xlabel("Sorted element index")
+            axs[1].set_ylabel("cond")
+            axs[1].legend()
+
+            # --- LU Rectangular Factors ---
+            for i, level in enumerate(lu_levels):
+                rect_vals = [vec[0][0] for vec in level if vec and vec[0] and vec[0][0] is not None]
+                if rect_vals:
+                    x_r = np.arange(len(rect_vals)) + np.random.normal(0, 0.1, size=len(rect_vals))
+                    axs[2].scatter(x_r, sorted(rect_vals), alpha=0.7, label=f"Level {i}", s=10, color='red')
+
+            axs[2].set_title("LU Rectangular Factor Condition Numbers")
+            axs[2].set_xlabel("Sorted element index")
+            axs[2].set_ylabel("cond")
+            axs[2].legend()
+
+            # --- Diagonal Factors ---
             dfactors = data.get("dfactors", [])
-            dfactor_vals = [(vec[0], vec[1]) for vec in dfactors if vec and len(vec) == 2]
-            if dfactor_vals:
-                cond1_vals, cond2_vals = zip(*dfactor_vals)
-                sorted1 = sorted(cond1_vals)
-                sorted2 = sorted(cond2_vals)
-                x1 = np.arange(len(sorted1)) + np.random.normal(0, 0.1, size=len(sorted1))
-                x2 = np.arange(len(sorted2)) + np.random.normal(0, 0.1, size=len(sorted2))
-                axs[2].scatter(x1, sorted1, alpha=0.7, label="diagonal_factor_1", s=10)
-                axs[2].scatter(x2, sorted2, alpha=0.7, label="diagonal_factor_2", s=10)
-                axs[2].set_title("Diagonal Factor Condition Numbers")
-                axs[2].set_xlabel("Sorted element index")
-                axs[2].set_ylabel("cond")
-                axs[2].legend()
+            diag_L = [vec[0][1][0] for vec in dfactors if vec and vec[0] and vec[0][1]]
+            diag_U = [vec[0][1][1] for vec in dfactors if vec and vec[0] and vec[0][1]]
+
+            if diag_L and diag_U:
+                x1 = np.arange(len(diag_L)) + np.random.normal(0, 0.1, size=len(diag_L))
+                x2 = np.arange(len(diag_U)) + np.random.normal(0, 0.1, size=len(diag_U))
+                axs[3].scatter(x1, sorted(diag_L), alpha=0.7, label="Diagonal L Factor", s=10, color='blue')
+                axs[3].scatter(x2, sorted(diag_U), alpha=0.7, label="Diagonal U Factor", s=10, color='green')
+                axs[3].set_title("Diagonal L and U Factor Condition Numbers")
+                axs[3].set_xlabel("Sorted element index")
+                axs[3].set_ylabel("cond")
+                axs[3].legend()
             else:
-                axs[2].set_visible(False)
+                axs[3].set_visible(False)
 
             plt.tight_layout(rect=[0, 0.03, 1, 0.95])
             plt.show()
 
-        
     def plot_condition_number_summaries(self):
         stats = self.load_all_stats("condition_number")
-
-        # Sort by tolerance
         stats.sort(key=lambda d: float(d["tolerance"]))
+
+        def is_valid_number(x):
+            return x is not None and isinstance(x, (int, float)) and not np.isnan(x)
 
         for data in stats:
             if data is None:
                 continue
 
             tol = data["tolerance"]
-            fig, axs = plt.subplots(1, 4, figsize=(20, 5))
+            fig, axs = plt.subplots(1, 5, figsize=(25, 5))
             fig.suptitle(f"Condition Number Summary Stats for Tolerance = {tol}")
 
             def plot_summary(ax, levels_data, title):
-                # Filter out non-positive values
                 filtered = []
                 for i, level in enumerate(levels_data):
-                    clean_level = [v for v in level if v > 0]
+                    clean_level = [v for v in level if is_valid_number(v)]
                     if clean_level:
                         filtered.append((i, clean_level))
-
                 if not filtered:
                     ax.set_visible(False)
                     return
-
                 indices, filtered_levels = zip(*filtered)
 
-                means = []
-                medians = []
-                errors = []
-
-                for level in filtered_levels:
-                    arr = np.array(level)
-                    means.append(np.mean(arr))
-                    medians.append(np.median(arr))
-                    errors.append(np.std(arr))
+                means = [np.mean(lvl) for lvl in filtered_levels]
+                medians = [np.median(lvl) for lvl in filtered_levels]
+                errors = [np.std(lvl) for lvl in filtered_levels]
 
                 x = np.arange(len(filtered_levels))
                 width = 0.35
 
-                # Plot bars with error bars
                 ax.bar(x - width/2, means, width, label='Mean', yerr=errors, capsize=5)
                 ax.bar(x + width/2, medians, width, label='Median')
 
@@ -906,37 +942,44 @@ cargo run --release '{data_type_args_json}' '{scenario_args_json}' '{rsrs_args_j
                 ax.set_xticklabels([str(i) for i in indices])
                 ax.legend()
 
-                # Compute max y considering error bars
-                upper_error = [m + e for m, e in zip(means, errors)]
-                ymax = max(upper_error + medians)
+                ymax = max(m + e for m, e in zip(means, errors))
                 ymin = min(min(means), min(medians))
-
                 ax.set_ylim(bottom=max(0.1 * ymin, 1e-12), top=1.1 * ymax)
 
-            # --- ID Factors ---
+            # --- ID Factor ---
             id_levels = data.get("id", [])
             id_vals = [
-                [vec[0] for vec in level if vec and len(vec) >= 1]
+                [vec[0][0] for vec in level if vec and vec[0] and is_valid_number(vec[0][0])]
                 for level in id_levels
             ]
             plot_summary(axs[0], id_vals, "ID Factor")
 
-            # --- LU Factors ---
+            # --- LU Rectangular Factor ---
             lu_levels = data.get("lu", [])
-            lu_vals = [
-                [vec[1] for vec in level if vec and len(vec) >= 2]
+            lu_rect_vals = [
+                [vec[0][0] for vec in level if vec and vec[0] and is_valid_number(vec[0][0])]
                 for level in lu_levels
             ]
-            plot_summary(axs[1], lu_vals, "LU Factor")
+            plot_summary(axs[1], lu_rect_vals, "LU Rectangular Factor")
 
-            # --- DFactors Cond 1 ---
+            # --- LU L Factor ---
+            lu_L_vals = [
+                [vec[0][1][0] for vec in level if vec and vec[0] and vec[0][1] and is_valid_number(vec[0][1][0])]
+                for level in lu_levels
+            ]
+            plot_summary(axs[2], lu_L_vals, "LU L Factor")
+
+            # --- LU U Factor ---
+            lu_U_vals = [
+                [vec[0][1][1] for vec in level if vec and vec[0] and vec[0][1] and is_valid_number(vec[0][1][1])]
+                for level in lu_levels
+            ]
+            plot_summary(axs[3], lu_U_vals, "LU U Factor")
+
+            # --- Diagonal Factors ---
             dfactors = data.get("dfactors", [])
-            cond1_vals = [vec[0] for vec in dfactors if vec and len(vec) == 2 and vec[0] > 0]
-            plot_summary(axs[2], [cond1_vals], "Diagonal Factor 1")
-
-            # --- DFactors Cond 2 ---
-            cond2_vals = [vec[1] for vec in dfactors if vec and len(vec) == 2 and vec[1] > 0]
-            plot_summary(axs[3], [cond2_vals], "Diagonal Factor 2")
+            cond1_vals = [vec[0][1][0] for vec in dfactors if vec and vec[0] and vec[0][1] and is_valid_number(vec[0][1][0])]
+            plot_summary(axs[4], [cond1_vals], "Diagonal Factor 1")
 
             plt.tight_layout(rect=[0, 0.03, 1, 0.95])
             plt.show()

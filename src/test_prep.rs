@@ -61,6 +61,7 @@ pub struct ScenarioArgs<Item: RlstScalar> {
     id_tols: Vec<Real<Item>>,
     dim_args: Vec<DimArg<Item>>,
     geometry_type: GeometryType,
+    max_tree_depth: usize,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -76,6 +77,7 @@ pub struct ScenarioOptions<Item: RlstScalar> {
     pub structured_operator_type: StructuredOperatorType,
     geometry_type: GeometryType,
     pub precision: Precision,
+    max_tree_depth: usize,
 }
 
 pub struct TestParams<Item: RlstScalar> {
@@ -146,11 +148,13 @@ impl<Item: RlstScalar> ScenarioArgs<Item> {
         id_tols: Vec<Real<Item>>,
         dim_args: Vec<DimArg<Item>>,
         geometry_type: GeometryType,
+        max_tree_depth: usize,
     ) -> Self {
         Self {
             id_tols,
             dim_args,
             geometry_type,
+            max_tree_depth,
         }
     }
 }
@@ -163,6 +167,7 @@ impl<Item: RlstScalar> ScenarioOptions<Item> {
                 vec![Item::real(1e-2)],
                 vec![DimArg::Kappa(Item::real(std::f64::consts::PI))],
                 GeometryType::SphereSurface,
+                6
             ),
         };
 
@@ -186,6 +191,7 @@ impl<Item: RlstScalar> ScenarioOptions<Item> {
             structured_operator_type: data_type.structured_operator_type,
             geometry_type: args.geometry_type,
             precision: data_type.precision,
+            max_tree_depth: args.max_tree_depth,
         }
     }
 }
@@ -275,10 +281,9 @@ macro_rules! implement_test_framework {
                     let rhs = operator.get_rhs();
                     let dim = points.len();
 
-                    let max_level: usize = 6;
                     let max_leaf_points: usize = 50;
                     let tree: Octree<'_, SimpleCommunicator> =
-                        Octree::new(&points, max_level, max_leaf_points, &comm);
+                        Octree::new(&points, self.test_params.scenario_params.max_tree_depth, max_leaf_points, &comm);
                     let global_number_of_points: usize = tree.global_number_of_points();
                     let global_max_level: usize = tree.global_max_level();
 
@@ -525,10 +530,9 @@ macro_rules! implement_distributed_test_framework {
 
                     println!("{} degrees of freedom", dim);
 
-                    let max_level: usize = 6;
                     let max_leaf_points: usize = 50;
                     let tree: Octree<'_, SimpleCommunicator> =
-                        Octree::new(&points, max_level, max_leaf_points, &comm);
+                        Octree::new(&points, self.test_params.scenario_params.max_tree_depth, max_leaf_points, &comm);
                     let global_number_of_points: usize = tree.global_number_of_points();
                     let global_max_level: usize = tree.global_max_level();
 

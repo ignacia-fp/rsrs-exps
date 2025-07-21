@@ -47,18 +47,20 @@ pub struct ErrorStatsOutput<Item: RlstScalar> {
     iterations: Iterations<Item>,
 }
 
+type CondType<T> = (Real<T>, Option<(Real<T>, Real<T>)>);
+
 #[derive(Serialize)]
 pub struct ConditionNumberOutput<Item: RlstScalar> {
-    id: Vec<Vec<(Real<Item>, Real<Item>)>>,
-    lu: Vec<Vec<(Real<Item>, Real<Item>)>>,
-    dfactors: Vec<(Real<Item>, Real<Item>)>,
+    id: Vec<Vec<(CondType<Item>, Option<CondType<Item>>)>>,
+    lu: Vec<Vec<(CondType<Item>, Option<CondType<Item>>)>>,
+    dfactors: Vec<(CondType<Item>, Option<CondType<Item>>)>,
 }
 
 impl<Item: RlstScalar> ConditionNumberOutput<Item> {
     pub fn new(res: (
-        Vec<Vec<(Real<Item>, Real<Item>)>>,
-        Vec<Vec<(Real<Item>, Real<Item>)>>,
-        Vec<(Real<Item>, Real<Item>)>,
+        Vec<Vec<(CondType<Item>, Option<CondType<Item>>)>>,
+        Vec<Vec<(CondType<Item>, Option<CondType<Item>>)>>,
+        Vec<(CondType<Item>, Option<CondType<Item>>)>,
     )) -> Self {
         let (id, lu, dfactors) = res;
         Self { id, lu, dfactors }
@@ -258,21 +260,16 @@ pub fn save_error_stats<
 
     let diff = DiffOperator(structured_operator_op.r(), rsrs_operator.r());
 
-    let prod1 = diff.r().product(diff.r());
-    let mut eigs1 = Eigs::new(prod1.r(), 1e-10, None, None, None);
+    let mut eigs1 = Eigs::new(diff.r(), 1e-10, None, None, None);
     let (sigma_1, _) = eigs1.run(None, 1, None, false);
-
-    let prod2 = structured_operator_op
-        .r()
-        .product(structured_operator_op.r());
-    let mut eigs2 = Eigs::new(prod2.r(), 1e-10, None, None, None);
+    
+    let mut eigs2 = Eigs::new(structured_operator_op.r(), 1e-10, None, None, None);
     let (sigma_2, _) = eigs2.run(None, 1, None, false);
 
-    let prod3 = rsrs_operator.r().product(rsrs_operator.r());
-    let mut eigs3 = Eigs::new(prod3.r(), 1e-10, None, None, None);
+    let mut eigs3 = Eigs::new(rsrs_operator.r(), 1e-10, None, None, None);
     let (c_1, _) = eigs3.run(None, 1, None, false);
 
-    let norm_2_error = sigma_1[0].abs().sqrt() / sigma_2[0].abs().sqrt();
+    let norm_2_error = sigma_1[0].abs() / sigma_2[0].abs();
 
     rsrs_operator.inv(true);
 
@@ -283,18 +280,16 @@ pub fn save_error_stats<
     let prod1 = rsrs_operator.r().product(structured_operator_op.r());
     let diff = DiffOperator(prod1.r(), id_op.r());
 
-    let prod2 = diff.r().product(diff.r());
-
-    let mut eigs1 = Eigs::new(prod2.r(), 1e-10, None, None, None);
+    let mut eigs1 = Eigs::new(diff.r(), 1e-10, None, None, None);
     let (sigma_1, _) = eigs1.run(None, 1, None, false);
 
-    let prod3 = rsrs_operator.r().product(rsrs_operator.r());
-    let mut eigs2 = Eigs::new(prod3.r(), 1e-10, None, None, None);
+    let mut eigs2 = Eigs::new(rsrs_operator.r(), 1e-10, None, None, None);
     let (c_2, _) = eigs2.run(None, 1, None, false);
 
-    let norm_2_error_inv = sigma_1[0].abs().sqrt();
+    let norm_2_error_inv = sigma_1[0].abs();
 
-    let condition_number = (c_2[0].abs() * c_1[0].abs()).sqrt();
+    let condition_number = c_2[0].abs() * c_1[0].abs();
+
 
     let (app_inv_err_left, app_inv_err_right) =
         rsrs_error_estimator(structured_operator_op, rsrs_operator, 10, true);
