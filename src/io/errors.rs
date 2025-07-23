@@ -17,6 +17,11 @@ use rlst::{
 };
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
+use serde::Serialize;
+use std::fs;
+use std::path::Path;
+use std::fs::File;
+use std::io::Write;
 
 type Real<T> = <T as rlst::RlstScalar>::Real;
 
@@ -729,12 +734,21 @@ where
     (id_stats, lu_stats)
 }
 
+
+#[derive(Serialize)]
+struct ErrorStatsContainer {
+    id_error_stats: Vec<(f64, f64, f64, f64)>,
+    lu_error_stats: Vec<(f64, f64, f64, f64)>,
+    diag_error_stats: (f64, f64)
+}
+
 pub fn get_boxes_errors<
     Item: RlstScalar + RandScalar + MatrixInverse + MatrixPseudoInverse + MatrixId + MatrixLu + MatrixQr,
 >(
     structured_operator_mat: &mut DynamicArray<Item, 2>,
     rsrs_factors: &mut RsrsFactors<Item>,
-    _tol: f64,
+    tol: f64,
+    path_str: &str,
 ) where
     StandardNormal: Distribution<Real<Item>>,
     Standard: Distribution<Real<Item>>,
@@ -771,6 +785,26 @@ pub fn get_boxes_errors<
 
     println!("\n");
 
+    /*let id_factors_error_stats: Vec<ErrorStats> = id_error_stats
+        .iter()
+        .map(|(mu_1, mu_2, std_dev_1, std_dev_2)| ErrorStats {
+            mu_1: *mu_1,
+            mu_2: *mu_2,
+            std_dev_1: *std_dev_1,
+            std_dev_2: *std_dev_2,
+        })
+        .collect();
+
+    let lu_factors_error_stats: Vec<ErrorStats> = lu_error_stats
+        .iter()
+        .map(|(mu_1, mu_2, std_dev_1, std_dev_2)| ErrorStats {
+            mu_1: *mu_1,
+            mu_2: *mu_2,
+            std_dev_1: *std_dev_1,
+            std_dev_2: *std_dev_2,
+        })
+        .collect();*/
+
     let diag_re =
         commutative_factors_errors(&rsrs_factors.diag_box_factors, structured_operator_mat);
 
@@ -796,6 +830,25 @@ pub fn get_boxes_errors<
         "Mean residual diagonal blocks errors : {:?}, sketch block error: {:?}",
         diag_re_r_mean, diag_re_s
     );
+
+    let diag_error_stats = (diag_re_r_mean.0, diag_re_r_mean.1);
+
+    let error_stats_container = ErrorStatsContainer {
+        id_error_stats: id_error_stats.to_vec(),
+        lu_error_stats: lu_error_stats.to_vec(),
+        diag_error_stats,
+    };
+
+    fs::create_dir_all(Path::new(&path_str)).unwrap();
+    let string_tol = format!("{:e}", tol);
+    let mut stats_path = path_str.to_string();
+    stats_path.push_str("/block_error_stats_");
+    stats_path.push_str(&string_tol);
+    stats_path.push_str(".json");
+
+    let json_string = serde_json::to_string_pretty(&error_stats_container).expect("Failed to serialize");
+    let mut file = File::create(stats_path).unwrap();
+    file.write_all(json_string.as_bytes()).unwrap();
 
     /*assert!(
         diag_re_r_mean.0 <= tol

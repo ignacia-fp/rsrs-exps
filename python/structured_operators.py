@@ -310,3 +310,45 @@ class BemppRsLaplaceOperator(BaseStructuredOperator):
     
     def get_rhs(self):
         raise ValueError("Rhs implemented in rust.")
+
+
+class BemppClLaplaceSingleLayerModified(BaseStructuredOperator):
+    def __init__(self, dim_param, kappa, geometry_type, precision):
+        super().__init__(dim_param, kappa, geometry_type, precision)
+        try:
+            if self.precision == 'single':
+                bempp_cl.api.DEFAULT_PRECISION = "single"
+            else:
+                bempp_cl.api.DEFAULT_PRECISION = "double"
+
+            self.operator_type = 'real'
+            self.operator_type = 'BemppClLaplaceSingleLayerModified'
+            self.domain = bempp_cl.api.function_space(self.grid, "DP", 0)
+            self.dual_to_range = self.domain
+            self.range = bempp_cl.api.function_space(self.grid, "P", 1)
+            identity = bempp_cl.api.operators.boundary.sparse.identity(self.domain,
+                                                                    self.range,
+                                                                    self.dual_to_range)
+            self.mat = bempp_cl.api.operators.boundary.laplace.single_layer(
+                self.domain, self.range, self.dual_to_range).weak_form() + 0.5*identity.weak_form()#, assembler = "fmm").weak_form()
+            self.rhs_data_type = self.mat.dtype
+            self.rhs = self.get_rhs()
+        except Exception as e:
+            print("Error initializing BemppClLaplaceSingleLayerModified:", e)
+            raise
+
+    def mv(self, v):
+        return self.mat * v
+    
+    @property
+    def cond(self):
+        raise ValueError("Condition number not implemented yet for this operator.")
+    
+    @property
+    def dense(self):
+        if self.mat is None:
+            raise ValueError("Matrix not initialized.")
+        return bempp_cl.api.as_matrix(self.mat)
+    
+    def get_rhs(self):
+        return right_hand_side(self, 'Dirichlet')

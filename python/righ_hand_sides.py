@@ -14,7 +14,7 @@ def right_hand_side(operator, problem_type):
         else:
             rhs = np.random.rand(operator.n_points).astype(operator.rhs_data_type)
         return rhs
-    elif operator.operator_type == 'BemppClLaplaceSingleLayer':
+    elif operator.operator_type == 'BemppClLaplaceSingleLayer' or operator.operator_type == 'BemppClLaplaceSingleLayerModified':
         if problem_type == 'Dirichlet':
             @bempp_cl.api.real_callable
             def dirichlet_data(x, n, domain_index, result):

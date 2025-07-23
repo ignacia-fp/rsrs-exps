@@ -7,4 +7,5 @@
     KiFMMLaplaceOperator,
     KiFMMHelmholtzOperator,
     BemppRsLaplaceOperator,
+    BemppClLaplaceSingleLayerModified,
 }

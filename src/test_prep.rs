@@ -384,6 +384,7 @@ macro_rules! implement_test_framework {
                                         &mut dense_structured_operator,
                                         &mut rsrs_factors,
                                         num::NumCast::from(id_tol).unwrap(),
+                                        path_str.as_str(),
                                     );
                                 }
                             }

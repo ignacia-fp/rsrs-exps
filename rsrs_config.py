@@ -18,6 +18,10 @@ def camel_to_snake(name):
     snake = re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1).lower()
     return snake
 
+def sci_no_padding(x):
+    base, exp = f"{x:.1e}".split("e")  # use more precision
+    base = base.rstrip("0").rstrip(".")  # remove trailing zeros and dot
+    return f"{base}e{int(exp)}"
 
 class RSRSBenchmarkConfig:
     def __init__(
@@ -60,6 +64,7 @@ class RSRSBenchmarkConfig:
             3: KiFMMLaplaceOperator
             4: KiFMMHelmholtzOperator
             5: BemppRsLaplaceOperator
+            6: BemppClLaplaceSingleLayerModified
             The choice affects the problem type and required parameters and more kernels can be addded in python/structured_operators.py
 
         precision : int, optional
@@ -195,7 +200,7 @@ class RSRSBenchmarkConfig:
         ## Data Type Arguments (what operator, which precision):
         self.structured_operator_types = [
             "BasicStructuredOperator", "BemppClLaplaceSingleLayer", "BemppClHelmholtzSingleLayer",
-            "KiFMMLaplaceOperator", "KiFMMHelmholtzOperator", "BemppRsLaplaceOperator"
+            "KiFMMLaplaceOperator", "KiFMMHelmholtzOperator", "BemppRsLaplaceOperator", "BemppClLaplaceSingleLayerModified"
         ]
         self.precision_types = ["Single", "Double"] # Single precision methods have not been enabled yet
 
@@ -282,6 +287,8 @@ class RSRSBenchmarkConfig:
             if self.dim_arg_types[self.dim_arg_type_index] == "Kappa":
                 if self.kappa != None:
                     print("WARNING: Computing h from given kappa.")
+                    self.h = 2.0 * pi / (8.0 * self.kappa)
+                    print("h is " + str(self.h))
                 else:
                     raise ValueError("You must provide kappa for this option.")
 
@@ -381,9 +388,9 @@ cargo run --release '{data_type_args_json}' '{scenario_args_json}' '{rsrs_args_j
         elif dim_key == "Meshwidth":
             return f"{geom}_{op}_mesh_width_{self.h:.1e}"
         elif dim_key == "Kappa":
-            return f"{geom}_{op}_kappa_{self.kappa:.2f}"
+            return f"{geom}_{op}_mesh_width_{sci_no_padding(self.h)}_{self.kappa:.2f}"
         elif dim_key == "KappaAndMeshwidth":
-            return f"{geom}_{op}_mesh_width_{self.h:.1e}_{self.kappa:.2f}"
+            return f"{geom}_{op}_mesh_width_{sci_no_padding(self.h)}_{self.kappa:.2f}"
         else:
             raise ValueError("Invalid dim_arg_type")
 
@@ -449,7 +456,7 @@ cargo run --release '{data_type_args_json}' '{scenario_args_json}' '{rsrs_args_j
         return stats
 
     
-    def plot_errors_vs_tolerance(self, metric_index=1, logx=True, logy=True):
+    def plot_errors_vs_tolerance(self, metric_index=1, plot=True, logx=True, logy=True, save_plot=False):
         """
         Plot a specified error metric vs tolerance.
 
@@ -504,24 +511,32 @@ cargo run --release '{data_type_args_json}' '{scenario_args_json}' '{rsrs_args_j
         tolerances = [float(d["tolerance"]) for d in all_stats]
         y_values = [d.get(metric, float("nan")) for d in all_stats]
 
-        # Plot
-        plt.figure(figsize=(6, 4))
-        plt.plot(tolerances, y_values, marker="o")
+        if plot:
+            # Plot
+            plt.figure(figsize=(6, 4))
+            plt.plot(tolerances, y_values, marker="o")
 
-        if logx:
-            plt.xscale("log")
-        if logy:
-            plt.yscale("log")
+            if logx:
+                plt.xscale("log")
+            if logy:
+                plt.yscale("log")
 
-        plt.xlabel("Tolerance")
-        plt.ylabel(ylabel)
-        plt.title(title)
-        plt.grid(True, which="both" if (logx or logy) else "major", ls='--', alpha=0.5)
-        plt.tight_layout()
-        plt.show()
+            plt.xlabel("Tolerance")
+            plt.ylabel(ylabel)
+            plt.title(title)
+            plt.grid(True, which="both" if (logx or logy) else "major", ls='--', alpha=0.5)
+            plt.tight_layout()
+            if save_plot:
+                folder = self.generate_folder_name()
+                subfolder = self.generate_sub_folder_name()
+                path = Path(os.getcwd()) / "results" / folder / subfolder / f"{metric}.png"
+                plt.savefig(path, dpi=300)
+            plt.show()
+        else:
+            return [tolerances, y_values]
 
 
-    def plot_gmres_residuals(self, log_scale=True):
+    def plot_gmres_residuals(self, log_scale=True, save_plot=False):
         all_stats = self.load_all_stats()
         if not all_stats:
             print("No data found.")
@@ -558,10 +573,15 @@ cargo run --release '{data_type_args_json}' '{scenario_args_json}' '{rsrs_args_j
         plt.legend(fontsize="small", loc="upper right", ncol=2)
         plt.grid(True, which="both" if log_scale else "major", ls="--", alpha=0.5)
         plt.tight_layout()
+        if save_plot:
+            folder = self.generate_folder_name()
+            subfolder = self.generate_sub_folder_name()
+            path = Path(os.getcwd()) / "results" / folder / subfolder / "gmres_residuals.png"
+            plt.savefig(path, dpi=300)
         plt.show()
 
 
-    def plot_residual_convergence(self, log_scale=True):
+    def plot_residual_convergence(self, log_scale=True, plot=True, save_plot=False):
         """
         Plot length of residual vectors vs tolerance for all preconditioned methods (excluding no_prec).
 
@@ -589,30 +609,38 @@ cargo run --release '{data_type_args_json}' '{scenario_args_json}' '{rsrs_args_j
 
                 residual_lengths.setdefault(key, []).append((tol, len(residuals)))
 
-        plt.figure(figsize=(8, 5))
+        if plot:
+            plt.figure(figsize=(8, 5))
 
-        for key, values in residual_lengths.items():
-            values.sort(key=lambda x: x[0])
-            tols, lengths = zip(*values)
-            plt.plot(tols, lengths, marker='o', label=key)
+            for key, values in residual_lengths.items():
+                values.sort(key=lambda x: x[0])
+                tols, lengths = zip(*values)
+                plt.plot(tols, lengths, marker='o', label=key)
 
-        plt.xlabel("Tolerance")
-        plt.ylabel("Iterations")
-        plt.title("Iterations vs Tolerance")
+            plt.xlabel("Tolerance")
+            plt.ylabel("Iterations")
+            plt.title("Iterations vs Tolerance")
 
-        if log_scale:
-            plt.xscale("log")
-            plt.yscale("log")
+            if log_scale:
+                plt.xscale("log")
+                plt.yscale("log")
+            else:
+                plt.xscale("log")
+                plt.yscale("linear")
+
+            plt.grid(True, which="both" if log_scale else "major", ls="--", alpha=0.5)
+            plt.legend()
+            plt.tight_layout()
+            if save_plot:
+                folder = self.generate_folder_name()
+                subfolder = self.generate_sub_folder_name()
+                path = Path(os.getcwd()) / "results" / folder / subfolder / "gmres_iterations.png"
+                plt.savefig(path, dpi=300)
+            plt.show()
         else:
-            plt.xscale("log")
-            plt.yscale("linear")
+            return residual_lengths
 
-        plt.grid(True, which="both" if log_scale else "major", ls="--", alpha=0.5)
-        plt.legend()
-        plt.tight_layout()
-        plt.show()
-
-    def plot_total_elapsed_time_vs_tolerance(self, logx=True, logy=True):
+    def plot_total_elapsed_time_vs_tolerance(self, logx=True, logy=True, plot=True, save_plot=False):
         """
         Plot total elapsed time without sampling vs tolerance (in seconds).
 
@@ -636,21 +664,29 @@ cargo run --release '{data_type_args_json}' '{scenario_args_json}' '{rsrs_args_j
         tolerances = [d["tolerance"] for d in time_stats]
         elapsed_times_sec = [d.get("total_elapsed_time_wo_sampling", float("nan")) / 1000.0 for d in time_stats]
 
-        # Plot
-        plt.figure(figsize=(6, 4))
-        plt.plot(tolerances, elapsed_times_sec, marker="o")
+        if plot:
+            # Plot
+            plt.figure(figsize=(6, 4))
+            plt.plot(tolerances, elapsed_times_sec, marker="o")
 
-        if logx:
-            plt.xscale("log")
-        if logy:
-            plt.yscale("log")
+            if logx:
+                plt.xscale("log")
+            if logy:
+                plt.yscale("log")
 
-        plt.xlabel("Tolerance")
-        plt.ylabel("RSRS Time (s)")
-        plt.title("RSRS Elapsed Time vs Tolerance")
-        plt.grid(True, which="both" if (logx or logy) else "major", ls="--", alpha=0.5)
-        plt.tight_layout()
-        plt.show()
+            plt.xlabel("Tolerance")
+            plt.ylabel("RSRS Time (s)")
+            plt.title("RSRS Elapsed Time vs Tolerance")
+            plt.grid(True, which="both" if (logx or logy) else "major", ls="--", alpha=0.5)
+            plt.tight_layout()
+            if save_plot:
+                folder = self.generate_folder_name()
+                subfolder = self.generate_sub_folder_name()
+                path = Path(os.getcwd()) / "results" / folder / subfolder / "elapsed_time_vs_tolerance.png"
+                plt.savefig(path, dpi=300)
+            plt.show()
+        else:
+            return [tolerances, elapsed_times_sec]
 
     def get_degrees_of_freedom(self):
         """
@@ -668,7 +704,7 @@ cargo run --release '{data_type_args_json}' '{scenario_args_json}' '{rsrs_args_j
 
         return time_stats[0].get("dim", None)
 
-    def plot_time_breakdown_piecharts(self, max_charts=None):
+    def plot_time_breakdown_piecharts(self, max_charts=None, save_plot=False):
         """
         Plot a pie chart of time breakdown for each tolerance.
 
@@ -730,9 +766,14 @@ cargo run --release '{data_type_args_json}' '{scenario_args_json}' '{rsrs_args_j
             )
             plt.title(f"Time Breakdown for {label}")
             plt.tight_layout()
+            if save_plot:
+                folder = self.generate_folder_name()
+                subfolder = self.generate_sub_folder_name()
+                path = Path(os.getcwd()) / "results" / folder / subfolder / f"time_breakdown_{tol:.2e}.png"
+                plt.savefig(path, dpi=300)
             plt.show()
 
-    def plot_condition_numbers(self):
+    def plot_condition_numbers(self, save_plot=False):
         stats = self.load_all_stats("condition_number")
         stats.sort(key=lambda d: float(d["tolerance"]))
 
@@ -816,10 +857,15 @@ cargo run --release '{data_type_args_json}' '{scenario_args_json}' '{rsrs_args_j
                 axs[3].set_visible(False)
 
             plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+            if save_plot:
+                folder = self.generate_folder_name()
+                subfolder = self.generate_sub_folder_name()
+                path = Path(os.getcwd()) / "results" / folder / subfolder / f"condition_numbers_{tol:.2e}.png"
+                plt.savefig(path, dpi=300)
             plt.show()
 
 
-    def plot_condition_numbers_scatter(self):
+    def plot_condition_numbers_scatter(self, save_plot=False):
         stats = self.load_all_stats("condition_number")
         stats.sort(key=lambda d: float(d["tolerance"]))
 
@@ -897,9 +943,14 @@ cargo run --release '{data_type_args_json}' '{scenario_args_json}' '{rsrs_args_j
                 axs[3].set_visible(False)
 
             plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+            if save_plot:
+                folder = self.generate_folder_name()
+                subfolder = self.generate_sub_folder_name()
+                path = Path(os.getcwd()) / "results" / folder / subfolder / f"condition_numbers_scatter_{tol:.2e}.png"
+                plt.savefig(path, dpi=300)
             plt.show()
 
-    def plot_condition_number_summaries(self):
+    def plot_condition_number_summaries(self, save_plot=False):
         stats = self.load_all_stats("condition_number")
         stats.sort(key=lambda d: float(d["tolerance"]))
 
@@ -982,4 +1033,9 @@ cargo run --release '{data_type_args_json}' '{scenario_args_json}' '{rsrs_args_j
             plot_summary(axs[4], [cond1_vals], "Diagonal Factor 1")
 
             plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+            if save_plot:
+                folder = self.generate_folder_name()
+                subfolder = self.generate_sub_folder_name()
+                path = Path(os.getcwd()) / "results" / folder / subfolder / f"condition_number_summary_{tol:.2e}.png"
+                plt.savefig(path, dpi=300)
             plt.show()
