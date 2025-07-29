@@ -123,9 +123,15 @@ impl<Item: RlstScalar> TestParams<Item> {
         ) {
             let (ref_level, depth): (Real<Item>, Real<Item>) =
                 self.scenario_params.dim_args[dim_num];
-            let ref_level = ref_level.to_usize().unwrap();
             let depth = depth.to_usize().unwrap();
-            let dim_pred = format!("ref_level_{}_depth_{}", ref_level, depth);
+            let dim_pred =if ref_level < num::One::one(){
+                format!("mesh_width_{:e}", ref_level)
+            }   
+            else{
+                let ref_level = ref_level.to_usize().unwrap();
+                format!("ref_level_{}_depth_{}", ref_level, depth)
+            };
+            
             format!("{}_{}_{}", geometry, structured_operator, dim_pred)
         } else {
             let (h, kappa) = self.scenario_params.dim_args[dim_num];
@@ -462,12 +468,21 @@ macro_rules! implement_distributed_test_framework {
                 for (dim_num, dim_arg) in self.test_params.scenario_params.dim_args.iter().enumerate() {
 
                     let rank = comm.rank();
-                    let refinement_level = dim_arg.0 as usize;
+                    
+
+                    let grid = if dim_arg.0 > 1.0{
+                        let refinement_level = dim_arg.0 as usize;
+                        bempp::shapes::regular_sphere::<Self::Item, _>(refinement_level as u32, 1, &comm)
+
+                    }
+                    else{
+                        bempp::shapes::sphere(1.0, (0.0, 0.0, 0.0), dim_arg.0, &comm).unwrap()
+                    };
+
                     let local_tree_depth = 1;
                     let global_tree_depth = dim_arg.1 as usize;
                     let expansion_order = 6;
-                    let grid = bempp::shapes::regular_sphere::<Self::Item, _>(refinement_level as u32, 1, &comm);
-
+           
                     let quad_degree = 6;
 
                     let space = trace_call("instantiate_space", || {bempp::function::FunctionSpace::new(

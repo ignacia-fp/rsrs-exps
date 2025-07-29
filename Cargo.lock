@@ -175,7 +175,7 @@ checksum = "9d297deb1925b89f2ccc13d7635fa0714f12c87adce1c75356b39ca9b7178567"
 [[package]]
 name = "bempp"
 version = "0.2.0-dev"
-source = "git+https://github.com/ignacia-fp/bempp-rs-for-rsrs.git#df7c28ce2837a49656063aacc7682fde070cb4d1"
+source = "git+https://github.com/ignacia-fp/bempp-rs-for-rsrs.git#4c0d24976ae54cea15be476f5014fa38a662a7bb"
 dependencies = [
  "bempp-distributed-tools",
  "bempp-quadrature",
@@ -193,6 +193,7 @@ dependencies = [
  "rand_chacha",
  "rayon",
  "rlst",
+ "tempfile",
 ]
 
 [[package]]
@@ -1746,7 +1747,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "07033963ba89ebaf1584d767badaa2e8fcec21aedea6b8c0346d487d49c28667"
 dependencies = [
  "cfg-if",
- "windows-targets 0.53.2",
+ "windows-targets 0.53.3",
 ]
 
 [[package]]
@@ -1757,9 +1758,9 @@ checksum = "f9fbbcab51052fe104eb5e5d351cf728d30a5be1fe14d9be8a3b097481fb97de"
 
 [[package]]
 name = "libredox"
-version = "0.1.6"
+version = "0.1.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4488594b9328dee448adb906d8b126d9b7deb7cf5c22161ee591610bb1be83c0"
+checksum = "360e552c93fa0e8152ab463bc4c4837fce76a225df11dfaeea66c313de5e61f7"
 dependencies = [
  "bitflags 2.9.1",
  "libc",
@@ -2002,7 +2003,7 @@ dependencies = [
 [[package]]
 name = "ndgrid"
 version = "0.1.5-dev"
-source = "git+https://github.com/ignacia-fp/ndgrid-for-rsrs.git#111e36ca4497f98b16e0a247db0dd5e71fe52145"
+source = "git+https://github.com/ignacia-fp/ndgrid-for-rsrs.git#894123cc12b30ad0ec5ce3157a8a964aef5ca16f"
 dependencies = [
  "bempp-distributed-tools",
  "c-api-tools",
@@ -2356,9 +2357,9 @@ dependencies = [
 
 [[package]]
 name = "prettyplease"
-version = "0.2.35"
+version = "0.2.36"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "061c1221631e079b26479d25bbf2275bfe5917ae8419cd7e34f13bfc2aa7539a"
+checksum = "ff24dfcda44452b9816fff4cd4227e1bb73ff5a2f1bc1105aa92fb8565ce44d2"
 dependencies = [
  "proc-macro2",
  "syn 2.0.104",
@@ -3335,7 +3336,7 @@ version = "0.60.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f2f500e4d28234f72040990ec9d39e3a6b950f9f22d3dba18416c35882612bcb"
 dependencies = [
- "windows-targets 0.53.2",
+ "windows-targets 0.53.3",
 ]
 
 [[package]]
@@ -3356,10 +3357,11 @@ dependencies = [
 
 [[package]]
 name = "windows-targets"
-version = "0.53.2"
+version = "0.53.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c66f69fcc9ce11da9966ddb31a40968cad001c5bedeb5c2b82ede4253ab48aef"
+checksum = "d5fe6031c4041849d7c496a8ded650796e7b6ecc19df1a431c1a363342e5dc91"
 dependencies = [
+ "windows-link",
  "windows_aarch64_gnullvm 0.53.0",
  "windows_aarch64_msvc 0.53.0",
  "windows_i686_gnu 0.53.0",
