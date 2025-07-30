@@ -124,14 +124,13 @@ impl<Item: RlstScalar> TestParams<Item> {
             let (ref_level, depth): (Real<Item>, Real<Item>) =
                 self.scenario_params.dim_args[dim_num];
             let depth = depth.to_usize().unwrap();
-            let dim_pred =if ref_level < num::One::one(){
+            let dim_pred = if ref_level < num::One::one() {
                 format!("mesh_width_{:e}", ref_level)
-            }   
-            else{
+            } else {
                 let ref_level = ref_level.to_usize().unwrap();
                 format!("ref_level_{}_depth_{}", ref_level, depth)
             };
-            
+
             format!("{}_{}_{}", geometry, structured_operator, dim_pred)
         } else {
             let (h, kappa) = self.scenario_params.dim_args[dim_num];
@@ -173,7 +172,7 @@ impl<Item: RlstScalar> ScenarioOptions<Item> {
                 vec![Item::real(1e-2)],
                 vec![DimArg::Kappa(Item::real(std::f64::consts::PI))],
                 GeometryType::SphereSurface,
-                6
+                6,
             ),
         };
 
@@ -288,8 +287,12 @@ macro_rules! implement_test_framework {
                     let dim = points.len();
 
                     let max_leaf_points: usize = 50;
-                    let tree: Octree<'_, SimpleCommunicator> =
-                        Octree::new(&points, self.test_params.scenario_params.max_tree_depth, max_leaf_points, &comm);
+                    let tree: Octree<'_, SimpleCommunicator> = Octree::new(
+                        &points,
+                        self.test_params.scenario_params.max_tree_depth,
+                        max_leaf_points,
+                        &comm,
+                    );
                     let global_number_of_points: usize = tree.global_number_of_points();
                     let global_max_level: usize = tree.global_max_level();
 
@@ -365,7 +368,10 @@ macro_rules! implement_test_framework {
                                 }
 
                                 if self.output_options.factors_cn {
-                                    let cn: ConditionNumberOutput<$scalar> = ConditionNumberOutput::new(rsrs_operator.get_condition_numbers());
+                                    let cn: ConditionNumberOutput<$scalar> =
+                                        ConditionNumberOutput::new(
+                                            rsrs_operator.get_condition_numbers(),
+                                        );
                                     cn.save(&path_str, id_tol);
                                 }
 
@@ -406,7 +412,10 @@ macro_rules! implement_test_framework {
                                 save_rank_stats(&rsrs_algo, id_tol, &path_str);
 
                                 if self.output_options.factors_cn {
-                                    let cn: ConditionNumberOutput<$scalar> = ConditionNumberOutput::new(rsrs_operator.get_condition_numbers());
+                                    let cn: ConditionNumberOutput<$scalar> =
+                                        ConditionNumberOutput::new(
+                                            rsrs_operator.get_condition_numbers(),
+                                        );
                                     cn.save(&path_str, id_tol);
                                 }
                             }
@@ -422,7 +431,10 @@ macro_rules! implement_test_framework {
                                 save_time_stats(&rsrs_algo, id_tol, &path_str);
 
                                 if self.output_options.factors_cn {
-                                    let cn: ConditionNumberOutput<$scalar> = ConditionNumberOutput::new(rsrs_operator.get_condition_numbers());
+                                    let cn: ConditionNumberOutput<$scalar> =
+                                        ConditionNumberOutput::new(
+                                            rsrs_operator.get_condition_numbers(),
+                                        );
                                     cn.save(&path_str, id_tol);
                                 }
 
@@ -468,7 +480,7 @@ macro_rules! implement_distributed_test_framework {
                 for (dim_num, dim_arg) in self.test_params.scenario_params.dim_args.iter().enumerate() {
 
                     let rank = comm.rank();
-                    
+
 
                     let grid = if dim_arg.0 > 1.0{
                         let refinement_level = dim_arg.0 as usize;
@@ -482,7 +494,7 @@ macro_rules! implement_distributed_test_framework {
                     let local_tree_depth = 1;
                     let global_tree_depth = dim_arg.1 as usize;
                     let expansion_order = 6;
-           
+
                     let quad_degree = 6;
 
                     let space = trace_call("instantiate_space", || {bempp::function::FunctionSpace::new(

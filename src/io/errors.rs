@@ -1,8 +1,7 @@
 use bempp_rsrs::rsrs::rsrs_factors::Inv;
 use bempp_rsrs::rsrs::rsrs_factors::RsrsFactors;
 use bempp_rsrs::rsrs::rsrs_factors::{
-    CommutativeFactors, Factor, FactorOperations, MulOptions, FactorType,
-    IdFactor, LuFactor,
+    CommutativeFactors, Factor, FactorOperations, FactorType, IdFactor, LuFactor, MulOptions,
 };
 use bempp_rsrs::rsrs::sketch::{SampleType, SamplingSpace};
 use bempp_rsrs::utils::data_ins_ext::{ExtInsType, Extraction, MatrixExtraction};
@@ -15,13 +14,13 @@ use rlst::{
     dense::{linalg::lu::MatrixLu, tools::RandScalar},
     prelude::*,
 };
-use std::rc::Rc;
-use std::sync::{Arc, Mutex};
 use serde::Serialize;
 use std::fs;
-use std::path::Path;
 use std::fs::File;
 use std::io::Write;
+use std::path::Path;
+use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 
 type Real<T> = <T as rlst::RlstScalar>::Real;
 
@@ -673,7 +672,7 @@ fn el_factors_inv_mul_errors<
 >(
     rsrs_factors: &RsrsFactors<Item>,
     target_arr: &mut DynamicArray<Item, 2>,
-) -> (Vec<ErrorStats>, Vec<ErrorStats>)
+) -> (Vec<ErrorStats>, Vec<Vec<ErrorStats>>)
 where
     StandardNormal: Distribution<Item::Real>,
     Standard: Distribution<Item::Real>,
@@ -682,15 +681,16 @@ where
     TriangularMatrix<Item>: TriangularOperations<Item = Item>,
     <Item as rlst::RlstScalar>::Real: RandScalar,
 {
-    let errors: Vec<(Vec<Errors>, Vec<Errors>)> = (0..rsrs_factors.num_levels)
+    let errors: Vec<(Vec<Errors>, Vec<Vec<Errors>>)> = (0..rsrs_factors.num_levels)
         .map(|level_it| {
             let factors = &rsrs_factors.id_factors[level_it];
             let id_errors = commutative_factors_errors(&factors, target_arr);
+
             let lu_errors = rsrs_factors.lu_factors[level_it]
                 .iter()
                 .map(|lu_batch| commutative_factors_errors(&lu_batch, target_arr))
-                .flatten()
-                .collect();
+                .collect(); // no .flatten()
+
             (id_errors, lu_errors)
         })
         .collect();
@@ -722,24 +722,32 @@ where
     };
 
     let mut id_stats = Vec::new();
-    let mut lu_stats = Vec::new();
+    let mut lu_stats = Vec::new(); // This will be Vec<Vec<(mu1, mu2, std1, std2)>>
+
     errors
         .iter()
         .for_each(|(id_level_errors, lu_level_errors)| {
             if !id_level_errors.is_empty() {
+                // Stats for ID errors at this level
                 id_stats.push(stats(id_level_errors.to_vec()));
-                lu_stats.push(stats(lu_level_errors.to_vec()));
+
+                // Stats for each LU batch at this level
+                let lu_level_stats: Vec<_> = lu_level_errors
+                    .iter()
+                    .map(|batch| stats(batch.to_vec()))
+                    .collect();
+
+                lu_stats.push(lu_level_stats);
             }
         });
     (id_stats, lu_stats)
 }
 
-
 #[derive(Serialize)]
 struct ErrorStatsContainer {
     id_error_stats: Vec<(f64, f64, f64, f64)>,
     lu_error_stats: Vec<(f64, f64, f64, f64)>,
-    diag_error_stats: (f64, f64)
+    diag_error_stats: (f64, f64),
 }
 
 pub fn get_boxes_errors<
@@ -758,72 +766,43 @@ pub fn get_boxes_errors<
     <Item as rlst::RlstScalar>::Real: RandScalar,
 {
     let (id_error_stats, lu_error_stats) =
-        &el_factors_inv_mul_errors(rsrs_factors, structured_operator_mat);
+        el_factors_inv_mul_errors(rsrs_factors, structured_operator_mat);
 
-    id_error_stats
-        .iter()
-        .enumerate()
-        .for_each(|(level, stats)| {
-            let (mu_1, mu_2, std_dev_1, std_dev_2) = stats;
-            println!(
-                "Errors ID, level {} : ({} +/- {}, {} +/- {})",
-                level, mu_1, std_dev_1, mu_2, std_dev_2
-            );
-        });
+    // Print ID stats per level
+    id_error_stats.iter().enumerate().for_each(|(level, s)| {
+        println!(
+            "Errors ID, level {} : ({} +/- {}, {} +/- {})",
+            level, s.0, s.1, s.2, s.3
+        );
+    });
 
-    lu_error_stats
-        .iter()
-        .enumerate()
-        .for_each(|(level, stats)| {
-            let (mu_1, mu_2, std_dev_1, std_dev_2) = stats;
+    // Print LU stats per batch in each level
+    for (level, level_stats) in lu_error_stats.iter().enumerate() {
+        for (batch, s) in level_stats.iter().enumerate() {
             println!(
-                "Errors LU, level {} : ({} +/- {}, {} +/- {})",
-                level, mu_1, std_dev_1, mu_2, std_dev_2
+                "Errors LU, level {}, batch {} : ({} +/- {}, {} +/- {})",
+                level, batch, s.0, s.1, s.2, s.3
             );
-            //assert!(*mu_1 <= tol && *mu_2 <= tol);
-        });
+        }
+    }
 
     println!("\n");
 
-    /*let id_factors_error_stats: Vec<ErrorStats> = id_error_stats
-        .iter()
-        .map(|(mu_1, mu_2, std_dev_1, std_dev_2)| ErrorStats {
-            mu_1: *mu_1,
-            mu_2: *mu_2,
-            std_dev_1: *std_dev_1,
-            std_dev_2: *std_dev_2,
-        })
-        .collect();
-
-    let lu_factors_error_stats: Vec<ErrorStats> = lu_error_stats
-        .iter()
-        .map(|(mu_1, mu_2, std_dev_1, std_dev_2)| ErrorStats {
-            mu_1: *mu_1,
-            mu_2: *mu_2,
-            std_dev_1: *std_dev_1,
-            std_dev_2: *std_dev_2,
-        })
-        .collect();*/
-
+    // Diagonal box factor stats
     let diag_re =
         commutative_factors_errors(&rsrs_factors.diag_box_factors, structured_operator_mat);
 
-    let diag_re_r;
-    let diag_re_s;
-
-    if diag_re.len() > 1 {
-        diag_re_r = &diag_re[0..diag_re.len() - 2];
-        diag_re_s = diag_re[diag_re.len() - 1];
+    let (diag_re_r, diag_re_s) = if diag_re.len() > 1 {
+        (&diag_re[..diag_re.len() - 1], diag_re[diag_re.len() - 1])
     } else {
-        diag_re_r = &[];
-        diag_re_s = diag_re[0];
-    }
+        (&[][..], diag_re[0])
+    };
 
     let diag_re_r_sum = diag_re_r
-        .into_iter()
+        .iter()
         .fold((0.0, 0.0), |acc, val| (acc.0 + val.0, acc.1 + val.1));
 
-    let len: f64 = NumCast::from(diag_re_r.len()).unwrap();
+    let len: f64 = NumCast::from(diag_re_r.len()).unwrap_or(1.0);
     let diag_re_r_mean = (diag_re_r_sum.0 / len, diag_re_r_sum.1 / len);
 
     println!(
@@ -833,27 +812,22 @@ pub fn get_boxes_errors<
 
     let diag_error_stats = (diag_re_r_mean.0, diag_re_r_mean.1);
 
+    // Flatten LU stats to save to JSON as a flat list
+    let lu_error_stats_flat: Vec<ErrorStats> = lu_error_stats.into_iter().flatten().collect();
+
     let error_stats_container = ErrorStatsContainer {
-        id_error_stats: id_error_stats.to_vec(),
-        lu_error_stats: lu_error_stats.to_vec(),
+        id_error_stats,
+        lu_error_stats: lu_error_stats_flat,
         diag_error_stats,
     };
 
-    fs::create_dir_all(Path::new(&path_str)).unwrap();
-    let string_tol = format!("{:e}", tol);
-    let mut stats_path = path_str.to_string();
-    stats_path.push_str("/block_error_stats_");
-    stats_path.push_str(&string_tol);
-    stats_path.push_str(".json");
+    // Serialize and write to file
+    fs::create_dir_all(Path::new(path_str)).unwrap();
+    let stats_path = format!("{}/block_error_stats_{:e}.json", path_str, tol);
 
-    let json_string = serde_json::to_string_pretty(&error_stats_container).expect("Failed to serialize");
+    let json_string = serde_json::to_string_pretty(&error_stats_container)
+        .expect("Failed to serialize error stats");
+
     let mut file = File::create(stats_path).unwrap();
     file.write_all(json_string.as_bytes()).unwrap();
-
-    /*assert!(
-        diag_re_r_mean.0 <= tol
-            && diag_re_r_mean.1 <= tol
-            && diag_re_s.0 <= tol
-            && diag_re_s.1 <= tol
-    );*/
 }

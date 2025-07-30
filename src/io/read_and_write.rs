@@ -57,11 +57,13 @@ pub struct ConditionNumberOutput<Item: RlstScalar> {
 }
 
 impl<Item: RlstScalar> ConditionNumberOutput<Item> {
-    pub fn new(res: (
-        Vec<Vec<(CondType<Item>, Option<CondType<Item>>)>>,
-        Vec<Vec<(CondType<Item>, Option<CondType<Item>>)>>,
-        Vec<(CondType<Item>, Option<CondType<Item>>)>,
-    )) -> Self {
+    pub fn new(
+        res: (
+            Vec<Vec<(CondType<Item>, Option<CondType<Item>>)>>,
+            Vec<Vec<(CondType<Item>, Option<CondType<Item>>)>>,
+            Vec<(CondType<Item>, Option<CondType<Item>>)>,
+        ),
+    ) -> Self {
         let (id, lu, dfactors) = res;
         Self { id, lu, dfactors }
     }
@@ -262,7 +264,7 @@ pub fn save_error_stats<
 
     let mut eigs1 = Eigs::new(diff.r(), 1e-10, None, None, None);
     let (sigma_1, _) = eigs1.run(None, 1, None, false);
-    
+
     let mut eigs2 = Eigs::new(structured_operator_op.r(), 1e-10, None, None, None);
     let (sigma_2, _) = eigs2.run(None, 1, None, false);
 
@@ -289,7 +291,6 @@ pub fn save_error_stats<
     let norm_2_error_inv = sigma_1[0].abs();
 
     let condition_number = c_2[0].abs() * c_1[0].abs();
-
 
     let (app_inv_err_left, app_inv_err_right) =
         rsrs_error_estimator(structured_operator_op, rsrs_operator, 10, true);
