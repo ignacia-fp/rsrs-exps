@@ -237,7 +237,7 @@ dependencies = [
  "bempp",
  "bempp-octree",
  "bempp-quadrature",
- "bempp-rsrs 0.0.1-dev (git+https://github.com/bempp/rsrs.git?branch=extend_to_distributed_spaces)",
+ "bempp-rsrs 0.0.1-dev (git+https://github.com/bempp/rsrs.git?branch=pivot_stabilisation)",
  "cbindgen 0.27.0",
  "cc",
  "env_logger",
@@ -246,7 +246,7 @@ dependencies = [
  "libc",
  "mpi",
  "ndarray 0.16.1",
- "ndarray-linalg",
+ "ndarray-linalg 0.16.0",
  "ndelement",
  "ndgrid",
  "npy",
@@ -269,14 +269,14 @@ dependencies = [
 [[package]]
 name = "bempp-rsrs"
 version = "0.0.1-dev"
-source = "git+https://github.com/bempp/rsrs.git?branch=extend_to_distributed_spaces#bef0fe4bfe7d07a0c6f0508645e7a75cafe3ca67"
+source = "git+https://github.com/bempp/rsrs.git?branch=pivot_stabilisation#5d355eb0cfcc093e1cd2f30df217b5afb8b27f8b"
 dependencies = [
  "bempp-octree",
- "cbindgen 0.27.0",
- "itertools 0.13.0",
+ "cbindgen 0.29.0",
+ "itertools 0.14.0",
  "mpi",
  "ndarray 0.16.1",
- "ndarray-linalg",
+ "ndarray-linalg 0.17.0",
  "npy",
  "num 0.4.3",
  "paste",
@@ -285,7 +285,7 @@ dependencies = [
  "rand_distr",
  "rayon",
  "rlst",
- "rustc-hash 1.1.0",
+ "rustc-hash 2.1.1",
  "serde",
 ]
 
@@ -507,7 +507,7 @@ version = "0.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3fce8dd7fcfcbf3a0a87d8f515194b49d6135acab73e18bd380d1d93bb1a15eb"
 dependencies = [
- "clap 4.5.41",
+ "clap 4.5.42",
  "heck 0.4.1",
  "indexmap 2.10.0",
  "log",
@@ -526,8 +526,27 @@ version = "0.28.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "eadd868a2ce9ca38de7eeafdcec9c7065ef89b42b32f0839278d55f35c54d1ff"
 dependencies = [
- "clap 4.5.41",
+ "clap 4.5.42",
  "heck 0.4.1",
+ "indexmap 2.10.0",
+ "log",
+ "proc-macro2",
+ "quote",
+ "serde",
+ "serde_json",
+ "syn 2.0.104",
+ "tempfile",
+ "toml 0.8.23",
+]
+
+[[package]]
+name = "cbindgen"
+version = "0.29.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "975982cdb7ad6a142be15bdf84aea7ec6a9e5d4d797c004d43185b24cfe4e684"
+dependencies = [
+ "clap 4.5.42",
+ "heck 0.5.0",
  "indexmap 2.10.0",
  "log",
  "proc-macro2",
@@ -636,18 +655,18 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "4.5.41"
+version = "4.5.42"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "be92d32e80243a54711e5d7ce823c35c41c9d929dc4ab58e1276f625841aadf9"
+checksum = "ed87a9d530bb41a67537289bafcac159cb3ee28460e0a4571123d2a778a6a882"
 dependencies = [
  "clap_builder",
 ]
 
 [[package]]
 name = "clap_builder"
-version = "4.5.41"
+version = "4.5.42"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "707eab41e9622f9139419d573eca0900137718000c517d47da73045f54331c3d"
+checksum = "64f4f3f3c77c94aff3c7e9aac9a2ca1974a5adf392a8bb751e827d6d127ab966"
 dependencies = [
  "anstream",
  "anstyle",
@@ -1684,6 +1703,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "lax"
+version = "0.17.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1048f58cdc36e726e1c5ef81ec7ac9b1be2fce6b705786514b5a4f8c63487867"
+dependencies = [
+ "cauchy",
+ "katexit",
+ "lapack-sys 0.14.0",
+ "num-traits",
+ "thiserror 2.0.12",
+]
+
+[[package]]
 name = "lazy_static"
 version = "0.1.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1758,9 +1790,9 @@ checksum = "f9fbbcab51052fe104eb5e5d351cf728d30a5be1fe14d9be8a3b097481fb97de"
 
 [[package]]
 name = "libredox"
-version = "0.1.8"
+version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "360e552c93fa0e8152ab463bc4c4837fce76a225df11dfaeea66c313de5e61f7"
+checksum = "391290121bad3d37fbddad76d8f5d1c1c314cfc646d143d7e07a3086ddff0ce3"
 dependencies = [
  "bitflags 2.9.1",
  "libc",
@@ -1958,6 +1990,9 @@ version = "0.16.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "882ed72dce9365842bf196bdeedf5055305f11fc8c03dee7bb0194a6cad34841"
 dependencies = [
+ "approx 0.5.1",
+ "cblas-sys",
+ "libc",
  "matrixmultiply",
  "num-complex",
  "num-integer",
@@ -1975,12 +2010,28 @@ checksum = "0b0e8dda0c941b64a85c5deb2b3e0144aca87aced64678adfc23eacea6d2cc42"
 dependencies = [
  "cauchy",
  "katexit",
- "lax",
+ "lax 0.16.0",
  "ndarray 0.15.6",
  "num-complex",
  "num-traits",
  "rand",
  "thiserror 1.0.69",
+]
+
+[[package]]
+name = "ndarray-linalg"
+version = "0.17.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "820b7fdcc3f1fd48c31f4c85bdefe93ef2d0e8b69ff955c4d499ea6db2f19d44"
+dependencies = [
+ "cauchy",
+ "katexit",
+ "lax 0.17.0",
+ "ndarray 0.16.1",
+ "num-complex",
+ "num-traits",
+ "rand",
+ "thiserror 2.0.12",
 ]
 
 [[package]]
@@ -2003,7 +2054,7 @@ dependencies = [
 [[package]]
 name = "ndgrid"
 version = "0.1.5-dev"
-source = "git+https://github.com/ignacia-fp/ndgrid-for-rsrs.git#894123cc12b30ad0ec5ce3157a8a964aef5ca16f"
+source = "git+https://github.com/ignacia-fp/ndgrid-for-rsrs.git#6604595bc121e75f01ed60d9871cc5e4a28e3056"
 dependencies = [
  "bempp-distributed-tools",
  "c-api-tools",
@@ -2489,9 +2540,9 @@ checksum = "03251193000f4bd3b042892be858ee50e8b3719f2b08e5833ac4353724632430"
 
 [[package]]
 name = "redox_users"
-version = "0.5.0"
+version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dd6f9d3d47bdd2ad6945c5015a226ec6155d0bcdfd8f7cd29f86b71f8de99d2b"
+checksum = "a4e608c6638b9c18977b00b475ac1f28d14e84b27d8d42f70e0bf1e3dec127ac"
 dependencies = [
  "getrandom 0.2.16",
  "libredox",
@@ -2693,9 +2744,9 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.141"
+version = "1.0.142"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "30b9eff21ebe718216c6ec64e1d9ac57087aad11efc64e32002bce4a0d4c03d3"
+checksum = "030fedb782600dcbd6f02d479bf0d817ac3bb40d644745b769d6a96bc3afc5a7"
 dependencies = [
  "itoa",
  "memchr 2.7.5",

@@ -23,6 +23,12 @@ def sci_no_padding(x):
     base = base.rstrip("0").rstrip(".")  # remove trailing zeros and dot
     return f"{base}e{int(exp)}"
 
+def pivot_method(kind, value=0.0):
+    if kind == "Lu":
+        return {"type": kind, "value": value}
+    else:
+        return {"type": kind}
+
 class RSRSBenchmarkConfig:
     def __init__(
         self,
@@ -47,7 +53,9 @@ class RSRSBenchmarkConfig:
         rank_picking: int = 0,
         min_rank: int = 1,
         min_level: int = 1,
-        max_tree_depth: int = 6
+        max_tree_depth: int = 6,
+        lu_stab = 0,
+        diag_stab = 0
     ):
         
         """
@@ -254,6 +262,8 @@ class RSRSBenchmarkConfig:
         self.block_extraction_method_index = block_extraction_method
         self.pivot_method_index = pivot_method
         self.rank_picking_index = rank_picking
+        self.lu_stab = lu_stab
+        self.diag_stab = diag_stab
 
         # Store other parameters
         self.h = h ## Characteristic meshwidth
@@ -339,8 +349,8 @@ class RSRSBenchmarkConfig:
             "null_method": self.null_methods[self.null_method_index],
             "near_block_extraction_method": self.block_extraction_methods[self.block_extraction_method_index],
             "diag_block_extraction_method": self.block_extraction_methods[self.block_extraction_method_index],
-            "lu_pivot_method": self.pivot_methods[self.pivot_method_index],
-            "diag_pivot_method": self.pivot_methods[self.pivot_method_index],
+            "lu_pivot_method": pivot_method(self.pivot_methods[self.pivot_method_index], value=self.lu_stab),
+            "diag_pivot_method": pivot_method(self.pivot_methods[self.pivot_method_index], value=self.diag_stab),
             "tol_null": 1e-10,  ## Tolerance when nullifying blocks
             "tol_id": self.id_tols[0],  ## ID tolerance (Irrelevant, since it is set with the scenario arguments)
             "tol_ext_near": 1e-10,  ## Tolerance used to compute pseudo inverses when extracting near field.

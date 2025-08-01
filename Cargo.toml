@@ -31,7 +31,7 @@ npy = "0.4.0"
 plotters = "0.3.7"
 paste = "1"
 ndgrid = { git="https://github.com/ignacia-fp/ndgrid-for-rsrs.git", features = ["serde"] }
-bempp-rsrs = { git = "https://github.com/bempp/rsrs.git", branch = "extend_to_distributed_spaces" }
+bempp-rsrs = { git = "https://github.com/bempp/rsrs.git", branch = "pivot_stabilisation" }
 bempp = { git = "https://github.com/ignacia-fp/bempp-rs-for-rsrs.git", features = ["enable_tracing"]}
 ndelement = { git="https://github.com/ignacia-fp/ndelement-for-rsrs.git", features = ["mpi"]}
 green-kernels = { git = "https://github.com/ignacia-fp/green-kernels-for-rsrs.git", features = ["mpi"] }
