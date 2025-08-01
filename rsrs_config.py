@@ -394,7 +394,10 @@ cargo run --release '{data_type_args_json}' '{scenario_args_json}' '{rsrs_args_j
         dim_key = self.dim_arg_types[self.dim_arg_type_index]
 
         if dim_key == "RefinementLevelAndDepth":
-            return f"{geom}_{op}_ref_level_{self.ref_level}_depth_{self.depth}"
+            if self.ref_level > 1:
+                return f"{geom}_{op}_ref_level_{self.ref_level}_depth_{self.depth}"
+            else:
+                return f"{geom}_{op}_mesh_width_{sci_no_padding(self.ref_level)}"
         elif dim_key == "Meshwidth":
             return f"{geom}_{op}_mesh_width_{self.h:.1e}"
         elif dim_key == "Kappa":
