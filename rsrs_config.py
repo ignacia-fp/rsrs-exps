@@ -29,6 +29,12 @@ def pivot_method(kind, value=0.0):
     else:
         return {"type": kind}
 
+def stab(value=0.0):
+    if value != 0.0:
+        return {"type": "True", "value": value}
+    else:
+        return {"type": "False"}
+
 class RSRSBenchmarkConfig:
     def __init__(
         self,
@@ -55,7 +61,8 @@ class RSRSBenchmarkConfig:
         min_level: int = 1,
         max_tree_depth: int = 6,
         lu_stab = 0,
-        diag_stab = 0
+        diag_stab = 0,
+        op_stabilisation = 0
     ):
         
         """
@@ -264,6 +271,7 @@ class RSRSBenchmarkConfig:
         self.rank_picking_index = rank_picking
         self.lu_stab = lu_stab
         self.diag_stab = diag_stab
+        self.op_stabilisation = op_stabilisation
 
         # Store other parameters
         self.h = h ## Characteristic meshwidth
@@ -346,6 +354,7 @@ class RSRSBenchmarkConfig:
             "oversampling": 8,  ## Oversampling for each individual block
             "oversampling_diag_blocks": 16,  ## Oversampling used when extracting diagonal blocks when RSRS finishes
             "initial_num_samples": 20,  ## Initial num samples: useful only when sampling is done in parallel way (not active yet)
+            "stabilise": stab(self.op_stabilisation),
             "null_method": self.null_methods[self.null_method_index],
             "near_block_extraction_method": self.block_extraction_methods[self.block_extraction_method_index],
             "diag_block_extraction_method": self.block_extraction_methods[self.block_extraction_method_index],
@@ -409,21 +418,40 @@ cargo run --release '{data_type_args_json}' '{scenario_args_json}' '{rsrs_args_j
 
     def generate_sub_folder_name(self) -> str:
         args = self.rsrs_args()
-        return (
-            f"rsrs_null_{args['null_method']}"
-            f"_toln_{args['tol_null']:.0e}"
-            f"_os_{args['oversampling']}"
-            f"_osdiag_{args['oversampling_diag_blocks']}"
-            f"_initsam_{args['initial_num_samples']}"
-            f"_mrnk_{args['min_rank']}"
-            f"_mlvl_{args['min_level']}"
-            f"_herm_{camel_to_snake(str(args['hermitian']))}"
-            f"_rpick_{args['rank_picking']}"
-            f"_next_{args['near_block_extraction_method']}"
-            f"_tolextn_{args['tol_ext_near']:.0e}"
-            f"_db_ext_{args['diag_block_extraction_method']}"
-            f"_tol_lstsq_{args['tol_diag_ext']:.0e}"
-        )
+
+        if self.op_stabilisation == 0:
+            return (
+                f"rsrs_null_{args['null_method']}"
+                f"_toln_{args['tol_null']:.0e}"
+                f"_os_{args['oversampling']}"
+                f"_osdiag_{args['oversampling_diag_blocks']}"
+                f"_initsam_{args['initial_num_samples']}"
+                f"_mrnk_{args['min_rank']}"
+                f"_mlvl_{args['min_level']}"
+                f"_herm_{camel_to_snake(str(args['hermitian']))}"
+                f"_rpick_{args['rank_picking']}"
+                f"_next_{args['near_block_extraction_method']}"
+                f"_tolextn_{args['tol_ext_near']:.0e}"
+                f"_db_ext_{args['diag_block_extraction_method']}"
+                f"_tol_lstsq_{args['tol_diag_ext']:.0e}"
+            )
+        else:
+            return (
+                f"rsrs_null_{args['null_method']}"
+                f"_toln_{args['tol_null']:.0e}"
+                f"_os_{args['oversampling']}"
+                f"_osdiag_{args['oversampling_diag_blocks']}"
+                f"_initsam_{args['initial_num_samples']}"
+                f"_stabilised_{sci_no_padding(self.op_stabilisation)}"
+                f"_mrnk_{args['min_rank']}"
+                f"_mlvl_{args['min_level']}"
+                f"_herm_{camel_to_snake(str(args['hermitian']))}"
+                f"_rpick_{args['rank_picking']}"
+                f"_next_{args['near_block_extraction_method']}"
+                f"_tolextn_{args['tol_ext_near']:.0e}"
+                f"_db_ext_{args['diag_block_extraction_method']}"
+                f"_tol_lstsq_{args['tol_diag_ext']:.0e}"
+            )
 
     def load_all_stats(self, kind="error"):
         """
@@ -786,7 +814,20 @@ cargo run --release '{data_type_args_json}' '{scenario_args_json}' '{rsrs_args_j
                 plt.savefig(path, dpi=300)
             plt.show()
 
-    def plot_condition_numbers(self, save_plot=False):
+    def plot_factor_metrics(self, metric="cond", save_plot=False):
+        """
+        Plot condition numbers or norms for ID, LU, and Diagonal factors.
+
+        Parameters
+        ----------
+        metric : str
+            "cond" for condition numbers (index 0 in data), "norm" for norms (index 1).
+        save_plot : bool
+            Whether to save the generated plots.
+        """
+        assert metric in ("cond", "norm"), "metric must be 'cond' or 'norm'"
+        metric_idx = 0 if metric == "cond" else 1
+
         stats = self.load_all_stats("condition_number")
         stats.sort(key=lambda d: float(d["tolerance"]))
 
@@ -796,20 +837,23 @@ cargo run --release '{data_type_args_json}' '{scenario_args_json}' '{rsrs_args_j
 
             tol = data["tolerance"]
             fig, axs = plt.subplots(1, 4, figsize=(20, 4))
-            fig.suptitle(f"Condition Numbers for Tolerance = {tol}")
+            fig.suptitle(f"{'Condition Numbers' if metric=='cond' else 'Norms'} for Tolerance = {tol}")
 
             # --- ID Rectangular Factors ---
             id_levels = data.get("id", [])
             id_vals = []
             for level in id_levels:
-                clean = [entry[0][0] for entry in level if entry and entry[0] and entry[0][0] is not None]
+                clean = []
+                for entry in level:
+                    if entry and entry[0] and entry[0][0] and entry[0][0][metric_idx] is not None:
+                        clean.append(entry[0][0][metric_idx])  # take scalar, not list
                 id_vals.append(clean if clean else [])
 
-            if any(id_vals):
+            if any(len(v) > 0 for v in id_vals):
                 axs[0].boxplot(id_vals, vert=True)
                 axs[0].set_title("ID Rectangular Factor")
                 axs[0].set_xlabel("Level")
-                axs[0].set_ylabel("cond")
+                axs[0].set_ylabel(metric)
                 axs[0].set_xticks(range(1, len(id_vals) + 1))
                 axs[0].set_xticklabels([str(i) for i in range(len(id_vals))])
             else:
@@ -819,14 +863,17 @@ cargo run --release '{data_type_args_json}' '{scenario_args_json}' '{rsrs_args_j
             lu_levels = data.get("lu", [])
             lu_rect_vals = []
             for level in lu_levels:
-                clean = [entry[0][0] for entry in level if entry and entry[0] and entry[0][0] is not None]
+                clean = []
+                for entry in level:
+                    if entry and entry[0] and entry[0][0] and entry[0][0][metric_idx] is not None:
+                        clean.append(entry[0][0][metric_idx])
                 lu_rect_vals.append(clean if clean else [])
 
-            if any(lu_rect_vals):
+            if any(len(v) > 0 for v in lu_rect_vals):
                 axs[1].boxplot(lu_rect_vals, vert=True)
                 axs[1].set_title("LU Rectangular Factor")
                 axs[1].set_xlabel("Level")
-                axs[1].set_ylabel("cond")
+                axs[1].set_ylabel(metric)
                 axs[1].set_xticks(range(1, len(lu_rect_vals) + 1))
                 axs[1].set_xticklabels([str(i) for i in range(len(lu_rect_vals))])
             else:
@@ -835,12 +882,17 @@ cargo run --release '{data_type_args_json}' '{scenario_args_json}' '{rsrs_args_j
             # --- LU L and U Factors (Side-by-side) ---
             lu_l_vals, lu_u_vals = [], []
             for level in lu_levels:
-                l_clean = [entry[0][1][0] for entry in level if entry and entry[0] and entry[0][1] and entry[0][1][0] is not None]
-                u_clean = [entry[0][1][1] for entry in level if entry and entry[0] and entry[0][1] and entry[0][1][1] is not None]
+                l_clean, u_clean = [], []
+                for entry in level:
+                    if entry and entry[0] and entry[0][1]:
+                        if entry[0][1][0] and entry[0][1][0][metric_idx] is not None:
+                            l_clean.append(entry[0][1][0][metric_idx])
+                        if entry[0][1][1] and entry[0][1][1][metric_idx] is not None:
+                            u_clean.append(entry[0][1][1][metric_idx])
                 lu_l_vals.append(l_clean if l_clean else [])
                 lu_u_vals.append(u_clean if u_clean else [])
 
-            if any(lu_l_vals) and any(lu_u_vals):
+            if any(len(v) > 0 for v in lu_l_vals) and any(len(v) > 0 for v in lu_u_vals):
                 positions = np.arange(1, len(lu_l_vals) + 1)
                 axs[2].boxplot(lu_l_vals, positions=positions - 0.15, widths=0.3, patch_artist=True,
                             boxprops=dict(facecolor='lightblue'))
@@ -848,7 +900,7 @@ cargo run --release '{data_type_args_json}' '{scenario_args_json}' '{rsrs_args_j
                             boxprops=dict(facecolor='lightgreen'))
                 axs[2].set_title("LU L and U Factors")
                 axs[2].set_xlabel("Level")
-                axs[2].set_ylabel("cond")
+                axs[2].set_ylabel(metric)
                 axs[2].set_xticks(positions)
                 axs[2].set_xticklabels([str(i) for i in range(len(lu_l_vals))])
                 axs[2].legend(["L", "U"])
@@ -857,14 +909,19 @@ cargo run --release '{data_type_args_json}' '{scenario_args_json}' '{rsrs_args_j
 
             # --- Diagonal Factors (labeled L/U) ---
             dfactors = data.get("dfactors", [])
-            diag_L = [entry[0][1][0] for entry in dfactors if entry and entry[0] and entry[0][1]]
-            diag_U = [entry[0][1][1] for entry in dfactors if entry and entry[0] and entry[0][1]]
+            diag_L, diag_U = [], []
+            for entry in dfactors:
+                if entry and entry[0] and entry[0][1]:
+                    if entry[0][1][0] and entry[0][1][0][metric_idx] is not None:
+                        diag_L.append(entry[0][1][0][metric_idx])
+                    if entry[0][1][1] and entry[0][1][1][metric_idx] is not None:
+                        diag_U.append(entry[0][1][1][metric_idx])
 
             if diag_L and diag_U:
                 axs[3].boxplot([diag_L, diag_U], vert=True)
                 axs[3].set_title("Diagonal L/U Factors")
                 axs[3].set_xlabel("Factor")
-                axs[3].set_ylabel("cond")
+                axs[3].set_ylabel(metric)
                 axs[3].set_xticklabels(["L factor", "U factor"])
             else:
                 axs[3].set_visible(False)
@@ -873,7 +930,161 @@ cargo run --release '{data_type_args_json}' '{scenario_args_json}' '{rsrs_args_j
             if save_plot:
                 folder = self.generate_folder_name()
                 subfolder = self.generate_sub_folder_name()
-                path = Path(os.getcwd()) / "results" / folder / subfolder / f"condition_numbers_{tol:.2e}.png"
+                filename = f"{'condition_numbers' if metric=='cond' else 'norms'}_{tol:.2e}.png"
+                path = Path(os.getcwd()) / "results" / folder / subfolder / filename
+                plt.savefig(path, dpi=300)
+            plt.show()
+
+    def plot_lu_factors_app_cond(self, save_plot=False):
+        """
+        Plot (1 + res)^2 where res = norm_rect * norm_L * norm_U
+        for each LU level.
+
+        Parameters
+        ----------
+        save_plot : bool
+            Whether to save the generated plots.
+        """
+        metric_idx = 1  # 1 corresponds to "norm"
+
+        stats = self.load_all_stats("condition_number")
+        stats.sort(key=lambda d: float(d["tolerance"]))
+
+        for data in stats:
+            if data is None:
+                continue
+
+            tol = data["tolerance"]
+            lu_levels = data.get("lu", [])
+            prod_vals = []
+
+            for level in lu_levels:
+                level_vals = []
+                for entry in level:
+                    if (entry and entry[0] and entry[0][0] and entry[0][1] and
+                        entry[0][1][0] and entry[0][1][1]):
+                        norm_rect = entry[0][0][metric_idx]
+                        norm_L = entry[0][1][0][metric_idx]
+                        norm_U = entry[0][1][1][metric_idx]
+
+                        if None not in (norm_rect, norm_L, norm_U):
+                            res = norm_rect * norm_L * norm_U
+                            level_vals.append((1 + res) ** 2)
+                prod_vals.append(level_vals if level_vals else [])
+
+            # --- Plot ---
+            if any(len(v) > 0 for v in prod_vals):
+                plt.figure(figsize=(8, 4))
+                plt.boxplot(prod_vals, vert=True)
+                plt.title(f"Approximate CN for Tolerance = {tol}")
+                plt.xlabel("Level")
+                plt.ylabel("App Cond")
+                plt.xticks(range(1, len(prod_vals) + 1),
+                        [str(i) for i in range(len(prod_vals))])
+
+                plt.tight_layout()
+                if save_plot:
+                    folder = self.generate_folder_name()
+                    subfolder = self.generate_sub_folder_name()
+                    filename = f"lu_factors_app_cond_{tol:.2e}.png"
+                    path = Path(os.getcwd()) / "results" / folder / subfolder / filename
+                    plt.savefig(path, dpi=300)
+                plt.show()
+
+    def plot_id_factors_app_cond(self, save_plot=False):
+        """
+        Plot (1 + res)^2 where res = norm_rect * norm_L * norm_U
+        for each LU level.
+
+        Parameters
+        ----------
+        save_plot : bool
+            Whether to save the generated plots.
+        """
+
+        stats = self.load_all_stats("condition_number")
+        stats.sort(key=lambda d: float(d["tolerance"]))
+
+        for data in stats:
+            if data is None:
+                continue
+
+            tol = data["tolerance"]
+            id_levels = data.get("id", [])
+            prod_vals = []
+
+            for level in id_levels:
+                level_vals = []
+                for entry in level:
+                    if (entry and entry[0] and entry[0][0] and entry[0][0][1]):
+                        norm_rect = entry[0][0][1]
+                        level_vals.append((1 + norm_rect) ** 2)
+                prod_vals.append(level_vals if level_vals else [])
+
+            # --- Plot ---
+            if any(len(v) > 0 for v in prod_vals):
+                plt.figure(figsize=(8, 4))
+                plt.boxplot(prod_vals, vert=True)
+                plt.title(f"Approximate CN for Tolerance = {tol}")
+                plt.xlabel("Level")
+                plt.ylabel("App Cond")
+                plt.xticks(range(1, len(prod_vals) + 1),
+                        [str(i) for i in range(len(prod_vals))])
+
+                plt.tight_layout()
+                if save_plot:
+                    folder = self.generate_folder_name()
+                    subfolder = self.generate_sub_folder_name()
+                    filename = f"id_factors_condition_number_{tol:.2e}.png"
+                    path = Path(os.getcwd()) / "results" / folder / subfolder / filename
+                    plt.savefig(path, dpi=300)
+                plt.show()
+
+    def plot_d_factor_app_cond(self, save_plot=False):
+        """
+        Plot (1 + res)^2 where res = norm_rect * norm_L * norm_U
+        for each LU level.
+
+        Parameters
+        ----------
+        save_plot : bool
+            Whether to save the generated plots.
+        """
+
+        stats = self.load_all_stats("condition_number")
+        stats.sort(key=lambda d: float(d["tolerance"]))
+
+        for data in stats:
+            if data is None:
+                continue
+
+            tol = data["tolerance"]
+            dfactors = data.get("dfactors", [])
+            prod_vals = []
+            for entry in dfactors:
+                if entry and entry[0] and entry[0][1]:
+                    res = 1
+                    if entry[0][1][0] and entry[0][1][0][1] is not None:
+                        res = entry[0][1][0][1]
+                    if entry[0][1][1] and entry[0][1][1][1] is not None:
+                        res*=entry[0][1][1][1]
+                    prod_vals.append((1+ res)**2)
+
+            # --- Plot ---
+            plt.figure(figsize=(8, 4))
+            plt.boxplot(prod_vals, vert=True)
+            plt.title(f"Approximate CN for Tolerance = {tol}")
+            plt.xlabel("Level")
+            plt.ylabel("App Cond")
+            #plt.xticks(range(1, len(prod_vals) + 1),
+            #        [str(i) for i in range(len(prod_vals))])
+
+            plt.tight_layout()
+            if save_plot:
+                folder = self.generate_folder_name()
+                subfolder = self.generate_sub_folder_name()
+                filename = f"dfactors_condition_number_{tol:.2e}.png"
+                path = Path(os.getcwd()) / "results" / folder / subfolder / filename
                 plt.savefig(path, dpi=300)
             plt.show()
 

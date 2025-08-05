@@ -46,8 +46,8 @@ pub struct ErrorStatsOutput<Item: RlstScalar> {
     residual_size: usize,
     iterations: Iterations<Item>,
 }
-
-type CondType<T> = (Real<T>, Option<(Real<T>, Real<T>)>);
+type CNTuple<T> = (Real<T>, Real<T>);
+type CondType<T> = (CNTuple<T>, Option<(CNTuple<T>, CNTuple<T>)>);
 
 #[derive(Serialize)]
 pub struct ConditionNumberOutput<Item: RlstScalar> {
