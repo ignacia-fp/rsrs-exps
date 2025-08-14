@@ -269,7 +269,7 @@ dependencies = [
 [[package]]
 name = "bempp-rsrs"
 version = "0.0.1-dev"
-source = "git+https://github.com/bempp/rsrs.git?branch=pivot_stabilisation#65794766419c8cea1640770dbacbd99da0ace367"
+source = "git+https://github.com/bempp/rsrs.git?branch=pivot_stabilisation#96084802bfbf227d5cafe5668fa0ed7facee81f6"
 dependencies = [
  "bempp-octree",
  "cbindgen 0.29.0",

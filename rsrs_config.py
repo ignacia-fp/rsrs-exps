@@ -1292,3 +1292,54 @@ cargo run --release '{data_type_args_json}' '{scenario_args_json}' '{rsrs_args_j
                 path = Path(os.getcwd()) / "results" / folder / subfolder / f"condition_number_summary_{tol:.2e}.png"
                 plt.savefig(path, dpi=300)
             plt.show()
+
+    def plot_max_entry_id(self, save_plot=False):
+        """
+        Plot condition numbers or norms for ID, LU, and Diagonal factors.
+
+        Parameters
+        ----------
+        metric : str
+            "cond" for condition numbers (index 0 in data), "norm" for norms (index 1).
+        save_plot : bool
+            Whether to save the generated plots.
+        """
+
+        stats = self.load_all_stats("condition_number")
+        stats.sort(key=lambda d: float(d["tolerance"]))
+
+        for data in stats:
+            if data is None:
+                continue
+
+            tol = data["tolerance"]
+
+            # --- ID Rectangular Factors ---
+            id_levels = data.get("id", [])
+            id_vals = []
+            for level in id_levels:
+                clean = []
+                for entry in level:
+                    if entry and entry[1] and entry[1][0] and entry[1][0][1] is not None:
+                        clean.append(entry[1][0][1])  # take scalar, not list
+                id_vals.append(clean if clean else [])
+
+            # --- Plot ---
+            if any(len(v) > 0 for v in id_vals):
+                plt.figure(figsize=(8, 4))
+                plt.boxplot(id_vals, vert=True)
+                plt.title(f"Max entry for Tolerance = {tol}")
+                plt.xlabel("Level")
+                plt.ylabel("Max inv(R11)R12_ij")
+                plt.xticks(range(1, len(id_vals) + 1),
+                        [str(i) for i in range(len(id_vals))])
+
+                plt.tight_layout()
+                if save_plot:
+                    folder = self.generate_folder_name()
+                    subfolder = self.generate_sub_folder_name()
+                    filename = f"id_max_entry_{tol:.2e}.png"
+                    path = Path(os.getcwd()) / "results" / folder / subfolder / filename
+                    plt.savefig(path, dpi=300)
+                plt.show()
+
