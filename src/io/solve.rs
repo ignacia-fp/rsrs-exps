@@ -23,7 +23,7 @@ where
     LuDecomposition<Item, BaseArray<Item, VectorContainer<Item>, 2>>:
         MatrixLuDecomposition<Item = Item>,
     TriangularMatrix<Item>: TriangularOperations<Item = Item>,
-    GivensRotationsData<Item>: GivensRotations<Item>,
+    GivensRotationData<Item>: rlst::GivensRotation<Item>,
     <<Space as rlst::LinearSpace>::E as rlst::ElementImpl>::Space: rlst::InnerProductSpace,
 {
     let dim = target_op.domain().dimension();
@@ -71,7 +71,7 @@ where
     LuDecomposition<Item, BaseArray<Item, VectorContainer<Item>, 2>>:
         MatrixLuDecomposition<Item = Item>,
     TriangularMatrix<Item>: TriangularOperations<Item = Item>,
-    GivensRotationsData<Item>: GivensRotations<Item>,
+    GivensRotationData<Item>: rlst::GivensRotation<Item>,
     <<Space as rlst::LinearSpace>::E as rlst::ElementImpl>::Space: rlst::InnerProductSpace,
 {
     let dim = target_op.domain().dimension();

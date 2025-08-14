@@ -23,11 +23,22 @@ def sci_no_padding(x):
     base = base.rstrip("0").rstrip(".")  # remove trailing zeros and dot
     return f"{base}e{int(exp)}"
 
+def sci_no_padding2(x):
+    base, exp = f"{x:.2e}".split("e")  # use more precision
+    base = base.rstrip("0").rstrip(".")  # remove trailing zeros and dot
+    return f"{base}e{int(exp)}"
+
 def pivot_method(kind, value=0.0):
     if kind == "Lu":
         return {"type": kind, "value": value}
     else:
         return {"type": kind}
+    
+def qr_method(kind, value=0.0):
+    if kind == "SRRQR":
+        return {"SRRQR": value}
+    else:
+        return "RRQR"
 
 def stab(value=0.0):
     if value != 0.0:
@@ -45,6 +56,7 @@ class RSRSBenchmarkConfig:
         depth: int = None,
         kappa: float = None,
         id_tols: List[float] = [1e-2, 1e-3, 1e-4, 1e-6, 1e-8],
+        f: float = 1.01,
         dim_arg_type: int = 2,
         geometry: int = 0,
         solve_tol: float = 1e-5,
@@ -56,6 +68,7 @@ class RSRSBenchmarkConfig:
         null_method: int = 0,
         block_extraction_method: int = 0,
         pivot_method: int = 0,
+        rrqr: int = 0,
         rank_picking: int = 0,
         min_rank: int = 1,
         min_level: int = 1,
@@ -258,6 +271,8 @@ class RSRSBenchmarkConfig:
                 "DoubleMin", ## Takes double the minimum rank of the previous level as a fixed rank.
                 "Tol", ## Always takes the defined tolerance.
                 ]
+        
+        self.rrqr_keys = ["RRQR", "SRRQR"]
 
         # Store index-based options
         self.operator_type_index = operator_type
@@ -269,6 +284,7 @@ class RSRSBenchmarkConfig:
         self.block_extraction_method_index = block_extraction_method
         self.pivot_method_index = pivot_method
         self.rank_picking_index = rank_picking
+        self.rrqr_index = rrqr
         self.lu_stab = lu_stab
         self.diag_stab = diag_stab
         self.op_stabilisation = op_stabilisation
@@ -280,6 +296,7 @@ class RSRSBenchmarkConfig:
 
         self.ref_level = ref_level
         self.depth = depth
+        self.f = f
         self.id_tols = id_tols
         self.solve_tol = solve_tol
         self.solve = solve
@@ -317,6 +334,10 @@ class RSRSBenchmarkConfig:
                 raise ValueError("For Bempp-rs, 'RefinementLevelAndDepth' must be used to define the mesh width.")
             if self.dense_errors:
                 raise ValueError("There is no dense form of this operator.")
+            
+        if self.rrqr_keys[self.rrqr_index] == "SRRQR":
+            print("Using SRRQR with f = " + str(self.f))
+        
 
     def data_type_args(self) -> Dict[str, str]:
         return {
@@ -356,6 +377,7 @@ class RSRSBenchmarkConfig:
             "initial_num_samples": 20,  ## Initial num samples: useful only when sampling is done in parallel way (not active yet)
             "stabilise": stab(self.op_stabilisation),
             "null_method": self.null_methods[self.null_method_index],
+            "qr_method": qr_method(self.rrqr_keys[self.rrqr_index], value=self.f),
             "near_block_extraction_method": self.block_extraction_methods[self.block_extraction_method_index],
             "diag_block_extraction_method": self.block_extraction_methods[self.block_extraction_method_index],
             "lu_pivot_method": pivot_method(self.pivot_methods[self.pivot_method_index], value=self.lu_stab),
@@ -419,6 +441,11 @@ cargo run --release '{data_type_args_json}' '{scenario_args_json}' '{rsrs_args_j
     def generate_sub_folder_name(self) -> str:
         args = self.rsrs_args()
 
+        if self.rrqr_keys[self.rrqr_index] == "SRRQR":
+            rrqr_pred = f"srrqr_" + sci_no_padding2(self.f)
+        else:
+            rrqr_pred = "rrqr"
+
         if self.op_stabilisation == 0:
             return (
                 f"rsrs_null_{args['null_method']}"
@@ -434,6 +461,7 @@ cargo run --release '{data_type_args_json}' '{scenario_args_json}' '{rsrs_args_j
                 f"_tolextn_{args['tol_ext_near']:.0e}"
                 f"_db_ext_{args['diag_block_extraction_method']}"
                 f"_tol_lstsq_{args['tol_diag_ext']:.0e}"
+                f"_{rrqr_pred}"
             )
         else:
             return (
@@ -451,6 +479,7 @@ cargo run --release '{data_type_args_json}' '{scenario_args_json}' '{rsrs_args_j
                 f"_tolextn_{args['tol_ext_near']:.0e}"
                 f"_db_ext_{args['diag_block_extraction_method']}"
                 f"_tol_lstsq_{args['tol_diag_ext']:.0e}"
+                f"_{rrqr_pred}"
             )
 
     def load_all_stats(self, kind="error"):
