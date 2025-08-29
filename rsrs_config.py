@@ -93,6 +93,8 @@ class RSRSBenchmarkConfig:
             4: KiFMMHelmholtzOperator
             5: BemppRsLaplaceOperator
             6: BemppClLaplaceSingleLayerModified
+            7: BemppClLaplaceSingleLayerPreconditioned
+            8: BemppClLaplaceSingleLayerMMPreconditioned
             The choice affects the problem type and required parameters and more kernels can be addded in python/structured_operators.py
 
         precision : int, optional
@@ -228,7 +230,8 @@ class RSRSBenchmarkConfig:
         ## Data Type Arguments (what operator, which precision):
         self.structured_operator_types = [
             "BasicStructuredOperator", "BemppClLaplaceSingleLayer", "BemppClHelmholtzSingleLayer",
-            "KiFMMLaplaceOperator", "KiFMMHelmholtzOperator", "BemppRsLaplaceOperator", "BemppClLaplaceSingleLayerModified"
+            "KiFMMLaplaceOperator", "KiFMMHelmholtzOperator", "BemppRsLaplaceOperator", "BemppClLaplaceSingleLayerModified",
+            "BemppClLaplaceSingleLayerPreconditioned", "BemppClLaplaceSingleLayerMMPreconditioned"
         ]
         self.precision_types = ["Single", "Double"] # Single precision methods have not been enabled yet
 
@@ -382,9 +385,9 @@ class RSRSBenchmarkConfig:
             "diag_block_extraction_method": self.block_extraction_methods[self.block_extraction_method_index],
             "lu_pivot_method": pivot_method(self.pivot_methods[self.pivot_method_index], value=self.lu_stab),
             "diag_pivot_method": pivot_method(self.pivot_methods[self.pivot_method_index], value=self.diag_stab),
-            "tol_null": 1e-10,  ## Tolerance when nullifying blocks
+            "tol_null": 1e-16,  ## Tolerance when nullifying blocks
             "tol_id": self.id_tols[0],  ## ID tolerance (Irrelevant, since it is set with the scenario arguments)
-            "tol_ext_near": 1e-10,  ## Tolerance used to compute pseudo inverses when extracting near field.
+            "tol_ext_near": 1e-16,  ## Tolerance used to compute pseudo inverses when extracting near field.
             "tol_diag_ext": 1e-16,  ## Tolerance used to compute pseudo inverses when extracting diagonal blocks.
             "min_rank": self.min_rank,  ## Minimum size of the box. If the box is smaller, it will be saved for the next level.
             "min_level": self.min_level, ## Level at which the algorithm stops
@@ -580,7 +583,7 @@ cargo run --release '{data_type_args_json}' '{scenario_args_json}' '{rsrs_args_j
         # Extract x and y data
         tolerances = [float(d["tolerance"]) for d in all_stats]
         y_values = [d.get(metric, float("nan")) for d in all_stats]
-
+        print(tolerances, y_values)
         if plot:
             # Plot
             plt.figure(figsize=(6, 4))

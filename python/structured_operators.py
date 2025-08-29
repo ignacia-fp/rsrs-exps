@@ -7,6 +7,7 @@ from scipy.spatial.distance import cdist
 from scipy.sparse.linalg import eigsh
 from .geometry import get_geometry, get_barycenters
 from .righ_hand_sides import right_hand_side
+from scipy.sparse.linalg import LinearOperator
 
 from kifmm_py import (
     KiFmm,
@@ -106,11 +107,13 @@ class BemppClLaplaceSingleLayer(BaseStructuredOperator):
 
             self.operator_type = 'real'
             self.operator_type = 'BemppClLaplaceSingleLayer'
-            self.domain = bempp_cl.api.function_space(self.grid, "DP", 0)
+            self.domain = bempp_cl.api.function_space(self.grid, "P", 1)
             self.dual_to_range = self.domain
             self.range = bempp_cl.api.function_space(self.grid, "P", 1)
             self.mat = bempp_cl.api.operators.boundary.laplace.single_layer(
                 self.domain, self.range, self.dual_to_range).weak_form()#, assembler = "fmm").weak_form()
+            self.points = self.grid.vertices.T
+            self.n_points = self.points.shape[0]
             self.rhs_data_type = self.mat.dtype
             self.rhs = self.get_rhs()
         except Exception as e:
@@ -352,3 +355,98 @@ class BemppClLaplaceSingleLayerModified(BaseStructuredOperator):
     
     def get_rhs(self):
         return right_hand_side(self, 'Dirichlet')
+    
+
+class BemppClLaplaceSingleLayerPreconditioned(BaseStructuredOperator):
+    def __init__(self, dim_param, kappa, geometry_type, precision):
+        super().__init__(dim_param, kappa, geometry_type, precision)
+        try:
+            if self.precision == 'single':
+                bempp_cl.api.DEFAULT_PRECISION = "single"
+            else:
+                bempp_cl.api.DEFAULT_PRECISION = "double"
+
+            self.operator_type = 'real'
+            self.operator_type = 'BemppClLaplaceSingleLayerPreconditioned'
+            self.domain = bempp_cl.api.function_space(self.grid, "P", 1)
+            self.dual_to_range = self.domain
+            self.range = bempp_cl.api.function_space(self.grid, "P", 1)
+            single_layer = bempp_cl.api.operators.boundary.laplace.single_layer(
+                self.domain, self.range, self.dual_to_range).strong_form()
+            self.points = self.grid.vertices.T
+            self.n_points = self.points.shape[0]
+            @bempp_cl.api.real_callable
+            def constant(x, n, domain_index, result):
+                result[0] = 1.0
+
+            rank_1_fun = bempp_cl.api.GridFunction(self.domain, fun=constant).projections()
+            hypersingular = bempp_cl.api.operators.boundary.laplace.hypersingular(self.domain, self.range, self.dual_to_range).weak_form()
+            h_shape = hypersingular.shape
+
+            def mv(v):
+                return hypersingular*v + rank_1_fun * (rank_1_fun @ v)
+            prec = LinearOperator(h_shape, matvec=mv)
+            self.mat = prec*single_layer
+            self.rhs_data_type = self.mat.dtype
+            rhs = self.get_rhs()
+            self.rhs = prec*rhs
+        except Exception as e:
+            print("Error initializing BemppClLaplaceSingleLayerPreconditioned:", e)
+            raise
+
+    def mv(self, v):
+        return self.mat.matvec(v)
+    
+    @property
+    def cond(self):
+        raise ValueError("Condition number not implemented yet for this operator.")
+    
+    @property
+    def dense(self):
+        if self.mat is None:
+            raise ValueError("Matrix not initialized.")
+        return bempp_cl.api.as_matrix(self.mat)
+    
+    def get_rhs(self):
+        return right_hand_side(self, 'Dirichlet')
+    
+
+class BemppClLaplaceSingleLayerMMPreconditioned(BaseStructuredOperator):
+    def __init__(self, dim_param, kappa, geometry_type, precision):
+        super().__init__(dim_param, kappa, geometry_type, precision)
+        try:
+            if self.precision == 'single':
+                bempp_cl.api.DEFAULT_PRECISION = "single"
+            else:
+                bempp_cl.api.DEFAULT_PRECISION = "double"
+            self.operator_type = 'real'
+            self.operator_type = 'BemppClLaplaceSingleLayerMMPreconditioned'
+            self.domain = bempp_cl.api.function_space(self.grid, "P", 1)
+            self.range = bempp_cl.api.function_space(self.grid, "P", 1)
+            self.dual_to_range = self.range
+            sl = bempp_cl.api.operators.boundary.laplace.single_layer(self.domain, self.range, self.dual_to_range)
+            self.points = self.grid.vertices.T
+            self.n_points = self.points.shape[0]
+            self.mat = sl.strong_form()
+            self.rhs_data_type = self.mat.dtype
+            self.rhs = self.get_rhs()
+        except Exception as e:
+            print("Error initializing BemppClLaplaceSingleLayerMMPreconditioned:", e)
+            raise
+
+    def mv(self, v):
+        return self.mat * v
+    
+    @property
+    def cond(self):
+        raise ValueError("Condition number not implemented yet for this operator.")
+    
+    @property
+    def dense(self):
+        if self.mat is None:
+            raise ValueError("Matrix not initialized.")
+        return bempp_cl.api.as_matrix(self.mat)
+    
+    def get_rhs(self):
+        return right_hand_side(self, 'Dirichlet')
+ 

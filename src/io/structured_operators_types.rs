@@ -8,4 +8,6 @@
     KiFMMHelmholtzOperator,
     BemppRsLaplaceOperator,
     BemppClLaplaceSingleLayerModified,
+    BemppClLaplaceSingleLayerPreconditioned,
+    BemppClLaplaceSingleLayerMMPreconditioned,
 }

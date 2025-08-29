@@ -12,9 +12,10 @@ def right_hand_side(operator, problem_type):
             rhs = real_parts + 1j*imag_parts
             rhs = rhs.astype(operator.rhs_data_type)
         else:
+            print("this", operator.n_points)
             rhs = np.random.rand(operator.n_points).astype(operator.rhs_data_type)
         return rhs
-    elif operator.operator_type == 'BemppClLaplaceSingleLayer' or operator.operator_type == 'BemppClLaplaceSingleLayerModified':
+    elif operator.operator_type == 'BemppClLaplaceSingleLayer' or operator.operator_type == 'BemppClLaplaceSingleLayerModified' or 'BemppClLaplaceSingleLayerPreconditioned' or 'BemppClLaplaceSingleLayerMMPreconditioned':
         if problem_type == 'Dirichlet':
             @bempp_cl.api.real_callable
             def dirichlet_data(x, n, domain_index, result):
@@ -32,7 +33,10 @@ def right_hand_side(operator, problem_type):
 
             rhs = (.5 * identity + dlp) * dirichlet_fun
 
-            return rhs.projections()
+            if operator.operator_type == 'BemppClLaplaceSingleLayer' or operator.operator_type == 'BemppClLaplaceSingleLayerModified':
+                return rhs.projections()
+            else:
+                return rhs.coefficients
         
         elif problem_type == 'Neumann':
             raise ValueError("Neumann problem not implemented.")
