@@ -143,6 +143,25 @@ impl<Item: RlstScalar + RandScalar, Space: SamplingSpace<F = Item> + IndexableSp
     }
 }
 
+pub struct NormalOperator<
+    Item: RlstScalar + RandScalar,
+    Space: SamplingSpace<F = Item> + IndexableSpace,
+    Op1: OperatorBase<Domain = Space, Range = Space>,
+>(pub Op1);
+
+impl<
+        Item: RlstScalar + RandScalar,
+        Space: SamplingSpace<F = Item> + IndexableSpace,
+        Op1: OperatorBase<Domain = Space, Range = Space>,
+    > std::fmt::Debug for NormalOperator<Item, Space, Op1>
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let dim_1 = self.0.domain().dimension();
+        write!(f, "Id Operator: [{}x{}]", dim_1, dim_1).unwrap();
+        Ok(())
+    }
+}
+
 pub struct DiffOperator<
     Item: RlstScalar + RandScalar,
     Space: SamplingSpace<F = Item> + IndexableSpace,
@@ -187,6 +206,24 @@ impl<
 impl<
         Item: RlstScalar + RandScalar,
         Space: SamplingSpace<F = Item> + LinearSpace + IndexableSpace,
+        Op1: OperatorBase<Domain = Space, Range = Space>,
+    > OperatorBase for NormalOperator<Item, Space, Op1>
+{
+    type Domain = Space;
+    type Range = Space;
+
+    fn domain(&self) -> Rc<Self::Domain> {
+        self.0.domain().clone()
+    }
+
+    fn range(&self) -> Rc<Self::Range> {
+        self.0.range().clone()
+    }
+}
+
+impl<
+        Item: RlstScalar + RandScalar,
+        Space: SamplingSpace<F = Item> + LinearSpace + IndexableSpace,
         Op1: AsApply<Domain = Space, Range = Space>,
         Op2: AsApply<Domain = Space, Range = Space>,
     > AsApply for DiffOperator<Item, Space, Op1, Op2>
@@ -214,6 +251,60 @@ where
             .apply_extended(alpha, x.r(), beta, y.r_mut(), trans_mode);
 
         y.r_mut().sub_inplace(y_aux.r());
+    }
+
+    fn apply<ContainerIn: ElementContainer<E = <Self::Domain as LinearSpace>::E>>(
+        &self,
+        x: Element<ContainerIn>,
+        trans_mode: rlst::TransMode,
+    ) -> rlst::operator::ElementType<<Self::Range as LinearSpace>::E> {
+        let mut y = zero_element(self.range());
+        self.apply_extended(
+            <<Self::Range as LinearSpace>::F as num::One>::one(),
+            x,
+            <<Self::Range as LinearSpace>::F as num::Zero>::zero(),
+            y.r_mut(),
+            trans_mode,
+        );
+        y
+    }
+}
+
+impl<
+        Item: RlstScalar + RandScalar,
+        Space: SamplingSpace<F = Item> + LinearSpace + IndexableSpace,
+        Op1: AsApply<Domain = Space, Range = Space>,
+    > AsApply for NormalOperator<Item, Space, Op1>
+where
+    <Item as rlst::RlstScalar>::Real: RandScalar,
+    StandardNormal: Distribution<<Item as rlst::RlstScalar>::Real>,
+    Standard: Distribution<<Item as rlst::RlstScalar>::Real>,
+{
+    fn apply_extended<
+        ContainerIn: ElementContainer<E = <Self::Domain as LinearSpace>::E>,
+        ContainerOut: ElementContainerMut<E = <Self::Range as LinearSpace>::E>,
+    >(
+        &self,
+        alpha: <Self::Range as LinearSpace>::F,
+        x: Element<ContainerIn>,
+        beta: <Self::Range as LinearSpace>::F,
+        mut y: Element<ContainerOut>,
+        _trans_mode: TransMode,
+    ) {
+        let mut y_aux_1 = zero_element(self.range());
+        let mut y_aux_2 = zero_element(self.range());
+        self.0
+            .apply_extended(alpha, x.r(), beta, y_aux_1.r_mut(), TransMode::NoTrans);
+        let y_aux_1_conj = self.domain().conj_vec(&y_aux_1);
+        self.0.apply_extended(
+            alpha,
+            y_aux_1_conj,
+            beta,
+            y_aux_2.r_mut(),
+            TransMode::NoTrans,
+        );
+        let y_aux_2_conj = self.domain().conj_vec(&y_aux_2);
+        y.r_mut().fill_inplace(y_aux_2_conj);
     }
 
     fn apply<ContainerIn: ElementContainer<E = <Self::Domain as LinearSpace>::E>>(
@@ -772,7 +863,7 @@ pub fn get_boxes_errors<
     id_error_stats.iter().enumerate().for_each(|(level, s)| {
         println!(
             "Errors ID, level {} : ({} +/- {}, {} +/- {})",
-            level, s.0, s.1, s.2, s.3
+            level, s.0, s.2, s.1, s.3
         );
     });
 
@@ -781,7 +872,7 @@ pub fn get_boxes_errors<
         for (batch, s) in level_stats.iter().enumerate() {
             println!(
                 "Errors LU, level {}, batch {} : ({} +/- {}, {} +/- {})",
-                level, batch, s.0, s.1, s.2, s.3
+                level, batch, s.0, s.2, s.1, s.3
             );
         }
     }
@@ -791,7 +882,6 @@ pub fn get_boxes_errors<
     // Diagonal box factor stats
     let diag_re =
         commutative_factors_errors(&rsrs_factors.diag_box_factors, structured_operator_mat);
-
     let (diag_re_r, diag_re_s) = if diag_re.len() > 1 {
         (&diag_re[..diag_re.len() - 1], diag_re[diag_re.len() - 1])
     } else {

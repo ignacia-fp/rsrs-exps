@@ -6,9 +6,7 @@ strict = []
 name = "bempp-rsrs"
 version = "0.0.1-dev"
 edition = "2021"
-authors = [
-    "Ignacia Fierro-Piccardo <ignaciapiccardo@gmail.com>",
-]
+authors = ["Ignacia Fierro-Piccardo <ignaciapiccardo@gmail.com>"]
 description = "RSRS tests"
 build = "build.rs"
 
@@ -21,7 +19,9 @@ itertools = "0.13.*"
 rand = { version = "0.8.5", features = ["alloc"] }
 rand_chacha = "0.3.*"
 num = "0.4.*"
-rlst = {git = "https://github.com/linalg-rs/rlst.git", branch = "extend_abstract_operator", features = ["enable_tracing"]}
+rlst = { git = "https://github.com/linalg-rs/rlst.git", branch = "extend_abstract_operator", features = [
+    "enable_tracing",
+] }
 bempp-octree = { git = "https://github.com/bempp/octree.git" }
 mpi = { version = "0.8.*", features = ["derive", "user-operations"] }
 ndarray = "0.16.1"
@@ -30,11 +30,19 @@ rand_distr = "0.4"
 npy = "0.4.0"
 plotters = "0.3.7"
 paste = "1"
-ndgrid = { git="https://github.com/ignacia-fp/ndgrid-for-rsrs.git", features = ["serde"] }
-bempp-rsrs = { git = "https://github.com/bempp/rsrs.git", branch = "pivot_stabilisation" }
-bempp = { git = "https://github.com/ignacia-fp/bempp-rs-for-rsrs.git", features = ["enable_tracing"]}
-ndelement = { git="https://github.com/ignacia-fp/ndelement-for-rsrs.git", features = ["mpi"]}
-green-kernels = { git = "https://github.com/ignacia-fp/green-kernels-for-rsrs.git", features = ["mpi"] }
+ndgrid = { git = "https://github.com/ignacia-fp/ndgrid-for-rsrs.git", features = [
+    "serde",
+] }
+bempp-rsrs = { git = "https://github.com/bempp/rsrs.git", branch = "only_symmetric" }
+bempp = { git = "https://github.com/ignacia-fp/bempp-rs-for-rsrs.git", features = [
+    "enable_tracing",
+] }
+ndelement = { git = "https://github.com/ignacia-fp/ndelement-for-rsrs.git", features = [
+    "mpi",
+] }
+green-kernels = { git = "https://github.com/ignacia-fp/green-kernels-for-rsrs.git", features = [
+    "mpi",
+] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 piechart = "1.0.0"
@@ -61,5 +69,3 @@ cc = "1.0"
 
 [lints.clippy]
 wildcard_imports = "forbid"
-
-

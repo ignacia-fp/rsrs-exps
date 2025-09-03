@@ -111,7 +111,7 @@ class BemppClLaplaceSingleLayer(BaseStructuredOperator):
             self.dual_to_range = self.domain
             self.range = bempp_cl.api.function_space(self.grid, "P", 1)
             self.mat = bempp_cl.api.operators.boundary.laplace.single_layer(
-                self.domain, self.range, self.dual_to_range).weak_form()#, assembler = "fmm").weak_form()
+                self.domain, self.range, self.dual_to_range, assembler = "fmm").weak_form()#, assembler = "fmm").weak_form()
             self.points = self.grid.vertices.T
             self.n_points = self.points.shape[0]
             self.rhs_data_type = self.mat.dtype
@@ -150,12 +150,11 @@ class BemppClHelmholtzSingleLayer(BaseStructuredOperator):
             self.operator_type = 'BemppClHelmholtzSingleLayer'
             self.domain = bempp_cl.api.function_space(self.grid, "DP", 0)
             self.dual_to_range = self.domain
-            self.range = bempp_cl.api.function_space(self.grid, "P", 1)
+            self.range = self.domain
             self.mat = bempp_cl.api.operators.boundary.helmholtz.single_layer(
-                self.domain, self.range, self.dual_to_range, kappa).weak_form()#, assembler = "fmm").weak_form()
+                self.domain, self.range, self.dual_to_range, kappa, assembler = "fmm").weak_form()#, assembler = "fmm").weak_form()
             self.rhs_data_type = self.mat.dtype
             self.rhs = self.get_rhs()
-            
 
         except Exception as e:
             print("Error initializing BemppClHelmholtzSingleLayer:", e)
@@ -333,7 +332,7 @@ class BemppClLaplaceSingleLayerModified(BaseStructuredOperator):
                                                                     self.range,
                                                                     self.dual_to_range)
             self.mat = bempp_cl.api.operators.boundary.laplace.single_layer(
-                self.domain, self.range, self.dual_to_range).weak_form() + 0.5*identity.weak_form()#, assembler = "fmm").weak_form()
+                self.domain, self.range, self.dual_to_range, assembler = "fmm").weak_form() + 0.5*identity.weak_form()#, assembler = "fmm").weak_form()
             self.rhs_data_type = self.mat.dtype
             self.rhs = self.get_rhs()
         except Exception as e:
@@ -357,7 +356,7 @@ class BemppClLaplaceSingleLayerModified(BaseStructuredOperator):
         return right_hand_side(self, 'Dirichlet')
     
 
-class BemppClLaplaceSingleLayerPreconditioned(BaseStructuredOperator):
+class BemppClLaplaceSingleLayerCP(BaseStructuredOperator):
     def __init__(self, dim_param, kappa, geometry_type, precision):
         super().__init__(dim_param, kappa, geometry_type, precision)
         try:
@@ -367,12 +366,12 @@ class BemppClLaplaceSingleLayerPreconditioned(BaseStructuredOperator):
                 bempp_cl.api.DEFAULT_PRECISION = "double"
 
             self.operator_type = 'real'
-            self.operator_type = 'BemppClLaplaceSingleLayerPreconditioned'
+            self.operator_type = 'BemppClLaplaceSingleLayerCP'
             self.domain = bempp_cl.api.function_space(self.grid, "P", 1)
             self.dual_to_range = self.domain
             self.range = bempp_cl.api.function_space(self.grid, "P", 1)
             single_layer = bempp_cl.api.operators.boundary.laplace.single_layer(
-                self.domain, self.range, self.dual_to_range).strong_form()
+                self.domain, self.range, self.dual_to_range, assembler = "fmm").strong_form()
             self.points = self.grid.vertices.T
             self.n_points = self.points.shape[0]
             @bempp_cl.api.real_callable
@@ -380,7 +379,7 @@ class BemppClLaplaceSingleLayerPreconditioned(BaseStructuredOperator):
                 result[0] = 1.0
 
             rank_1_fun = bempp_cl.api.GridFunction(self.domain, fun=constant).projections()
-            hypersingular = bempp_cl.api.operators.boundary.laplace.hypersingular(self.domain, self.range, self.dual_to_range).weak_form()
+            hypersingular = bempp_cl.api.operators.boundary.laplace.hypersingular(self.domain, self.range, self.dual_to_range, assembler = "fmm").weak_form()
             h_shape = hypersingular.shape
 
             def mv(v):
@@ -391,7 +390,7 @@ class BemppClLaplaceSingleLayerPreconditioned(BaseStructuredOperator):
             rhs = self.get_rhs()
             self.rhs = prec*rhs
         except Exception as e:
-            print("Error initializing BemppClLaplaceSingleLayerPreconditioned:", e)
+            print("Error initializing BemppClLaplaceSingleLayerCP:", e)
             raise
 
     def mv(self, v):
@@ -411,7 +410,7 @@ class BemppClLaplaceSingleLayerPreconditioned(BaseStructuredOperator):
         return right_hand_side(self, 'Dirichlet')
     
 
-class BemppClLaplaceSingleLayerMMPreconditioned(BaseStructuredOperator):
+class BemppClLaplaceSingleLayerMM(BaseStructuredOperator):
     def __init__(self, dim_param, kappa, geometry_type, precision):
         super().__init__(dim_param, kappa, geometry_type, precision)
         try:
@@ -420,18 +419,18 @@ class BemppClLaplaceSingleLayerMMPreconditioned(BaseStructuredOperator):
             else:
                 bempp_cl.api.DEFAULT_PRECISION = "double"
             self.operator_type = 'real'
-            self.operator_type = 'BemppClLaplaceSingleLayerMMPreconditioned'
+            self.operator_type = 'BemppClLaplaceSingleLayerMM'
             self.domain = bempp_cl.api.function_space(self.grid, "P", 1)
             self.range = bempp_cl.api.function_space(self.grid, "P", 1)
             self.dual_to_range = self.range
-            sl = bempp_cl.api.operators.boundary.laplace.single_layer(self.domain, self.range, self.dual_to_range)
+            sl = bempp_cl.api.operators.boundary.laplace.single_layer(self.domain, self.range, self.dual_to_range, assembler = "fmm")
             self.points = self.grid.vertices.T
             self.n_points = self.points.shape[0]
             self.mat = sl.strong_form()
             self.rhs_data_type = self.mat.dtype
             self.rhs = self.get_rhs()
         except Exception as e:
-            print("Error initializing BemppClLaplaceSingleLayerMMPreconditioned:", e)
+            print("Error initializing BemppClLaplaceSingleLayerMM:", e)
             raise
 
     def mv(self, v):
@@ -450,3 +449,47 @@ class BemppClLaplaceSingleLayerMMPreconditioned(BaseStructuredOperator):
     def get_rhs(self):
         return right_hand_side(self, 'Dirichlet')
  
+
+class BemppClHelmholtzSingleLayerCP(BaseStructuredOperator):
+    def __init__(self, dim_param, kappa, geometry_type, precision):
+        super().__init__(dim_param, kappa, geometry_type, precision)
+        try:
+            if self.precision == 'single':
+                bempp_cl.api.DEFAULT_PRECISION = "single"
+            else:
+                bempp_cl.api.DEFAULT_PRECISION = "double"
+
+            self.operator_type = 'complex'
+            self.operator_type = 'BemppClHelmholtzSingleLayerCP'
+            self.domain = bempp_cl.api.function_space(self.grid, "P", 1)
+            self.dual_to_range = self.domain
+            self.range = self.domain
+            self.points = self.grid.vertices.T
+            self.n_points = self.points.shape[0]
+            hypersingular = bempp_cl.api.operators.boundary.laplace.hypersingular(self.domain, self.range, self.dual_to_range, assembler = "fmm").weak_form()
+            single_layer = bempp_cl.api.operators.boundary.helmholtz.single_layer(
+                self.domain, self.range, self.dual_to_range, kappa, assembler = "fmm").strong_form()
+            self.mat = hypersingular*single_layer 
+            self.rhs_data_type = self.mat.dtype
+            self.rhs = hypersingular*self.get_rhs()
+            
+
+        except Exception as e:
+            print("Error initializing BemppClHelmholtzSingleLayerCP:", e)
+            raise
+
+    def mv(self, v):
+        return self.mat * v
+    
+    @property
+    def cond(self):
+        raise ValueError("Condition number not implemented yet for this operator.")
+    
+    @property
+    def dense(self):
+        if self.mat is None:
+            raise ValueError("Matrix not initialized.")
+        return bempp_cl.api.as_matrix(self.mat)
+    
+    def get_rhs(self):
+        return right_hand_side(self, 'Dirichlet')

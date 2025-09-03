@@ -93,8 +93,9 @@ class RSRSBenchmarkConfig:
             4: KiFMMHelmholtzOperator
             5: BemppRsLaplaceOperator
             6: BemppClLaplaceSingleLayerModified
-            7: BemppClLaplaceSingleLayerPreconditioned
-            8: BemppClLaplaceSingleLayerMMPreconditioned
+            7: BemppClLaplaceSingleLayerCP
+            8: BemppClLaplaceSingleLayerMM
+            9: BemppClHelmholtzSingleLayerCP
             The choice affects the problem type and required parameters and more kernels can be addded in python/structured_operators.py
 
         precision : int, optional
@@ -231,7 +232,7 @@ class RSRSBenchmarkConfig:
         self.structured_operator_types = [
             "BasicStructuredOperator", "BemppClLaplaceSingleLayer", "BemppClHelmholtzSingleLayer",
             "KiFMMLaplaceOperator", "KiFMMHelmholtzOperator", "BemppRsLaplaceOperator", "BemppClLaplaceSingleLayerModified",
-            "BemppClLaplaceSingleLayerPreconditioned", "BemppClLaplaceSingleLayerMMPreconditioned"
+            "BemppClLaplaceSingleLayerCP", "BemppClLaplaceSingleLayerMM", "BemppClHelmholtzSingleLayerCP"
         ]
         self.precision_types = ["Single", "Double"] # Single precision methods have not been enabled yet
 
@@ -317,12 +318,13 @@ class RSRSBenchmarkConfig:
         if self.dense_errors:
             print("WARNING: computind dense errors is time and memory intensive. Use only for small test cases")
 
-        if self.structured_operator_types[self.operator_type_index] == "BemppClHelmholtzSingleLayer" or self.structured_operator_types[self.operator_type_index] == "KiFMMHelmholtzOperator":
+        if self.structured_operator_types[self.operator_type_index] == "BemppClHelmholtzSingleLayer" or self.structured_operator_types[self.operator_type_index] == "KiFMMHelmholtzOperator" or self.structured_operator_types[self.operator_type_index] == "BemppClHelmholtzSingleLayerCP":
             if self.kappa == None:
                 raise ValueError("A wavenumber must be provided.")
             
-        if self.structured_operator_types[self.operator_type_index] != "BemppClHelmholtzSingleLayer" or self.structured_operator_types[self.operator_type_index] != "KiFMMHelmholtzOperator" or self.structured_operator_types[self.operator_type_index] != "BemppRsLaplaceOperator":
+        if self.structured_operator_types[self.operator_type_index] != "BemppClHelmholtzSingleLayer" or self.structured_operator_types[self.operator_type_index] != "KiFMMHelmholtzOperator" or self.structured_operator_types[self.operator_type_index] != "BemppRsLaplaceOperator" or self.structured_operator_types[self.operator_type_index] != "BemppClHelmholtzSingleLayerCP":
             if self.dim_arg_types[self.dim_arg_type_index] == "Kappa":
+
                 if self.kappa != None:
                     print("WARNING: Computing h from given kappa.")
                     self.h = 2.0 * pi / (8.0 * self.kappa)

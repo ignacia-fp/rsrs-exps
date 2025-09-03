@@ -1,4 +1,4 @@
-use crate::io::errors::{DiffOperator, IdOperator};
+use crate::io::errors::{DiffOperator, IdOperator, NormalOperator};
 
 use super::errors::rsrs_error_estimator;
 use bempp_rsrs::rsrs::rsrs_factors::Inv;
@@ -262,17 +262,19 @@ pub fn save_error_stats<
         rsrs_error_estimator(structured_operator_op, rsrs_operator, 10, false);
 
     let diff = DiffOperator(structured_operator_op.r(), rsrs_operator.r());
-
-    let mut eigs1 = Eigs::new(diff.r(), 1e-10, None, None, None);
+    let normal = NormalOperator(diff.r());
+    let mut eigs1 = Eigs::new(normal.r(), 1e-10, None, None, None);
     let (sigma_1, _) = eigs1.run(None, 1, None, false);
 
-    let mut eigs2 = Eigs::new(structured_operator_op.r(), 1e-10, None, None, None);
+    let normal_structured = NormalOperator(structured_operator_op.r());
+    let mut eigs2 = Eigs::new(normal_structured.r(), 1e-10, None, None, None);
     let (sigma_2, _) = eigs2.run(None, 1, None, false);
 
-    let mut eigs3 = Eigs::new(rsrs_operator.r(), 1e-10, None, None, None);
+    let normal_rsrs = NormalOperator(rsrs_operator.r());
+    let mut eigs3 = Eigs::new(normal_rsrs.r(), 1e-10, None, None, None);
     let (c_1, _) = eigs3.run(None, 1, None, false);
 
-    let norm_2_error = sigma_1[0].abs() / sigma_2[0].abs();
+    let norm_2_error = sigma_1[0].abs().sqrt() / sigma_2[0].abs().sqrt();
 
     rsrs_operator.inv(true);
 
@@ -282,16 +284,18 @@ pub fn save_error_stats<
 
     let prod1 = rsrs_operator.r().product(structured_operator_op.r());
     let diff = DiffOperator(prod1.r(), id_op.r());
+    let normal = NormalOperator(diff.r());
 
-    let mut eigs1 = Eigs::new(diff.r(), 1e-10, None, None, None);
+    let mut eigs1 = Eigs::new(normal.r(), 1e-10, None, None, None);
     let (sigma_1, _) = eigs1.run(None, 1, None, false);
 
-    let mut eigs2 = Eigs::new(rsrs_operator.r(), 1e-10, None, None, None);
+    let normal_rsrs = NormalOperator(rsrs_operator.r());
+    let mut eigs2 = Eigs::new(normal_rsrs.r(), 1e-10, None, None, None);
     let (c_2, _) = eigs2.run(None, 1, None, false);
 
-    let norm_2_error_inv = sigma_1[0].abs();
+    let norm_2_error_inv = sigma_1[0].abs().sqrt();
 
-    let condition_number = c_2[0].abs() * c_1[0].abs();
+    let condition_number = c_2[0].abs().sqrt() * c_1[0].abs().sqrt();
 
     let (app_inv_err_left, app_inv_err_right) =
         rsrs_error_estimator(structured_operator_op, rsrs_operator, 10, true);
@@ -302,7 +306,7 @@ pub fn save_error_stats<
         app_err_left,
         app_err_right,
         app_condition_number: condition_number,
-        norm_2_operator: sigma_2[0].abs(),
+        norm_2_operator: sigma_2[0].abs().sqrt(),
         norm_2_error,
         norm_2_error_inv,
         tot_num_samples: rsrs_data.y_data.num_samples,
