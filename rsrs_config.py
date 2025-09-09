@@ -96,6 +96,12 @@ class RSRSBenchmarkConfig:
             7: BemppClLaplaceSingleLayerCP
             8: BemppClLaplaceSingleLayerMM
             9: BemppClHelmholtzSingleLayerCP
+            10: BemppClLaplaceSingleLayerCPID
+            11: BemppClLaplaceSingleLayerCPID,
+            12: BemppClLaplaceSingleLayerP1,
+            13: KiFMMLaplaceOperatorV,
+            14: BemppClLaplaceSingleLayerModifiedP1,
+            15: BemppClLaplaceSingleLayerCPIP1,
             The choice affects the problem type and required parameters and more kernels can be addded in python/structured_operators.py
 
         precision : int, optional
@@ -232,7 +238,8 @@ class RSRSBenchmarkConfig:
         self.structured_operator_types = [
             "BasicStructuredOperator", "BemppClLaplaceSingleLayer", "BemppClHelmholtzSingleLayer",
             "KiFMMLaplaceOperator", "KiFMMHelmholtzOperator", "BemppRsLaplaceOperator", "BemppClLaplaceSingleLayerModified",
-            "BemppClLaplaceSingleLayerCP", "BemppClLaplaceSingleLayerMM", "BemppClHelmholtzSingleLayerCP"
+            "BemppClLaplaceSingleLayerCP", "BemppClLaplaceSingleLayerMM", "BemppClHelmholtzSingleLayerCP", "BemppClLaplaceSingleLayerCPID",
+            "BemppClLaplaceSingleLayerP1", "KiFMMLaplaceOperatorV", "BemppClLaplaceSingleLayerModifiedP1", "BemppClLaplaceSingleLayerCPIP1",
         ]
         self.precision_types = ["Single", "Double"] # Single precision methods have not been enabled yet
 
@@ -431,15 +438,15 @@ cargo run --release '{data_type_args_json}' '{scenario_args_json}' '{rsrs_args_j
 
         if dim_key == "RefinementLevelAndDepth":
             if self.ref_level > 1:
-                return f"{geom}_{op}_ref_level_{self.ref_level}_depth_{self.depth}"
+                return f"{geom}_{op}_ref_level_{self.ref_level}_depth_{self.depth}_od_{self.max_tree_depth}"
             else:
-                return f"{geom}_{op}_mesh_width_{sci_no_padding(self.ref_level)}"
+                return f"{geom}_{op}_mesh_width_{sci_no_padding(self.ref_level)}_od_{self.max_tree_depth}"
         elif dim_key == "Meshwidth":
-            return f"{geom}_{op}_mesh_width_{self.h:.1e}"
+            return f"{geom}_{op}_mesh_width_{self.h:.1e}_od_{self.max_tree_depth}"
         elif dim_key == "Kappa":
-            return f"{geom}_{op}_mesh_width_{sci_no_padding(self.h)}_{self.kappa:.2f}"
+            return f"{geom}_{op}_mesh_width_{sci_no_padding(self.h)}_od_{self.max_tree_depth}_{self.kappa:.2f}"
         elif dim_key == "KappaAndMeshwidth":
-            return f"{geom}_{op}_mesh_width_{sci_no_padding(self.h)}_{self.kappa:.2f}"
+            return f"{geom}_{op}_mesh_width_{sci_no_padding(self.h)}_od_{self.max_tree_depth}_{self.kappa:.2f}"
         else:
             raise ValueError("Invalid dim_arg_type")
 

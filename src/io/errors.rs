@@ -534,9 +534,8 @@ where
 }
 
 /////////////Dense matrix error extraction
-
-type Errors = (f64, f64);
-type ErrorStats = (f64, f64, f64, f64);
+type ErrorsFactor = (f64, f64, f64, f64);
+type ErrorStats = (f64, f64, f64, f64, f64, f64, f64, f64);
 
 // Error functions
 pub fn spectral_norm_estimator<Item: RlstScalar + RandScalar>(
@@ -572,7 +571,7 @@ where
 fn box_errors_id<Item: RlstScalar + RandScalar>(
     id_factor: &IdFactor<Item>,
     arr: &mut DynamicArray<Item, 2>,
-) -> Errors
+) -> ErrorsFactor
 where
     StandardNormal: Distribution<Item::Real>,
     Standard: Distribution<Item::Real>,
@@ -594,20 +593,32 @@ where
     .unwrap()
     .ext;
 
-    let arr_rf = spectral_norm_estimator(&arr_rf, 10).unwrap();
-    let arr_fr = spectral_norm_estimator(&arr_fr, 10).unwrap();
+    let mut res = empty_array();
+    res.fill_from_resize(arr_rf.r() - arr_fr.r().transpose());
 
-    (arr_rf, arr_fr)
+    let arr_rf = arr_rf.r().norm_fro();
+    let arr_fr = arr_fr.r().transpose().norm_fro();
+
+    (
+        num::NumCast::from(arr_rf).unwrap(),
+        num::NumCast::from(arr_fr).unwrap(),
+        0.0,
+        0.0,
+    )
 }
 
-fn box_errors_lu<Item: RlstScalar + RandScalar>(
+fn box_errors_lu<Item: RlstScalar + RandScalar + MatrixLu + MatrixInverse + MatrixPseudoInverse>(
     lu_factor: &LuFactor<Item>,
     arr: &mut DynamicArray<Item, 2>,
-) -> Errors
+    get_factors_errors: bool,
+) -> ErrorsFactor
 where
     StandardNormal: Distribution<Item::Real>,
     Standard: Distribution<Item::Real>,
     <Item as rlst::RlstScalar>::Real: RandScalar,
+    LuDecomposition<Item, BaseArray<Item, VectorContainer<Item>, 2>>:
+        MatrixLuDecomposition<Item = Item>,
+    TriangularMatrix<Item>: TriangularOperations<Item = Item>,
 {
     let ind_r = &lu_factor.ind_r;
     let ind_t = &lu_factor.ind_t;
@@ -625,10 +636,68 @@ where
     .unwrap()
     .ext;
 
-    let arr_rt = spectral_norm_estimator(&arr_rt, 10).unwrap();
-    let arr_tr = spectral_norm_estimator(&arr_tr, 10).unwrap();
+    let factor_options = MulOptions {
+        inv: false,
+        trans: false,
+        side: Side::Left,
+        factor_type: FactorType::F,
+        t_trans: false,
+    };
 
-    (arr_rt, arr_tr)
+    if get_factors_errors {
+        let (err_rect, err_sq) = match &lu_factor.u_arr {
+            bempp_rsrs::rsrs::rsrs_factors::FactorData::Comp(composed_factor_data) => {
+                let mut err_rect = empty_array();
+                let mut err_sq = empty_array();
+                err_rect
+                    .r_mut()
+                    .fill_from_resize(composed_factor_data.rectg.r() - arr_rt.r());
+
+                let mut app_lu = rlst_dynamic_array2!(Item, [ind_r.len(), ind_r.len()]);
+                app_lu.set_identity();
+
+                composed_factor_data
+                    .sq
+                    .mul(&mut app_lu, Side::Left, &factor_options);
+
+                let arr_rr = <Extraction<Item> as MatrixExtraction>::new(
+                    arr,
+                    ExtInsType::Cross(ind_r.clone(), ind_r.clone()),
+                )
+                .unwrap()
+                .ext;
+
+                err_sq.r_mut().fill_from_resize(app_lu.r() - arr_rr.r());
+
+                (
+                    err_rect.norm_fro() / arr_rt.r().norm_fro(),
+                    err_sq.norm_fro() / arr_rr.norm_fro(),
+                )
+            }
+            bempp_rsrs::rsrs::rsrs_factors::FactorData::Reg(_array) => todo!(),
+        };
+
+        let arr_rt = arr_rt.r().norm_fro();
+        let arr_tr = arr_tr.r().transpose().norm_fro();
+
+        (
+            num::NumCast::from(arr_rt).unwrap(),
+            num::NumCast::from(arr_tr).unwrap(),
+            num::NumCast::from(err_rect).unwrap(),
+            num::NumCast::from(err_sq).unwrap(),
+        )
+    } else {
+        let arr_rt = arr_rt.r().norm_fro();
+        let arr_tr = arr_tr.r().transpose().norm_fro();
+        (
+            num::NumCast::from(arr_rt).unwrap(),
+            num::NumCast::from(arr_tr).unwrap(),
+            0.0,
+            0.0,
+        )
+    }
+
+    //(arr_rt, arr_tr)
 }
 
 fn commutative_factors_errors<
@@ -636,7 +705,7 @@ fn commutative_factors_errors<
 >(
     factors: &CommutativeFactors<Item>,
     target_arr: &mut DynamicArray<Item, 2>,
-) -> Vec<Errors>
+) -> Vec<ErrorsFactor>
 where
     StandardNormal: Distribution<Item::Real>,
     Standard: Distribution<Item::Real>,
@@ -646,16 +715,6 @@ where
     <Item as rlst::RlstScalar>::Real: RandScalar,
 {
     let target_arr = Arc::new(Mutex::new(target_arr));
-    /*let mul_type_left = FactorMulType {
-        side: Side::Left,
-        factor_type: FactorType::F,
-        right_trans: false,
-    };
-    let mul_type_right = FactorMulType {
-        side: Side::Right,
-        factor_type: FactorType::S,
-        right_trans: false,
-    };*/
 
     let factor_options_left = MulOptions {
         inv: true,
@@ -679,19 +738,22 @@ where
             let mut target_arr = target_arr.lock().unwrap();
             match factor {
                 Factor::Lu(lu_factor) => {
-                    let (arr_rt, arr_tr) = box_errors_lu(lu_factor, &mut target_arr);
+                    let (arr_rt, arr_tr, err_rect, err_sq) =
+                        box_errors_lu(lu_factor, &mut target_arr, true);
                     lu_factor.mul(&mut target_arr, &factor_options_left);
                     lu_factor.mul(&mut target_arr, &factor_options_right);
-                    let (arr_rt_ae, arr_tr_ae) = box_errors_lu(lu_factor, &mut target_arr);
-                    let rel_errs: Errors = (arr_rt_ae / arr_rt, arr_tr_ae / arr_tr);
+                    let (arr_rt_ae, arr_tr_ae, _, _) =
+                        box_errors_lu(lu_factor, &mut target_arr, false);
+                    let rel_errs: ErrorsFactor =
+                        (arr_rt_ae / arr_rt, arr_tr_ae / arr_tr, err_rect, err_sq);
                     rel_errs
                 }
                 Factor::Id(id_factor) => {
-                    let (arr_rf, arr_fr) = box_errors_id(id_factor, &mut target_arr);
+                    let (arr_rf, arr_fr, _, _) = box_errors_id(id_factor, &mut target_arr);
                     id_factor.mul(&mut target_arr, &factor_options_left);
                     id_factor.mul(&mut target_arr, &factor_options_right);
-                    let (arr_rf_ae, arr_fr_ae) = box_errors_id(id_factor, &mut target_arr);
-                    let rel_errs: Errors = (arr_rf_ae / arr_rf, arr_fr_ae / arr_fr);
+                    let (arr_rf_ae, arr_fr_ae, _, _) = box_errors_id(id_factor, &mut target_arr);
+                    let rel_errs: ErrorsFactor = (arr_rf_ae / arr_rf, arr_fr_ae / arr_fr, 0.0, 0.0);
                     rel_errs
                 }
                 Factor::Diag(diag_box_factor) => {
@@ -748,7 +810,7 @@ where
                     let err_inv_diag = spectral_norm_estimator(&res, 10).unwrap()
                         / spectral_norm_estimator(&exact_diag_box, 10).unwrap();
 
-                    let errors: Errors = (err_diag, err_inv_diag);
+                    let errors: ErrorsFactor = (err_diag, err_inv_diag, 0.0, 0.0);
                     errors
                 }
             }
@@ -772,7 +834,7 @@ where
     TriangularMatrix<Item>: TriangularOperations<Item = Item>,
     <Item as rlst::RlstScalar>::Real: RandScalar,
 {
-    let errors: Vec<(Vec<Errors>, Vec<Vec<Errors>>)> = (0..rsrs_factors.num_levels)
+    let errors: Vec<(Vec<ErrorsFactor>, Vec<Vec<ErrorsFactor>>)> = (0..rsrs_factors.num_levels)
         .map(|level_it| {
             let factors = &rsrs_factors.id_factors[level_it];
             let id_errors = commutative_factors_errors(&factors, target_arr);
@@ -786,30 +848,55 @@ where
         })
         .collect();
 
-    let stats = |errors_vec: Vec<Errors>| {
+    let stats = |errors_vec: Vec<ErrorsFactor>| {
         let mut mu_1 = 0.0;
         let mut mu_2 = 0.0;
+        let mut mu_3 = 0.0;
+        let mut mu_4 = 0.0;
         let mut std_dev_1 = 0.0;
         let mut std_dev_2 = 0.0;
+        let mut std_dev_3 = 0.0;
+        let mut std_dev_4 = 0.0;
 
-        errors_vec.iter().for_each(|(errors_1, errors_2)| {
-            mu_1 += *errors_1;
-            mu_2 += *errors_2;
-        });
+        errors_vec
+            .iter()
+            .for_each(|(errors_1, errors_2, errors_3, errors_4)| {
+                mu_1 += *errors_1;
+                mu_2 += *errors_2;
+                mu_3 += *errors_3;
+                mu_4 += *errors_4;
+            });
 
         let len: f64 = NumCast::from(errors_vec.len()).unwrap();
         mu_1 /= len;
         mu_2 /= len;
+        mu_3 /= len;
+        mu_4 /= len;
 
-        errors_vec.iter().for_each(|(errors_1, errors_2)| {
-            std_dev_1 += (*errors_1 - mu_1).powi(2);
-            std_dev_2 += (*errors_2 - mu_2).powi(2);
-        });
+        errors_vec
+            .iter()
+            .for_each(|(errors_1, errors_2, errors_3, errors_4)| {
+                std_dev_1 += (*errors_1 - mu_1).powi(2);
+                std_dev_2 += (*errors_2 - mu_2).powi(2);
+                std_dev_3 += (*errors_3 - mu_3).powi(2);
+                std_dev_4 += (*errors_4 - mu_4).powi(2);
+            });
 
         std_dev_1 /= len;
         std_dev_2 /= len;
+        std_dev_3 /= len;
+        std_dev_4 /= len;
 
-        (mu_1, mu_2, std_dev_1.sqrt(), std_dev_2.sqrt())
+        (
+            mu_1,
+            mu_2,
+            mu_3,
+            mu_4,
+            std_dev_1.sqrt(),
+            std_dev_2.sqrt(),
+            std_dev_3.sqrt(),
+            std_dev_4.sqrt(),
+        )
     };
 
     let mut id_stats = Vec::new();
@@ -836,8 +923,8 @@ where
 
 #[derive(Serialize)]
 struct ErrorStatsContainer {
-    id_error_stats: Vec<(f64, f64, f64, f64)>,
-    lu_error_stats: Vec<(f64, f64, f64, f64)>,
+    id_error_stats: Vec<(f64, f64, f64, f64, f64, f64, f64, f64)>,
+    lu_error_stats: Vec<(f64, f64, f64, f64, f64, f64, f64, f64)>,
     diag_error_stats: (f64, f64),
 }
 
@@ -863,7 +950,7 @@ pub fn get_boxes_errors<
     id_error_stats.iter().enumerate().for_each(|(level, s)| {
         println!(
             "Errors ID, level {} : ({} +/- {}, {} +/- {})",
-            level, s.0, s.2, s.1, s.3
+            level, s.0, s.4, s.1, s.5
         );
     });
 
@@ -872,7 +959,7 @@ pub fn get_boxes_errors<
         for (batch, s) in level_stats.iter().enumerate() {
             println!(
                 "Errors LU, level {}, batch {} : ({} +/- {}, {} +/- {})",
-                level, batch, s.0, s.2, s.1, s.3
+                level, batch, s.0, s.4, s.1, s.5
             );
         }
     }

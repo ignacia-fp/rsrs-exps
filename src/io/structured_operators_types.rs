@@ -11,4 +11,9 @@
     BemppClLaplaceSingleLayerCP,
     BemppClLaplaceSingleLayerMM,
     BemppClHelmholtzSingleLayerCP,
+    BemppClLaplaceSingleLayerCPID,
+    BemppClLaplaceSingleLayerP1,
+    KiFMMLaplaceOperatorV,
+    BemppClLaplaceSingleLayerModifiedP1,
+    BemppClLaplaceSingleLayerCPIP1,
 }

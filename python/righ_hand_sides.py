@@ -3,7 +3,7 @@ import numpy as np
 import bempp_cl.api
 
 def right_hand_side(operator, problem_type):
-    undefined_rhs = {'BasicStructuredOperator', 'KiFMMLaplaceOperator', 'KiFMMHelmholtzOperator'}
+    undefined_rhs = {'BasicStructuredOperator', 'KiFMMLaplaceOperator', 'KiFMMHelmholtzOperator', 'BemppClLaplaceSingleLayerCPID', 'KiFMMLaplaceOperatorV', 'BemppClLaplaceSingleLayerCPIDP1'}
     if operator.operator_type in undefined_rhs:
         print("Warning: problem types for this operator have not been defined, so a random vector is returned.")
         if operator.rhs_data_type == np.complex64 or operator.rhs_data_type == np.complex128:
@@ -14,7 +14,7 @@ def right_hand_side(operator, problem_type):
         else:
             rhs = np.random.rand(operator.n_points).astype(operator.rhs_data_type)
         return rhs
-    elif operator.operator_type == 'BemppClLaplaceSingleLayer' or operator.operator_type == 'BemppClLaplaceSingleLayerModified' or operator.operator_type == 'BemppClLaplaceSingleLayerCP' or operator.operator_type =='BemppClLaplaceSingleLayerMM':
+    elif operator.operator_type == 'BemppClLaplaceSingleLayer' or operator.operator_type == 'BemppClLaplaceSingleLayerModified' or operator.operator_type == 'BemppClLaplaceSingleLayerCP' or operator.operator_type =='BemppClLaplaceSingleLayerMM' or operator.operator_type == 'BemppClLaplaceSingleLayerP1' or operator.operator_type == 'BemppClLaplaceSingleLayerModifiedP1':
         if problem_type == 'Dirichlet':
             @bempp_cl.api.real_callable
             def dirichlet_data(x, n, domain_index, result):
@@ -27,7 +27,7 @@ def right_hand_side(operator, problem_type):
                                                                     operator.dual_to_range)
             dlp = bempp_cl.api.operators.boundary.laplace.double_layer(operator.domain,
                                                                     operator.range,
-                                                                    operator.domain, assembler = "fmm")#,
+                                                                    operator.domain, assembler = "fmm")#, assembler = "fmm")#,
                                                                     #assembler="fmm")
 
             rhs = (dlp - 0.5 * identity) * dirichlet_fun
