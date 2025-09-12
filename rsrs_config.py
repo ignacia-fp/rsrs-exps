@@ -75,7 +75,12 @@ class RSRSBenchmarkConfig:
         max_tree_depth: int = 6,
         lu_stab = 0,
         diag_stab = 0,
-        op_stabilisation = 0
+        op_stabilisation = 0,
+        oversampling_near = 8,
+        oversampling_diag = 16,
+        tol_ext_near = 1e-16,
+        tol_ext_diag = 1e-16,
+        fact_type = 1
     ):
         
         """
@@ -97,11 +102,10 @@ class RSRSBenchmarkConfig:
             8: BemppClLaplaceSingleLayerMM
             9: BemppClHelmholtzSingleLayerCP
             10: BemppClLaplaceSingleLayerCPID
-            11: BemppClLaplaceSingleLayerCPID,
-            12: BemppClLaplaceSingleLayerP1,
-            13: KiFMMLaplaceOperatorV,
-            14: BemppClLaplaceSingleLayerModifiedP1,
-            15: BemppClLaplaceSingleLayerCPIP1,
+            11: BemppClLaplaceSingleLayerP1,
+            12: KiFMMLaplaceOperatorV,
+            13: BemppClLaplaceSingleLayerModifiedP1,
+            14: BemppClLaplaceSingleLayerCPIDP1,
             The choice affects the problem type and required parameters and more kernels can be addded in python/structured_operators.py
 
         precision : int, optional
@@ -215,6 +219,12 @@ class RSRSBenchmarkConfig:
             Maximum tree depth for the octree.
             Default is 6.
 
+        fact_type: int, optional
+            Type of factorisation:
+            0: Split
+            1: Joint
+            Default is 1.
+
         Raises
         ------
         ValueError
@@ -239,7 +249,7 @@ class RSRSBenchmarkConfig:
             "BasicStructuredOperator", "BemppClLaplaceSingleLayer", "BemppClHelmholtzSingleLayer",
             "KiFMMLaplaceOperator", "KiFMMHelmholtzOperator", "BemppRsLaplaceOperator", "BemppClLaplaceSingleLayerModified",
             "BemppClLaplaceSingleLayerCP", "BemppClLaplaceSingleLayerMM", "BemppClHelmholtzSingleLayerCP", "BemppClLaplaceSingleLayerCPID",
-            "BemppClLaplaceSingleLayerP1", "KiFMMLaplaceOperatorV", "BemppClLaplaceSingleLayerModifiedP1", "BemppClLaplaceSingleLayerCPIP1",
+            "BemppClLaplaceSingleLayerP1", "KiFMMLaplaceOperatorV", "BemppClLaplaceSingleLayerModifiedP1", "BemppClLaplaceSingleLayerCPIDP1",
         ]
         self.precision_types = ["Single", "Double"] # Single precision methods have not been enabled yet
 
@@ -260,6 +270,10 @@ class RSRSBenchmarkConfig:
         # but we can also either ask for the compression results (Rank) or time that it takes
         # to complete each RSRS step.
         self.results_outputs = ["All", "Rank", "Time"]
+
+        ## Run Type: 
+        ## RSRS can either run all the ID steps in parallel and batch LU or batch both ID and LU and run one after the other
+        self.fact_types = ["Split", "Joint"]
 
         ## RSRS arguments:
         # Method used to nullifying matrix.
@@ -299,6 +313,7 @@ class RSRSBenchmarkConfig:
         self.lu_stab = lu_stab
         self.diag_stab = diag_stab
         self.op_stabilisation = op_stabilisation
+        self.fact_type = fact_type
 
         # Store other parameters
         self.h = h ## Characteristic meshwidth
@@ -317,6 +332,10 @@ class RSRSBenchmarkConfig:
         self.min_rank = min_rank
         self.min_level = min_level
         self.max_tree_depth = max_tree_depth
+        self.oversampling_near = oversampling_near
+        self.oversampling_diag = oversampling_diag
+        self.tol_ext_near = tol_ext_near
+        self.tol_ext_diag = tol_ext_diag
 
         if self.dim_arg_types[self.dim_arg_type_index] == "RefinementLevelAndDepth":
             if self.ref_level is None or self.depth is None:
@@ -384,8 +403,8 @@ class RSRSBenchmarkConfig:
 
     def rsrs_args(self) -> Dict:
         return {
-            "oversampling": 8,  ## Oversampling for each individual block
-            "oversampling_diag_blocks": 16,  ## Oversampling used when extracting diagonal blocks when RSRS finishes
+            "oversampling": self.oversampling_near,  ## Oversampling for each individual block
+            "oversampling_diag_blocks": self.oversampling_diag,  ## Oversampling used when extracting diagonal blocks when RSRS finishes
             "initial_num_samples": 20,  ## Initial num samples: useful only when sampling is done in parallel way (not active yet)
             "stabilise": stab(self.op_stabilisation),
             "null_method": self.null_methods[self.null_method_index],
@@ -396,12 +415,13 @@ class RSRSBenchmarkConfig:
             "diag_pivot_method": pivot_method(self.pivot_methods[self.pivot_method_index], value=self.diag_stab),
             "tol_null": 1e-16,  ## Tolerance when nullifying blocks
             "tol_id": self.id_tols[0],  ## ID tolerance (Irrelevant, since it is set with the scenario arguments)
-            "tol_ext_near": 1e-16,  ## Tolerance used to compute pseudo inverses when extracting near field.
-            "tol_diag_ext": 1e-16,  ## Tolerance used to compute pseudo inverses when extracting diagonal blocks.
+            "tol_ext_near": self.tol_ext_near,  ## Tolerance used to compute pseudo inverses when extracting near field.
+            "tol_diag_ext": self.tol_ext_diag,  ## Tolerance used to compute pseudo inverses when extracting diagonal blocks.
             "min_rank": self.min_rank,  ## Minimum size of the box. If the box is smaller, it will be saved for the next level.
             "min_level": self.min_level, ## Level at which the algorithm stops
             "hermitian": True,  ## Indicates if we should run RSRS for hermitian matrices (half the time and memory)
             "rank_picking": self.rank_pickings[self.rank_picking_index],
+            "fact_type": self.fact_types[self.fact_type]
         }
 
     def as_dict(self) -> Dict[str, Dict]:

@@ -8,7 +8,8 @@ from .geometry import get_geometry, get_barycenters
 from .righ_hand_sides import right_hand_side
 from scipy.sparse.linalg import LinearOperator
 bempp_cl.api.GLOBAL_PARAMETERS.fmm.expansion_order = 3
-
+#bempp_cl.api.GLOBAL_PARAMETERS.quadrature.regular = 1
+#bempp_cl.api.GLOBAL_PARAMETERS.quadrature.singular = 1
 from kifmm_py import (
     KiFmm,
     LaplaceKernel,
@@ -515,9 +516,10 @@ class BemppClLaplaceSingleLayerCPID(BaseStructuredOperator):
                                                                     self.dual_to_range).weak_form()
             
             adjoint_double_layer = bempp_cl.api.operators.boundary.laplace.adjoint_double_layer(
-                self.domain, self.range, self.dual_to_range, assembler = "fmm").weak_form()
+                self.domain, self.range, self.dual_to_range).weak_form()
             g_inv = get_inverse_mass_matrix(self.range, self.dual_to_range)
-            adjoint_double_layer_T = adjoint_double_layer.transpose()
+            adjoint_double_layer_T = bempp_cl.api.operators.boundary.laplace.double_layer(
+                self.domain, self.range, self.dual_to_range).weak_form()
             self.mat = g_inv*(0.25*identity + adjoint_double_layer*g_inv*adjoint_double_layer)
             self.mat_T = (0.25*identity + adjoint_double_layer_T*g_inv*adjoint_double_layer_T)*g_inv
             self.rhs_data_type = self.mat.dtype
@@ -686,7 +688,7 @@ class BemppClLaplaceSingleLayerModifiedP1(BaseStructuredOperator):
         return right_hand_side(self, 'Dirichlet')
   
 
-class BemppClLaplaceSingleLayerCPIP1(BaseStructuredOperator):
+class BemppClLaplaceSingleLayerCPIDP1(BaseStructuredOperator):
     def __init__(self, dim_param, kappa, geometry_type, precision):
         from bempp_cl.api.utils.helpers import get_inverse_mass_matrix
         super().__init__(dim_param, kappa, geometry_type, precision)
@@ -708,7 +710,7 @@ class BemppClLaplaceSingleLayerCPIP1(BaseStructuredOperator):
                                                                     self.dual_to_range).weak_form()
             
             adjoint_double_layer = bempp_cl.api.operators.boundary.laplace.adjoint_double_layer(
-                self.domain, self.range, self.dual_to_range, assembler = "fmm").weak_form()
+                self.domain, self.range, self.dual_to_range).weak_form()
             g_inv = get_inverse_mass_matrix(self.range, self.dual_to_range)
             adjoint_double_layer_T = adjoint_double_layer.transpose()
             self.mat = 0.25*identity + adjoint_double_layer*g_inv*adjoint_double_layer

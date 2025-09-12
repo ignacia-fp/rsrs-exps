@@ -15,5 +15,5 @@
     BemppClLaplaceSingleLayerP1,
     KiFMMLaplaceOperatorV,
     BemppClLaplaceSingleLayerModifiedP1,
-    BemppClLaplaceSingleLayerCPIP1,
+    BemppClLaplaceSingleLayerCPIDP1,
 }

@@ -1,4 +1,5 @@
 use bempp_rsrs::rsrs::rsrs_factors::Inv;
+use bempp_rsrs::rsrs::rsrs_factors::LevelIdFactors;
 use bempp_rsrs::rsrs::rsrs_factors::RsrsFactors;
 use bempp_rsrs::rsrs::rsrs_factors::{
     CommutativeFactors, Factor, FactorOperations, FactorType, IdFactor, LuFactor, MulOptions,
@@ -825,7 +826,7 @@ fn el_factors_inv_mul_errors<
 >(
     rsrs_factors: &RsrsFactors<Item>,
     target_arr: &mut DynamicArray<Item, 2>,
-) -> (Vec<ErrorStats>, Vec<Vec<ErrorStats>>)
+) -> (Vec<Vec<ErrorStats>>, Vec<Vec<ErrorStats>>)
 where
     StandardNormal: Distribution<Item::Real>,
     Standard: Distribution<Item::Real>,
@@ -834,15 +835,40 @@ where
     TriangularMatrix<Item>: TriangularOperations<Item = Item>,
     <Item as rlst::RlstScalar>::Real: RandScalar,
 {
-    let errors: Vec<(Vec<ErrorsFactor>, Vec<Vec<ErrorsFactor>>)> = (0..rsrs_factors.num_levels)
+    let errors: Vec<(Vec<Vec<ErrorsFactor>>, Vec<Vec<ErrorsFactor>>)> = (0..rsrs_factors
+        .num_levels)
         .map(|level_it| {
-            let factors = &rsrs_factors.id_factors[level_it];
-            let id_errors = commutative_factors_errors(&factors, target_arr);
+            let (id_errors, lu_errors) = match &rsrs_factors.id_factors {
+                LevelIdFactors::Single(id_factors) => {
+                    let factors = &id_factors[level_it];
+                    let id_errors = commutative_factors_errors(factors, target_arr);
+                    let lu_errors = rsrs_factors.lu_factors[level_it]
+                        .iter()
+                        .map(|lu_batch| {
+                            println!("lu batch len: {}", lu_batch.len());
+                            commutative_factors_errors(&lu_batch, target_arr)
+                        })
+                        .collect();
+                    (vec![id_errors], lu_errors)
+                }
+                LevelIdFactors::Batched(id_factors) => {
+                    let mut id_errors = Vec::new();
+                    let mut lu_errors = Vec::new();
 
-            let lu_errors = rsrs_factors.lu_factors[level_it]
-                .iter()
-                .map(|lu_batch| commutative_factors_errors(&lu_batch, target_arr))
-                .collect(); // no .flatten()
+                    for (ind_batch, id_batch) in id_factors[level_it].iter().enumerate() {
+                        // apply ID
+                        let id_err = commutative_factors_errors(id_batch, target_arr);
+                        id_errors.push(id_err);
+
+                        // apply LU for *this batch*
+                        let lu_batch = &rsrs_factors.lu_factors[level_it][ind_batch];
+                        let lu_err = commutative_factors_errors(lu_batch, target_arr);
+                        lu_errors.push(lu_err);
+                    }
+
+                    (id_errors, lu_errors)
+                }
+            };
 
             (id_errors, lu_errors)
         })
@@ -907,7 +933,12 @@ where
         .for_each(|(id_level_errors, lu_level_errors)| {
             if !id_level_errors.is_empty() {
                 // Stats for ID errors at this level
-                id_stats.push(stats(id_level_errors.to_vec()));
+                //id_stats.push(stats(id_level_errors.to_vec()));
+                let id_level_stats: Vec<_> = id_level_errors
+                    .iter()
+                    .map(|batch| stats(batch.to_vec()))
+                    .collect();
+                id_stats.push(id_level_stats);
 
                 // Stats for each LU batch at this level
                 let lu_level_stats: Vec<_> = lu_level_errors
@@ -923,8 +954,8 @@ where
 
 #[derive(Serialize)]
 struct ErrorStatsContainer {
-    id_error_stats: Vec<(f64, f64, f64, f64, f64, f64, f64, f64)>,
-    lu_error_stats: Vec<(f64, f64, f64, f64, f64, f64, f64, f64)>,
+    id_error_stats: Vec<Vec<(f64, f64, f64, f64, f64, f64, f64, f64)>>,
+    lu_error_stats: Vec<Vec<(f64, f64, f64, f64, f64, f64, f64, f64)>>,
     diag_error_stats: (f64, f64),
 }
 
@@ -947,12 +978,21 @@ pub fn get_boxes_errors<
         el_factors_inv_mul_errors(rsrs_factors, structured_operator_mat);
 
     // Print ID stats per level
-    id_error_stats.iter().enumerate().for_each(|(level, s)| {
+    /*id_error_stats.iter().enumerate().for_each(|(level, s)| {
         println!(
             "Errors ID, level {} : ({} +/- {}, {} +/- {})",
             level, s.0, s.4, s.1, s.5
         );
-    });
+    });*/
+
+    for (level, level_stats) in id_error_stats.iter().enumerate() {
+        for (batch, s) in level_stats.iter().enumerate() {
+            println!(
+                "Errors ID, level {}, batch {} : ({} +/- {}, {} +/- {})",
+                level, batch, s.0, s.4, s.1, s.5
+            );
+        }
+    }
 
     // Print LU stats per batch in each level
     for (level, level_stats) in lu_error_stats.iter().enumerate() {
@@ -990,11 +1030,11 @@ pub fn get_boxes_errors<
     let diag_error_stats = (diag_re_r_mean.0, diag_re_r_mean.1);
 
     // Flatten LU stats to save to JSON as a flat list
-    let lu_error_stats_flat: Vec<ErrorStats> = lu_error_stats.into_iter().flatten().collect();
+    //let lu_error_stats_flat: Vec<ErrorStats> = lu_error_stats.into_iter().flatten().collect();
 
     let error_stats_container = ErrorStatsContainer {
         id_error_stats,
-        lu_error_stats: lu_error_stats_flat,
+        lu_error_stats, //: lu_error_stats_flat,
         diag_error_stats,
     };
 
