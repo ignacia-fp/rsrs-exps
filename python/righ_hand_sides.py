@@ -3,7 +3,7 @@ import numpy as np
 import bempp_cl.api
 
 def right_hand_side(operator, problem_type):
-    undefined_rhs = {'BasicStructuredOperator', 'KiFMMLaplaceOperator', 'KiFMMHelmholtzOperator', 'BemppClLaplaceSingleLayerCPID', 'KiFMMLaplaceOperatorV', 'BemppClLaplaceSingleLayerCPIDP1'}
+    undefined_rhs = {'BasicStructuredOperator', 'KiFMMLaplaceOperator', 'KiFMMHelmholtzOperator', 'BemppClLaplaceSingleLayerCPID', 'KiFMMLaplaceOperatorV', 'BemppClLaplaceSingleLayerCPIDP1', 'BemppClHelmholtzSingleLayerCPID'}
     if operator.operator_type in undefined_rhs:
         print("Warning: problem types for this operator have not been defined, so a random vector is returned.")
         if operator.rhs_data_type == np.complex64 or operator.rhs_data_type == np.complex128:

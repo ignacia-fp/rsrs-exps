@@ -106,6 +106,7 @@ class RSRSBenchmarkConfig:
             12: KiFMMLaplaceOperatorV,
             13: BemppClLaplaceSingleLayerModifiedP1,
             14: BemppClLaplaceSingleLayerCPIDP1,
+            15: BemppClHelmholtzSingleLayerCPID,
             The choice affects the problem type and required parameters and more kernels can be addded in python/structured_operators.py
 
         precision : int, optional
@@ -250,6 +251,7 @@ class RSRSBenchmarkConfig:
             "KiFMMLaplaceOperator", "KiFMMHelmholtzOperator", "BemppRsLaplaceOperator", "BemppClLaplaceSingleLayerModified",
             "BemppClLaplaceSingleLayerCP", "BemppClLaplaceSingleLayerMM", "BemppClHelmholtzSingleLayerCP", "BemppClLaplaceSingleLayerCPID",
             "BemppClLaplaceSingleLayerP1", "KiFMMLaplaceOperatorV", "BemppClLaplaceSingleLayerModifiedP1", "BemppClLaplaceSingleLayerCPIDP1",
+            "BemppClHelmholtzSingleLayerCPID"
         ]
         self.precision_types = ["Single", "Double"] # Single precision methods have not been enabled yet
 
@@ -347,8 +349,8 @@ class RSRSBenchmarkConfig:
         if self.structured_operator_types[self.operator_type_index] == "BemppClHelmholtzSingleLayer" or self.structured_operator_types[self.operator_type_index] == "KiFMMHelmholtzOperator" or self.structured_operator_types[self.operator_type_index] == "BemppClHelmholtzSingleLayerCP":
             if self.kappa == None:
                 raise ValueError("A wavenumber must be provided.")
-            
-        if self.structured_operator_types[self.operator_type_index] != "BemppClHelmholtzSingleLayer" or self.structured_operator_types[self.operator_type_index] != "KiFMMHelmholtzOperator" or self.structured_operator_types[self.operator_type_index] != "BemppRsLaplaceOperator" or self.structured_operator_types[self.operator_type_index] != "BemppClHelmholtzSingleLayerCP":
+
+        if self.structured_operator_types[self.operator_type_index] != "BemppClHelmholtzSingleLayer" and self.structured_operator_types[self.operator_type_index] != "KiFMMHelmholtzOperator" and self.structured_operator_types[self.operator_type_index] != "BemppRsLaplaceOperator" and self.structured_operator_types[self.operator_type_index] != "BemppClHelmholtzSingleLayerCP" and  self.structured_operator_types[self.operator_type_index] != "BemppClHelmholtzSingleLayerCPID":
             if self.dim_arg_types[self.dim_arg_type_index] == "Kappa":
 
                 if self.kappa != None:
@@ -460,13 +462,13 @@ cargo run --release '{data_type_args_json}' '{scenario_args_json}' '{rsrs_args_j
             if self.ref_level > 1:
                 return f"{geom}_{op}_ref_level_{self.ref_level}_depth_{self.depth}_od_{self.max_tree_depth}"
             else:
-                return f"{geom}_{op}_mesh_width_{sci_no_padding(self.ref_level)}_od_{self.max_tree_depth}"
+                return f"{geom}_{op}_mesh_width_{self.ref_level:.2e}_od_{self.max_tree_depth}"
         elif dim_key == "Meshwidth":
-            return f"{geom}_{op}_mesh_width_{self.h:.1e}_od_{self.max_tree_depth}"
+            return f"{geom}_{op}_mesh_width_{self.h:.2e}_od_{self.max_tree_depth}"
         elif dim_key == "Kappa":
-            return f"{geom}_{op}_mesh_width_{sci_no_padding(self.h)}_od_{self.max_tree_depth}_{self.kappa:.2f}"
+            return f"{geom}_{op}_mesh_width_{self.h:.2e}_od_{self.max_tree_depth}_{self.kappa:.2f}"
         elif dim_key == "KappaAndMeshwidth":
-            return f"{geom}_{op}_mesh_width_{sci_no_padding(self.h)}_od_{self.max_tree_depth}_{self.kappa:.2f}"
+            return f"{geom}_{op}_mesh_width_{self.h:.2e}_od_{self.max_tree_depth}_{self.kappa:.2f}"
         else:
             raise ValueError("Invalid dim_arg_type")
 

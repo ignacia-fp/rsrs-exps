@@ -737,3 +737,54 @@ class BemppClLaplaceSingleLayerCPIDP1(BaseStructuredOperator):
     
     def get_rhs(self):
         return right_hand_side(self, 'Dirichlet')
+
+
+class BemppClHelmholtzSingleLayerCPID(BaseStructuredOperator):
+    def __init__(self, dim_param, kappa, geometry_type, precision):
+        from bempp_cl.api.utils.helpers import get_inverse_mass_matrix
+        super().__init__(dim_param, kappa, geometry_type, precision)
+        try:
+            if self.precision == 'single':
+                bempp_cl.api.DEFAULT_PRECISION = "single"
+            else:
+                bempp_cl.api.DEFAULT_PRECISION = "double"
+
+            self.operator_type = 'complex'
+            self.operator_type = 'BemppClHelmholtzSingleLayerCPID'
+            self.domain = bempp_cl.api.function_space(self.grid, "DP", 0)
+            self.dual_to_range = self.domain
+            self.range = bempp_cl.api.function_space(self.grid, "DP", 0)
+            identity = bempp_cl.api.operators.boundary.sparse.identity(self.domain,
+                                                                    self.range,
+                                                                    self.dual_to_range).weak_form()
+            
+            adjoint_double_layer = bempp_cl.api.operators.boundary.helmholtz.adjoint_double_layer(
+                self.domain, self.range, self.dual_to_range, kappa, assembler="fmm").weak_form()
+            g_inv = get_inverse_mass_matrix(self.range, self.dual_to_range)
+            adjoint_double_layer_T = bempp_cl.api.operators.boundary.helmholtz.double_layer(
+                self.domain, self.range, self.dual_to_range, kappa, assembler="fmm").weak_form()
+            self.mat = g_inv*(0.25*identity + adjoint_double_layer*g_inv*adjoint_double_layer)
+            self.mat_T = (0.25*identity + adjoint_double_layer_T*g_inv*adjoint_double_layer_T)*g_inv
+            self.rhs_data_type = self.mat.dtype
+            rhs = self.get_rhs()
+            self.rhs = self.mat_T*rhs
+        except Exception as e:
+            print("Error initializing BemppClHelmholtzSingleLayerCPID:", e)
+            raise
+
+    def mv(self, v):
+        return self.mat_T*(self.mat * v)
+    
+    @property
+    def cond(self):
+        raise ValueError("Condition number not implemented yet for this operator.")
+    
+    @property
+    def dense(self):
+        if self.mat is None:
+            raise ValueError("Matrix not initialized.")
+        return bempp_cl.api.as_matrix(self.mat)
+    
+    def get_rhs(self):
+        return right_hand_side(self, 'Dirichlet')
+   
