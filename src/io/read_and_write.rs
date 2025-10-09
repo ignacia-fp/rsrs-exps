@@ -1,13 +1,15 @@
-use crate::io::errors::{DiffOperator, IdOperator, NormalOperator};
-
 use super::errors::rsrs_error_estimator;
+use crate::io::errors::{DiffOperator, IdOperator, NormalOperator};
 use bempp_rsrs::rsrs::rsrs_factors::Inv;
+use bempp_rsrs::rsrs::sketch::SampleType;
 use bempp_rsrs::rsrs::sketch::SamplingSpace;
 use bempp_rsrs::rsrs::{
     box_skeletonisation::UpdateTimes,
     rsrs_cycle::Rsrs,
     rsrs_factors::{IdTimes, LuTimes},
 };
+use rand::SeedableRng;
+use rand_chacha::ChaCha8Rng;
 use rand_distr::{Distribution, Standard, StandardNormal};
 use rlst::dense::linalg::naupd::NonSymmetricArnoldiUpdate;
 use rlst::dense::linalg::neupd::NonSymmetricArnoldiExtract;
@@ -16,7 +18,9 @@ use rlst::{
     prelude::*,
 };
 use serde::{Deserialize, Serialize};
+use std::cell::RefCell;
 use std::io::Write;
+use std::time::{SystemTime, UNIX_EPOCH};
 use std::{
     fs::{self, File},
     io::Read,
@@ -42,6 +46,7 @@ pub struct ErrorStatsOutput<Item: RlstScalar> {
     norm_2_error: Real<Item>,
     norm_2_error_inv: Real<Item>,
     norm_2_operator: Real<Item>,
+    solve_error: Real<Item>,
     app_condition_number: Real<Item>,
     tot_num_samples: usize,
     residual_size: usize,
@@ -217,6 +222,29 @@ pub fn save_time_stats<Item: RlstScalar + MatrixInverse + MatrixPseudoInverse + 
     file.write_all(json_string.as_bytes()).unwrap();
 }
 
+thread_local! {
+    static THREAD_RNG: RefCell<ChaCha8Rng> = RefCell::new(init_rng());
+}
+
+fn init_rng() -> ChaCha8Rng {
+    let time_seed = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let seed = (time_seed as u64).wrapping_mul(0x9E3779B97F4A7C15); // or add thread ID if needed
+    ChaCha8Rng::seed_from_u64(seed)
+}
+
+pub fn with_thread_rng<F, R>(f: F) -> R
+where
+    F: FnOnce(&mut ChaCha8Rng) -> R,
+{
+    THREAD_RNG.with(|rng_cell| {
+        let mut rng = rng_cell.borrow_mut();
+        f(&mut rng)
+    })
+}
+
 pub fn save_error_stats<
     'a,
     Item: RlstScalar<Real = f64>
@@ -300,6 +328,23 @@ pub fn save_error_stats<
     let (app_inv_err_left, app_inv_err_right) =
         rsrs_error_estimator(structured_operator_op, rsrs_operator, 10, true);
 
+    let mut sol = SamplingSpace::zero(structured_operator_op.r().domain());
+
+    with_thread_rng(|rng| {
+        structured_operator_op
+            .r()
+            .domain()
+            .sampling(&mut sol, rng, SampleType::RealStandardNormal);
+    });
+
+    let rhs = structured_operator_op.apply(sol.r(), TransMode::NoTrans);
+
+    let mut sol_app = rsrs_operator.apply(rhs, TransMode::NoTrans);
+
+    sol_app.sub_inplace(sol.r());
+
+    let solve_error = sol_app.norm() / sol.norm();
+
     let stats = ErrorStatsOutput::<Item> {
         app_inv_err_left,
         app_inv_err_right,
@@ -309,6 +354,7 @@ pub fn save_error_stats<
         norm_2_operator: sigma_2[0].abs().sqrt(),
         norm_2_error,
         norm_2_error_inv,
+        solve_error,
         tot_num_samples: rsrs_data.y_data.num_samples,
         residual_size: rsrs_data.stats.residual_size,
         iterations,

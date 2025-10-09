@@ -126,7 +126,7 @@ impl<Item: RlstScalar> TestParams<Item> {
             let depth = depth.to_usize().unwrap();
             let dim_pred = if ref_level < num::One::one() {
                 format!(
-                    "mesh_width_{:e}_od_{}",
+                    "mesh_width_{:.2e}_od_{}",
                     ref_level, self.scenario_params.max_tree_depth
                 )
             } else {
@@ -141,7 +141,7 @@ impl<Item: RlstScalar> TestParams<Item> {
         } else {
             let (h, kappa) = self.scenario_params.dim_args[dim_num];
             let dim_pred = format!(
-                "mesh_width_{:e}_od_{}",
+                "mesh_width_{:.2e}_od_{}",
                 h, self.scenario_params.max_tree_depth
             );
             let kappa = format!("{:.2}", kappa);
