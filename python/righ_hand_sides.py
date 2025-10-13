@@ -66,5 +66,16 @@ def right_hand_side(operator, problem_type):
         
         elif problem_type == 'Neumann':
             raise ValueError("Neumann problem not implemented.")
+        
+    elif operator.operator_type == 'BemppClMaxwellEfie':
+        kappa = operator.kappa
+        
+        @bempp_cl.api.complex_callable
+        def dirichlet_data(x, n, domain_index, result):
+            incident_field = np.array([-np.exp(1j * kappa * x[1]),
+                                        0. * x[2], 0. * x[2]])
+            result[:] = np.cross(incident_field, n)
 
+        rhs = bempp_cl.api.GridFunction(operator.domain, fun=dirichlet_data)
 
+        return rhs.coefficients

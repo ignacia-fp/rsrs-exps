@@ -4,7 +4,7 @@ import bempp_cl.api
 from abc import ABC, abstractmethod
 from scipy.spatial.distance import cdist
 from scipy.sparse.linalg import eigsh
-from .geometry import get_geometry, get_barycenters
+from .geometry import get_geometry, get_barycenters, get_edges_centres
 from .righ_hand_sides import right_hand_side
 from scipy.sparse.linalg import LinearOperator
 bempp_cl.api.GLOBAL_PARAMETERS.fmm.expansion_order = 3
@@ -774,6 +774,47 @@ class BemppClHelmholtzSingleLayerCPID(BaseStructuredOperator):
 
     def mv(self, v):
         return self.mat_T*(self.mat * v)
+    
+    @property
+    def cond(self):
+        raise ValueError("Condition number not implemented yet for this operator.")
+    
+    @property
+    def dense(self):
+        if self.mat is None:
+            raise ValueError("Matrix not initialized.")
+        return bempp_cl.api.as_matrix(self.mat)
+    
+    def get_rhs(self):
+        return right_hand_side(self, 'Dirichlet')
+   
+
+class BemppClMaxwellEfie(BaseStructuredOperator):
+    def __init__(self, dim_param, kappa, geometry_type, precision):
+        from bempp_cl.api.utils.helpers import get_inverse_mass_matrix
+        super().__init__(dim_param, kappa, geometry_type, precision)
+        try:
+            if self.precision == 'single':
+                bempp_cl.api.DEFAULT_PRECISION = "single"
+            else:
+                bempp_cl.api.DEFAULT_PRECISION = "double"
+
+            self.operator_type = 'complex'
+            self.operator_type = 'BemppClMaxwellEfie'
+            self.domain = bempp_cl.api.function_space(self.grid, "RWG", 0)
+            self.dual_to_range = self.domain
+            self.range = bempp_cl.api.function_space(self.grid, "SNC", 0)
+            self.mat = bempp_cl.api.operators.boundary.maxwell.electric_field(self.domain, self.dual_to_range, self.range, kappa).weak_form()
+            self.points = get_edges_centres(self.grid)   
+            self.n_points = len(self.points)                   
+            self.rhs_data_type = self.mat.dtype
+            self.rhs = self.get_rhs()
+        except Exception as e:
+            print("Error initializing BemppClMaxwellEfie:", e)
+            raise
+
+    def mv(self, v):
+        return self.mat * v
     
     @property
     def cond(self):

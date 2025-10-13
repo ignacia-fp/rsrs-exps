@@ -71,6 +71,15 @@ def get_barycenters(grid):
     return np.array(barycenters)
 
 
+def get_edges_centres(grid):
+    barycenters = []
+    for el in grid.edges.T:
+        v1 = grid.vertices.T[el[0]]
+        v2 = grid.vertices.T[el[1]]
+        barycenters.append(0.5*(v1+v2))
+    return np.array(barycenters)
+
+
 def get_geometry(geometry_type, dim_param):
     if geometry_type == 'sphere_surface':
         if dim_param < 1:
