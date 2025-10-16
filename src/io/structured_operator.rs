@@ -64,6 +64,7 @@ pub enum GeometryType {
     TrefoilKnot,
     Sphere,
     Cube,
+    Satellite1,
 }
 
 pub struct StructuredOperatorParams {
@@ -151,6 +152,7 @@ macro_rules! implement_structured_operator {
                     GeometryType::TrefoilKnot => "trefoil_knot",
                     GeometryType::Sphere => "sphere",
                     GeometryType::Cube => "cube",
+                    GeometryType::Satellite1 => "satellite1",
                 })
                 .unwrap();
 

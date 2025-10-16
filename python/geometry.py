@@ -116,3 +116,5 @@ def get_geometry(geometry_type, dim_param):
         grid2 = bempp_cl.api.shapes.screen(corners2)
         grid3 = bempp_cl.api.shapes.screen(corners3)
         return bempp_cl.api.grid.union([grid1, grid2, grid3])
+    elif geometry_type == 'satellite1':
+        return bempp_cl.api.import_grid('./extra_meshes/satellite_1.msh')

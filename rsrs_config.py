@@ -161,6 +161,7 @@ class RSRSBenchmarkConfig:
             1: CubeSurface
             2: CylinderSurface
             3: EllipsoidSurface
+            4: Satellite1
             Note: For Bempp-rs operators, only SphereSurface is supported.
 
         solve_tol : float, optional
@@ -272,7 +273,7 @@ class RSRSBenchmarkConfig:
 
         ## Geometry Type:
         ## !!! For Bempp-Rs tests we only have a sphere for now, so this parameter is irrelevant
-        self.geometry_types = ["SphereSurface", "CubeSurface", "CylinderSurface", "EllipsoidSurface"] ## We can generate more with Gmsh and link them
+        self.geometry_types = ["SphereSurface", "CubeSurface", "CylinderSurface", "EllipsoidSurface", "Satellite1"] ## We can generate more with Gmsh and link them
 
         ## Output Arguments: (outputs that the test the test will return)
         # In all cases, it returns the errors ||A_app^{-1}A - I||_2 and ||A_app - A||_2/||A||_2,

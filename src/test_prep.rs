@@ -112,6 +112,7 @@ impl<Item: RlstScalar> TestParams<Item> {
             GeometryType::TrefoilKnot => "trefoil_knot",
             GeometryType::Sphere => "sphere",
             GeometryType::Cube => "cube",
+            GeometryType::Satellite1 => "satellite1",
         }
         .to_string();
         let structured_operator = self.get_structured_operator_name();
