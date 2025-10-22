@@ -114,6 +114,8 @@ class RSRSBenchmarkConfig:
             14: BemppClLaplaceSingleLayerCPIDP1,
             15: BemppClHelmholtzSingleLayerCPID,
             16: BemppClMaxwellEfie
+            17: BemppClHelmholtzSingleLayerP1
+            18: BemppClCombinedHelmholtz
             The choice affects the problem type and required parameters and more kernels can be addded in python/structured_operators.py
 
         precision : int, optional
@@ -259,7 +261,7 @@ class RSRSBenchmarkConfig:
             "KiFMMLaplaceOperator", "KiFMMHelmholtzOperator", "BemppRsLaplaceOperator", "BemppClLaplaceSingleLayerModified",
             "BemppClLaplaceSingleLayerCP", "BemppClLaplaceSingleLayerMM", "BemppClHelmholtzSingleLayerCP", "BemppClLaplaceSingleLayerCPID",
             "BemppClLaplaceSingleLayerP1", "KiFMMLaplaceOperatorV", "BemppClLaplaceSingleLayerModifiedP1", "BemppClLaplaceSingleLayerCPIDP1",
-            "BemppClHelmholtzSingleLayerCPID", "BemppClMaxwellEfie"
+            "BemppClHelmholtzSingleLayerCPID", "BemppClMaxwellEfie", "BemppClHelmholtzSingleLayerP1", "BemppClCombinedHelmholtz"
         ]
         self.precision_types = ["Single", "Double"] # Single precision methods have not been enabled yet
 

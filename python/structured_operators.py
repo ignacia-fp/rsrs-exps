@@ -561,7 +561,7 @@ class BemppClLaplaceSingleLayerP1(BaseStructuredOperator):
             self.dual_to_range = self.domain
             self.range = bempp_cl.api.function_space(self.grid, "P", 1)
             self.mat = bempp_cl.api.operators.boundary.laplace.single_layer(
-                self.domain, self.range, self.dual_to_range, assembler = "fmm").weak_form()#, assembler = "fmm").weak_form()
+                self.domain, self.range, self.dual_to_range).weak_form()#, assembler = "fmm").weak_form()
             self.points = self.grid.vertices.T
             self.n_points = self.points.shape[0]
             self.rhs_data_type = self.mat.dtype
@@ -759,10 +759,10 @@ class BemppClHelmholtzSingleLayerCPID(BaseStructuredOperator):
                                                                     self.dual_to_range).weak_form()
             
             adjoint_double_layer = bempp_cl.api.operators.boundary.helmholtz.adjoint_double_layer(
-                self.domain, self.range, self.dual_to_range, kappa, assembler="fmm").weak_form()
+                self.domain, self.range, self.dual_to_range, kappa).weak_form()
             g_inv = get_inverse_mass_matrix(self.range, self.dual_to_range)
             adjoint_double_layer_T = bempp_cl.api.operators.boundary.helmholtz.double_layer(
-                self.domain, self.range, self.dual_to_range, kappa, assembler="fmm").weak_form()
+                self.domain, self.range, self.dual_to_range, kappa).weak_form()
             self.mat = g_inv*(0.25*identity + adjoint_double_layer*g_inv*adjoint_double_layer)
             self.mat_T = (0.25*identity + adjoint_double_layer_T*g_inv*adjoint_double_layer_T)*g_inv
             self.rhs_data_type = self.mat.dtype
@@ -829,3 +829,98 @@ class BemppClMaxwellEfie(BaseStructuredOperator):
     def get_rhs(self):
         return right_hand_side(self, 'Dirichlet')
    
+
+class BemppClHelmholtzSingleLayerP1(BaseStructuredOperator):
+    def __init__(self, dim_param, kappa, geometry_type, precision):
+        super().__init__(dim_param, kappa, geometry_type, precision)
+        try:
+            if self.precision == 'single':
+                bempp_cl.api.DEFAULT_PRECISION = "single"
+            else:
+                bempp_cl.api.DEFAULT_PRECISION = "double"
+
+            self.operator_type = 'real'
+            self.operator_type = 'BemppClHelmholtzSingleLayerP1'
+            self.domain = bempp_cl.api.function_space(self.grid, "P", 1)
+            self.dual_to_range = self.domain
+            self.range = bempp_cl.api.function_space(self.grid, "P", 1)
+            self.mat = bempp_cl.api.operators.boundary.helmholtz.single_layer(
+                self.domain, self.range, self.dual_to_range, kappa).weak_form()#, assembler = "fmm").weak_form()
+            self.points = self.grid.vertices.T
+            self.n_points = self.points.shape[0]
+            self.rhs_data_type = self.mat.dtype
+            self.rhs = self.get_rhs()
+        except Exception as e:
+            print("Error initializing BemppClHelmholtzSingleLayerP1:", e)
+            raise
+
+    def mv(self, v):
+        return self.mat * v
+    
+    @property
+    def cond(self):
+        raise ValueError("Condition number not implemented yet for this operator.")
+    
+    @property
+    def dense(self):
+        if self.mat is None:
+            raise ValueError("Matrix not initialized.")
+        return bempp_cl.api.as_matrix(self.mat)
+    
+    def get_rhs(self):
+        return right_hand_side(self, 'Dirichlet')
+    
+
+class BemppClCombinedHelmholtz(BaseStructuredOperator):
+    def __init__(self, dim_param, kappa, geometry_type, precision):
+        super().__init__(dim_param, kappa, geometry_type, precision)
+        try:
+            if self.precision == 'single':
+                bempp_cl.api.DEFAULT_PRECISION = "single"
+            else:
+                bempp_cl.api.DEFAULT_PRECISION = "double"
+
+            self.operator_type = 'real'
+            self.operator_type = 'BemppClCombinedHelmholtz'
+            self.domain = bempp_cl.api.function_space(self.grid, "DP", 0)
+            self.dual_to_range = self.domain
+            self.range = self.domain
+            identity = bempp_cl.api.operators.boundary.sparse.identity(
+                self.domain, self.range, self.dual_to_range
+            )
+            adlp = bempp_cl.api.operators.boundary.helmholtz.adjoint_double_layer(
+                self.domain, self.range, self.dual_to_range, kappa
+            )
+            slp = bempp_cl.api.operators.boundary.helmholtz.single_layer(
+                self.domain, self.range, self.dual_to_range, kappa
+            )
+            op = (0.5 * identity + adlp - 1j * kappa * slp)
+            self.mat = op.weak_form()#, assembler = "fmm").weak_form()
+            self.rhs_data_type = self.mat.dtype
+            self.rhs = self.get_rhs()
+
+            from bempp_cl.api.linalg import gmres
+
+            sol_bm, info, it_count_bm = gmres(op, self.rhs, use_strong_form=True, return_iteration_count=True)
+            print(f"GMRES converged in {it_count_bm} iterations for BemppClCombinedHelmholtz operator.")
+        except Exception as e:
+            print("Error initializing BemppClCombinedHelmholtz:", e)
+            raise
+
+    def mv(self, v):
+        return self.mat * v
+    
+    @property
+    def cond(self):
+        raise ValueError("Condition number not implemented yet for this operator.")
+    
+    @property
+    def dense(self):
+        if self.mat is None:
+            raise ValueError("Matrix not initialized.")
+        return bempp_cl.api.as_matrix(self.mat)
+    
+    def get_rhs(self):
+        return right_hand_side(self, 'Dirichlet')
+    
+

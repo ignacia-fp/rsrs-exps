@@ -18,4 +18,6 @@
     BemppClLaplaceSingleLayerCPIDP1,
     BemppClHelmholtzSingleLayerCPID,
     BemppClMaxwellEfie,
+    BemppClHelmholtzSingleLayerP1,
+    BemppClCombinedHelmholtz,
 }

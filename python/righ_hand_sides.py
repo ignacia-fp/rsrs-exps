@@ -25,14 +25,14 @@ def right_hand_side(operator, problem_type):
             identity = bempp_cl.api.operators.boundary.sparse.identity(operator.domain,
                                                                     operator.range,
                                                                     operator.dual_to_range)
-            dlp = bempp_cl.api.operators.boundary.laplace.double_layer(operator.domain,
+            dlp = bempp_cl.api.operators.boundary.laplace.adjoint_double_layer(operator.domain,
                                                                     operator.range,
-                                                                    operator.domain, assembler = "fmm")#, assembler = "fmm")#,
+                                                                    operator.domain, assembler = "fmm")#,
                                                                     #assembler="fmm")
 
             rhs = (dlp - 0.5 * identity) * dirichlet_fun
 
-            if operator.operator_type == 'BemppClLaplaceSingleLayer' or operator.operator_type == 'BemppClLaplaceSingleLayerModified':
+            if operator.operator_type == 'BemppClLaplaceSingleLayer' or operator.operator_type == 'BemppClLaplaceSingleLayerModified' or operator.operator_type == 'BemppClLaplaceSingleLayer':
                 return rhs.projections()
             else:
                 return rhs.coefficients
@@ -40,7 +40,7 @@ def right_hand_side(operator, problem_type):
         elif problem_type == 'Neumann':
             raise ValueError("Neumann problem not implemented.")
 
-    elif operator.operator_type == 'BemppClHelmholtzSingleLayer' or operator.operator_type == 'BemppClHelmholtzSingleLayerCP':
+    elif operator.operator_type == 'BemppClHelmholtzSingleLayer' or operator.operator_type == 'BemppClHelmholtzSingleLayerCP' or operator.operator_type == 'BemppClHelmholtzSingleLayerP1':
         kappa = operator.kappa
         if problem_type == 'Dirichlet':
             @bempp_cl.api.complex_callable
@@ -52,14 +52,14 @@ def right_hand_side(operator, problem_type):
             identity = bempp_cl.api.operators.boundary.sparse.identity(operator.domain,
                                                                     operator.range,
                                                                     operator.dual_to_range)
-            dlp = bempp_cl.api.operators.boundary.helmholtz.double_layer(operator.domain,
+            dlp = bempp_cl.api.operators.boundary.helmholtz.adjoint_double_layer(operator.domain,
                                                                     operator.range,
                                                                     operator.domain, 
                                                                     kappa, assembler = "fmm")#,
                                                                     #assembler="fmm")
-
+            print(kappa)
             rhs = (dlp - 0.5 * identity) * dirichlet_fun
-            if operator.operator_type == 'BemppClHelmholtzSingleLayer' or operator.operator_type == 'BemppClHelmholtzSingleLayerCP':
+            if operator.operator_type == 'BemppClHelmholtzSingleLayer' or operator.operator_type == 'BemppClHelmholtzSingleLayerCP' or operator.operator_type == 'BemppClHelmholtzSingleLayerP1':
                 return rhs.projections()
             else:
                 return rhs.coefficients
@@ -79,3 +79,14 @@ def right_hand_side(operator, problem_type):
         rhs = bempp_cl.api.GridFunction(operator.domain, fun=dirichlet_data)
 
         return rhs.coefficients
+    
+    elif operator.operator_type == 'BemppClCombinedHelmholtz':
+        kappa = operator.kappa
+        @bempp_cl.api.complex_callable
+        def combined_data(x, n, domain_index, result):
+            result[0] = 1j * kappa * np.exp(1j * kappa * x[0]) * (n[0] - 1)
+
+
+        rhs = bempp_cl.api.GridFunction(operator.domain, fun=combined_data)
+
+        return rhs
