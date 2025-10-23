@@ -312,7 +312,7 @@ macro_rules! implement_test_framework {
                         rel_err_no_prec: None,
                         rel_err_prec: None,
                     };
-
+                    println!("rhs: {:?}", rhs.view().data()[0]);
                     match self.output_options.solve {
                         Solve::True(tol) => {
                             let (its, rel_err) = solve_system(&operator, &rhs, tol);

@@ -55,14 +55,14 @@ def right_hand_side(operator, problem_type):
             dlp = bempp_cl.api.operators.boundary.helmholtz.adjoint_double_layer(operator.domain,
                                                                     operator.range,
                                                                     operator.domain, 
-                                                                    kappa, assembler = "fmm")#,
+                                                                    kappa)#,
                                                                     #assembler="fmm")
-            print(kappa)
             rhs = (dlp - 0.5 * identity) * dirichlet_fun
-            if operator.operator_type == 'BemppClHelmholtzSingleLayer' or operator.operator_type == 'BemppClHelmholtzSingleLayerCP' or operator.operator_type == 'BemppClHelmholtzSingleLayerP1':
+            return rhs
+            '''if operator.operator_type == 'BemppClHelmholtzSingleLayer' or operator.operator_type == 'BemppClHelmholtzSingleLayerCP' or operator.operator_type == 'BemppClHelmholtzSingleLayerP1':
                 return rhs.projections()
             else:
-                return rhs.coefficients
+                return rhs.coefficients'''
         
         elif problem_type == 'Neumann':
             raise ValueError("Neumann problem not implemented.")
