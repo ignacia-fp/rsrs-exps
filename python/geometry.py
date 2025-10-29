@@ -81,6 +81,7 @@ def get_edges_centres(grid):
 
 
 def get_geometry(geometry_type, dim_param):
+    from extra_meshes import shapes as sh
     if geometry_type == 'sphere_surface':
         if dim_param < 1:
             return bempp_cl.api.shapes.sphere(h=dim_param)
@@ -116,5 +117,17 @@ def get_geometry(geometry_type, dim_param):
         grid2 = bempp_cl.api.shapes.screen(corners2)
         grid3 = bempp_cl.api.shapes.screen(corners3)
         return bempp_cl.api.grid.union([grid1, grid2, grid3])
-    elif geometry_type == 'satellite1':
-        return bempp_cl.api.import_grid('./extra_meshes/satellite_1.msh')
+    elif geometry_type == 'dihedral':
+        return sh.dihedral_with_y(h=dim_param)
+    elif geometry_type == 'device':
+        return sh.device(h=dim_param)
+    elif geometry_type == 'f16':
+        return sh.f16(h=dim_param)
+    elif geometry_type == 'ridged_horn':
+        return sh.ridged_horn_tem_antenna(h=dim_param)
+    elif geometry_type == 'emcc_almond':
+        return sh.emcc_almond(h=dim_param)
+    elif geometry_type == 'frigate_hull':
+        return sh.frigate_hull(h=dim_param)
+    elif geometry_type == 'plane':
+        return sh.plane(h=dim_param)

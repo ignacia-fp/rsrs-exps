@@ -1,4 +1,3 @@
-//use crate::test_prep::DimArg;
 use crate::io::structured_operators_types::StructuredOperatorType;
 use crate::test_prep::Precision;
 use bempp_octree::Point;
@@ -17,6 +16,9 @@ struct StructuredOperatorOpaque {
 }
 
 extern "C" {
+    // -------------------------
+    // Initialization / finalization
+    // -------------------------
     fn initialize_structured_operator(
         python_executable: *const std::ffi::c_char,
         class_name: *const std::ffi::c_char,
@@ -24,29 +26,49 @@ extern "C" {
         geometry_type: *const std::ffi::c_char,
         kappa: libc::c_double,
         precision: *const std::ffi::c_char,
+        n_sources: std::ffi::c_int,
     ) -> *mut StructuredOperatorOpaque;
+
+    fn finalize_structured_operator(structured_operator: *mut StructuredOperatorOpaque);
+
+    // -------------------------
+    // Matrix-vector multiplication
+    // -------------------------
     fn mv_structured_operator_real(
         structured_operator: *mut StructuredOperatorOpaque,
         input: *const f64,
         output: *mut f64,
         len: libc::c_int,
     ) -> libc::c_int;
+
     fn mv_structured_operator_complex(
         structured_operator: *mut StructuredOperatorOpaque,
-        input: *const num::Complex<f64>, // or *const libc::c_void
+        input: *const num::Complex<f64>,
         output: *mut num::Complex<f64>,
         len: libc::c_int,
     ) -> libc::c_int;
-    fn structured_operator_get_real_rhs(
-        structured_operator: *mut StructuredOperatorOpaque,
-    ) -> *const f64;
-    fn structured_operator_get_complex_rhs(
-        structured_operator: *mut StructuredOperatorOpaque,
-    ) -> *const c64;
+
+    // -------------------------
+    // Geometry / info
+    // -------------------------
     fn get_points(structured_operator: *mut StructuredOperatorOpaque) -> *const f64;
     fn get_condition_number(structured_operator: *mut StructuredOperatorOpaque) -> f64;
     fn get_n_points(structured_operator: *mut StructuredOperatorOpaque) -> usize;
-    fn finalize_structured_operator(structured_operator: *mut StructuredOperatorOpaque);
+
+    // -------------------------
+    // Multiple RHS retrieval
+    // -------------------------
+    fn get_all_real_rhs(
+        structured_operator: *mut StructuredOperatorOpaque,
+        n_rhs: *mut libc::c_int,
+        len_out: *mut libc::c_int,
+    ) -> *const *const f64;
+
+    fn get_all_complex_rhs(
+        structured_operator: *mut StructuredOperatorOpaque,
+        n_rhs: *mut libc::c_int,
+        len_out: *mut libc::c_int,
+    ) -> *const *const num::Complex<f64>;
 }
 
 #[derive(Clone)]
@@ -64,7 +86,13 @@ pub enum GeometryType {
     TrefoilKnot,
     Sphere,
     Cube,
-    Satellite1,
+    Dihedral,
+    Device,
+    F16,
+    RidgedHorn,
+    EMCCAlmond,
+    FrigateHull,
+    Plane,
 }
 
 pub struct StructuredOperatorParams {
@@ -73,6 +101,7 @@ pub struct StructuredOperatorParams {
     geometry_type: GeometryType,
     dim_arg: f64,
     kappa: f64,
+    n_sources: i32,
 }
 
 impl StructuredOperatorParams {
@@ -82,6 +111,7 @@ impl StructuredOperatorParams {
         geometry_type: GeometryType,
         dim_arg: f64,
         kappa: f64,
+        n_sources: i32,
     ) -> Self {
         Self {
             structured_operator_type,
@@ -89,6 +119,7 @@ impl StructuredOperatorParams {
             geometry_type,
             dim_arg,
             kappa,
+            n_sources,
         }
     }
 }
@@ -104,9 +135,8 @@ pub trait StructuredOperatorImpl<Item: RlstScalar> {
     type Item: RlstScalar;
     fn new(params: &StructuredOperatorParams) -> Self;
     fn mv(&self, input: &[Item], output: &mut [Item]);
-    //fn get_points(&self) -> Option<&[[f64; 3]]>;
     fn get_points(&self) -> Option<Vec<Point>>;
-    fn rhs(&self) -> Vec<Self::Item>;
+    fn rhs(&self) -> Vec<Vec<Self::Item>>; // updated to multi-RHS
     fn get_condition_number(&self) -> Real<Self::Item>;
 }
 
@@ -142,7 +172,6 @@ macro_rules! implement_structured_operator {
                     Precision::Double => std::ffi::CString::new("double").unwrap(),
                     Precision::Single => std::ffi::CString::new("single").unwrap(),
                 };
-                //let precision_str = std::ffi::CString::new(params.precision).unwrap();
 
                 let geometry = std::ffi::CString::new(match params.geometry_type {
                     GeometryType::SphereSurface => "sphere_surface",
@@ -152,15 +181,19 @@ macro_rules! implement_structured_operator {
                     GeometryType::TrefoilKnot => "trefoil_knot",
                     GeometryType::Sphere => "sphere",
                     GeometryType::Cube => "cube",
-                    GeometryType::Satellite1 => "satellite1",
+                    GeometryType::Dihedral => "dihedral",
+                    GeometryType::Device => "device",
+                    GeometryType::F16 => "f16",
+                    GeometryType::RidgedHorn => "ridged_horn",
+                    GeometryType::EMCCAlmond => "emcc_almond",
+                    GeometryType::FrigateHull => "frigate_hull",
+                    GeometryType::Plane => "plane",
                 })
                 .unwrap();
 
                 let raw = unsafe {
                     let (python_executable, _python_home) = detect_python_env();
-
                     let python_exe_c = CString::new(python_executable).unwrap();
-
                     initialize_structured_operator(
                         python_exe_c.as_ptr(),
                         c_str.as_ptr(),
@@ -168,6 +201,7 @@ macro_rules! implement_structured_operator {
                         geometry.as_ptr(),
                         params.kappa,
                         precision_str.as_ptr(),
+                        params.n_sources as libc::c_int,
                     )
                 };
 
@@ -192,7 +226,7 @@ macro_rules! implement_structured_operator {
                 }
             }
 
-            fn rhs(&self) -> Vec<$scalar> {
+            fn rhs(&self) -> Vec<Vec<$scalar>> {
                 $rhs_fn(&self).unwrap()
             }
 
@@ -207,42 +241,68 @@ macro_rules! implement_structured_operator {
     };
 }
 
-pub fn rhs_real(structured_operator: &StructuredOperatorInterface) -> Option<Vec<f64>> {
-    let ptr = unsafe { structured_operator_get_real_rhs(structured_operator.raw) };
-    if ptr.is_null() {
+// -------------------------
+// Multi-RHS safe Rust wrappers
+// -------------------------
+pub fn rhs_real(structured_operator: &StructuredOperatorInterface) -> Option<Vec<Vec<f64>>> {
+    let mut n_rhs: libc::c_int = 0;
+    let mut len_out: libc::c_int = 0;
+
+    let ptr = unsafe { get_all_real_rhs(structured_operator.raw, &mut n_rhs, &mut len_out) };
+    if ptr.is_null() || n_rhs <= 0 || len_out <= 0 {
         return None;
     }
 
-    let total_len = structured_operator.n_points;
-    let slice = unsafe { std::slice::from_raw_parts(ptr, total_len) };
+    let slice = unsafe { std::slice::from_raw_parts(ptr, n_rhs as usize) };
+    let mut all_rhs = Vec::with_capacity(n_rhs as usize);
 
-    Some(slice.to_vec())
+    for &rhs_ptr in slice.iter() {
+        if rhs_ptr.is_null() {
+            return None;
+        }
+        let rhs_slice = unsafe { std::slice::from_raw_parts(rhs_ptr, len_out as usize) };
+        all_rhs.push(rhs_slice.to_vec());
+    }
+
+    Some(all_rhs)
 }
 
-pub fn rhs_complex(structured_operator: &StructuredOperatorInterface) -> Option<Vec<c64>> {
-    let ptr = unsafe { structured_operator_get_complex_rhs(structured_operator.raw) };
-    if ptr.is_null() {
+pub fn rhs_complex(
+    structured_operator: &StructuredOperatorInterface,
+) -> Option<Vec<Vec<num::Complex<f64>>>> {
+    let mut n_rhs: libc::c_int = 0;
+    let mut len_out: libc::c_int = 0;
+
+    let ptr = unsafe { get_all_complex_rhs(structured_operator.raw, &mut n_rhs, &mut len_out) };
+    if ptr.is_null() || n_rhs <= 0 || len_out <= 0 {
         return None;
     }
-    let total_len = structured_operator.n_points;
-    let slice = unsafe { std::slice::from_raw_parts(ptr, total_len) };
-    Some(slice.to_vec())
+
+    let slice = unsafe { std::slice::from_raw_parts(ptr, n_rhs as usize) };
+    let mut all_rhs = Vec::with_capacity(n_rhs as usize);
+
+    for &rhs_ptr in slice.iter() {
+        if rhs_ptr.is_null() {
+            return None;
+        }
+        let rhs_slice = unsafe { std::slice::from_raw_parts(rhs_ptr, len_out as usize) };
+        all_rhs.push(rhs_slice.to_vec());
+    }
+
+    Some(all_rhs)
 }
 
 implement_structured_operator!(f64, mv_structured_operator_real, rhs_real);
 implement_structured_operator!(c64, mv_structured_operator_complex, rhs_complex);
 
+// -------------------------
+// Convert 1D points array to Bempp Points
+// -------------------------
 pub fn one_dim_to_bempp_points(raw_points: &[f64]) -> Vec<bempp_octree::Point> {
-    let points: Vec<_> = raw_points
+    raw_points
         .chunks_exact(3)
-        .map(|chunk| {
-            let el = [chunk[0], chunk[1], chunk[2]];
-            let point = bempp_octree::Point::new(el, 000);
-            point
-        })
-        .collect();
-
-    points
+        .map(|chunk| bempp_octree::Point::new([chunk[0], chunk[1], chunk[2]], 0))
+        .collect()
 }
 
 pub fn get_bempp_points(structured_operator: &StructuredOperatorInterface) -> Option<Vec<Point>> {
@@ -261,28 +321,22 @@ pub fn get_bempp_points(structured_operator: &StructuredOperatorInterface) -> Op
             )
         };
 
-        let points: Vec<_> = raw_points
-            .iter()
-            .map(|&el| {
-                let point = bempp_octree::Point::new(el, 000);
-                point
-            })
-            .collect();
-        points
+        raw_points.iter().map(|&el| Point::new(el, 0)).collect()
     })
 }
 
 impl Drop for StructuredOperatorInterface {
     fn drop(&mut self) {
         if !self.raw.is_null() {
-            unsafe {
-                finalize_structured_operator(self.raw);
-            }
+            unsafe { finalize_structured_operator(self.raw) }
             self.raw = std::ptr::null_mut();
         }
     }
 }
 
+// -------------------------
+// Remaining operator traits and wrappers (unchanged)
+// -------------------------
 impl Shape<2> for StructuredOperatorInterface {
     fn shape(&self) -> [usize; 2] {
         [self.n_points, self.n_points]
@@ -297,7 +351,8 @@ pub struct StructuredOperator<Item: RlstScalar, Op: StructuredOperatorImpl<Item>
 }
 
 pub trait Attr<Op, Item: RlstScalar>: Sized {
-    fn get_rhs(&self) -> Element<ConcreteElementContainer<ArrayVectorSpaceElement<Item>>>;
+    /// Returns a vector of `Element`s, one for each RHS.
+    fn get_rhs(&self) -> Vec<Element<ConcreteElementContainer<ArrayVectorSpaceElement<Item>>>>;
 }
 
 impl<Item: RlstScalar, Op: StructuredOperatorImpl<Item> + Shape<2>> Attr<Op, Item>
@@ -305,14 +360,20 @@ impl<Item: RlstScalar, Op: StructuredOperatorImpl<Item> + Shape<2>> Attr<Op, Ite
 where
     Op: StructuredOperatorImpl<Item, Item = Item>,
 {
-    fn get_rhs(&self) -> Element<ConcreteElementContainer<ArrayVectorSpaceElement<Item>>> {
-        let mut vec: Element<ConcreteElementContainer<ArrayVectorSpaceElement<Item>>> =
-            zero_element(self.domain.clone());
-        let raw_data = self.op.rhs();
-        for (i, val) in vec.imp_mut().view_mut().data_mut().iter_mut().enumerate() {
-            *val = raw_data[i];
+    fn get_rhs(&self) -> Vec<Element<ConcreteElementContainer<ArrayVectorSpaceElement<Item>>>> {
+        let all_rhs = self.op.rhs(); // Vec<Vec<Item>>, each inner Vec is one RHS
+        let mut elements = Vec::with_capacity(all_rhs.len());
+
+        for rhs_vec in all_rhs.into_iter() {
+            let mut elem: Element<ConcreteElementContainer<ArrayVectorSpaceElement<Item>>> =
+                zero_element(self.domain.clone());
+            for (i, val) in elem.imp_mut().view_mut().data_mut().iter_mut().enumerate() {
+                *val = rhs_vec[i];
+            }
+            elements.push(elem);
         }
-        vec
+
+        elements
     }
 }
 
@@ -321,8 +382,7 @@ impl<Item: RlstScalar, Op: StructuredOperatorImpl<Item> + Shape<2>> std::fmt::De
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let shape = self.op.shape();
-        write!(f, "StructuredOperator: [{}x{}]", shape[0], shape[1]).unwrap();
-        Ok(())
+        write!(f, "StructuredOperator: [{}x{}]", shape[0], shape[1])
     }
 }
 
@@ -384,19 +444,12 @@ impl<Item: RlstScalar, Op: StructuredOperatorImpl<Item> + Shape<2>> AsApply
         trans_mode: TransMode,
     ) {
         match trans_mode {
-            TransMode::NoTrans => {
+            TransMode::NoTrans | TransMode::Trans => {
                 self.op
                     .mv(x.imp().view().data(), y.imp_mut().view_mut().data_mut());
             }
-            TransMode::ConjNoTrans => {
-                panic!("TransMode::ConjNoTrans not supported for multiplication.")
-            }
-            TransMode::Trans => {
-                self.op
-                    .mv(x.imp().view().data(), y.imp_mut().view_mut().data_mut());
-            }
-            TransMode::ConjTrans => {
-                panic!("TransMode::ConjTrans not supported for multiplication.")
+            TransMode::ConjNoTrans | TransMode::ConjTrans => {
+                panic!("Conjugate transpose modes not supported for multiplication.")
             }
         }
     }

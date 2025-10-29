@@ -6,6 +6,7 @@ use rlst::{
     prelude::*,
 };
 
+/// Solve a system for multiple RHS vectors
 pub fn solve_system<
     'a,
     Item: RlstScalar + MatrixId + MatrixPseudoInverse + MatrixLu + RandScalar + MatrixQr + MatrixInverse,
@@ -13,11 +14,12 @@ pub fn solve_system<
     OpImpl: AsApply<Domain = Space, Range = Space>,
 >(
     target_op: &OpImpl,
-    rhs: &Element<rlst::operator::ConcreteElementContainer<<Space as LinearSpace>::E>>,
-    tol: <Item as rlst::RlstScalar>::Real,
+    rhs_list: &[Element<rlst::operator::ConcreteElementContainer<<Space as LinearSpace>::E>>],
+    tol: <Item as RlstScalar>::Real,
 ) -> (
-    Vec<<Item as rlst::RlstScalar>::Real>,
-    <Item as RlstScalar>::Real,
+    Vec<Vec<<Item as RlstScalar>::Real>>, // GMRES residuals
+    Vec<<Item as RlstScalar>::Real>,      // relative norm
+    Vec<Vec<Item>>, //Vec<Element<ConcreteElementContainer<<Space as LinearSpace>::E>>>, // solution
 )
 where
     LuDecomposition<Item, BaseArray<Item, VectorContainer<Item>, 2>>:
@@ -26,33 +28,47 @@ where
     GivensRotationData<Item>: rlst::GivensRotation<Item>,
     <<Space as rlst::LinearSpace>::E as rlst::ElementImpl>::Space: rlst::InnerProductSpace,
 {
-    let dim = target_op.domain().dimension();
-    let mut residuals = Vec::<<Item as rlst::RlstScalar>::Real>::new();
-    let gmres: GmresIteration<
-        '_,                                                         // Lifetime
-        Space,                                                      // Vector space
-        RlstOperatorReference<'_, OpImpl>,                          // Main operator
-        ConcreteElementContainerRef<'_, <Space as LinearSpace>::E>, // RHS container
-        RlstOperatorReference<'_, OpImpl>,                          // Identity preconditioner
-    > = GmresIteration::new(target_op.r(), rhs.r(), dim)
-        .set_callable(|_, res| {
-            residuals.push(res);
-            println!("res: {}, {:?}", residuals.len(), res);
-        })
-        .set_tol(tol)
-        .set_restart(100)
-        .set_max_iter(500);
-    let (sol, _res) = gmres.run();
+    let dim = target_op.r().domain().dimension();
+    let mut res_vec = Vec::with_capacity(rhs_list.len());
+    let mut res_norm_vec = Vec::with_capacity(rhs_list.len());
+    let mut sols_vec = Vec::with_capacity(rhs_list.len());
 
-    let mut diff = rhs.duplicate();
-    diff -= target_op.apply(sol, TransMode::NoTrans);
+    for rhs in rhs_list.iter() {
+        let mut residuals = Vec::new();
 
-    let rel_norm = diff.norm() / rhs.norm();
-    println!("Rel norm: {}", rel_norm);
+        let gmres: GmresIteration<
+            '_,                                                         // Lifetime
+            Space,                                                      // Vector space
+            RlstOperatorReference<'_, OpImpl>,                          // Main operator
+            ConcreteElementContainerRef<'_, <Space as LinearSpace>::E>, // RHS container
+            RlstOperatorReference<'_, OpImpl>,                          // Identity preconditioner
+        > = GmresIteration::new(target_op.r(), rhs.r(), dim)
+            .set_callable(|_, res| {
+                residuals.push(res);
+                println!("res: {}, {:?}", residuals.len(), res);
+            })
+            .set_tol(tol)
+            .set_restart(100)
+            .set_max_iter(500);
 
-    (residuals, rel_norm)
+        let (sol, _res) = gmres.run();
+
+        let mut diff = rhs.duplicate();
+        diff -= target_op.apply(sol.r(), TransMode::NoTrans);
+        let rel_norm = diff.norm() / rhs.norm();
+        println!("Rel norm: {}", rel_norm);
+
+        res_vec.push(residuals);
+        res_norm_vec.push(rel_norm);
+        let mut sol_vec = rlst_dynamic_array2!(Item, [1, dim]);
+        target_op.r().domain().fill_array(&sol, &mut sol_vec, 0);
+        sols_vec.push(sol_vec.data().to_vec());
+    }
+
+    (res_vec, res_norm_vec, sols_vec)
 }
 
+/// Solve a preconditioned system for multiple RHS vectors
 pub fn solve_prec_system<
     'a,
     Item: RlstScalar + MatrixId + MatrixPseudoInverse + MatrixLu + RandScalar + MatrixQr + MatrixInverse,
@@ -62,11 +78,12 @@ pub fn solve_prec_system<
 >(
     target_op: &OpImpl,
     rsrs_operator: &OpImpl2,
-    rhs: &Element<rlst::operator::ConcreteElementContainer<<Space as LinearSpace>::E>>,
-    tol: <Item as rlst::RlstScalar>::Real,
+    rhs_list: &[Element<rlst::operator::ConcreteElementContainer<<Space as LinearSpace>::E>>],
+    tol: <Item as RlstScalar>::Real,
 ) -> (
-    Vec<<Item as rlst::RlstScalar>::Real>,
-    <Item as RlstScalar>::Real,
+    Vec<Vec<<Item as RlstScalar>::Real>>, // GMRES residuals
+    Vec<<Item as RlstScalar>::Real>,      // relative norm
+    Vec<Vec<Item>>, //Vec<Element<ConcreteElementContainer<<Space as LinearSpace>::E>>>, // solution
 )
 where
     LuDecomposition<Item, BaseArray<Item, VectorContainer<Item>, 2>>:
@@ -76,30 +93,42 @@ where
     <<Space as rlst::LinearSpace>::E as rlst::ElementImpl>::Space: rlst::InnerProductSpace,
 {
     let dim = target_op.domain().dimension();
+    let mut res_vec = Vec::with_capacity(rhs_list.len());
+    let mut res_norm_vec = Vec::with_capacity(rhs_list.len());
+    let mut sols_vec = Vec::with_capacity(rhs_list.len());
 
-    let mut residuals = Vec::<<Item as rlst::RlstScalar>::Real>::new();
-    let gmres: GmresIteration<
-        '_,                                                         // lifetime
-        Space,                                                      // your vector space
-        RlstOperatorReference<'_, OpImpl>,                          // type of target_op.r()
-        ConcreteElementContainerRef<'_, <Space as LinearSpace>::E>, // container for rhs.r()
-        RlstOperatorReference<'_, OpImpl2>,                         // type of rsrs_operator.r()
-    > = GmresIteration::new(target_op.r(), rhs.r(), dim)
-        .set_callable(|_, res| {
-            residuals.push(res);
-            println!("res: {}, {:?}", residuals.len(), res);
-        })
-        .set_tol(tol)
-        .set_max_iter(500)
-        .set_restart(20)
-        .set_preconditioner(rsrs_operator.r());
-    let (sol, _res) = gmres.run();
+    for rhs in rhs_list.iter() {
+        let mut residuals = Vec::new();
 
-    let mut diff = rhs.duplicate();
-    diff -= target_op.apply(sol, TransMode::NoTrans);
+        let gmres: GmresIteration<
+            '_,                                                         // lifetime
+            Space,                                                      // vector space
+            RlstOperatorReference<'_, OpImpl>,                          // target_op
+            ConcreteElementContainerRef<'_, <Space as LinearSpace>::E>, // RHS container
+            RlstOperatorReference<'_, OpImpl2>,                         // preconditioner
+        > = GmresIteration::new(target_op.r(), rhs.r(), dim)
+            .set_callable(|_, res| {
+                residuals.push(res);
+                println!("res: {}, {:?}", residuals.len(), res);
+            })
+            .set_tol(tol)
+            .set_max_iter(500)
+            .set_restart(20)
+            .set_preconditioner(rsrs_operator.r());
 
-    let rel_norm = diff.norm() / rhs.norm();
-    println!("Rel norm: {}", rel_norm);
+        let (sol, _res) = gmres.run();
 
-    (residuals, rel_norm)
+        let mut diff = rhs.duplicate();
+        diff -= target_op.apply(sol.r(), TransMode::NoTrans);
+        let rel_norm = diff.norm() / rhs.norm();
+        println!("Rel norm: {}", rel_norm);
+
+        res_vec.push(residuals);
+        res_norm_vec.push(rel_norm);
+        let mut sol_vec = rlst_dynamic_array2!(Item, [1, dim]);
+        target_op.r().domain().fill_array(&sol, &mut sol_vec, 0);
+        sols_vec.push(sol_vec.data().to_vec());
+    }
+
+    (res_vec, res_norm_vec, sols_vec)
 }

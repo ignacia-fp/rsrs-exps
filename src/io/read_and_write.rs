@@ -30,11 +30,13 @@ use std::{
 type Real<T> = <T as rlst::RlstScalar>::Real;
 
 #[derive(Serialize, Clone)]
-pub struct Iterations<Item: RlstScalar> {
-    pub no_prec: Option<Vec<Real<Item>>>,
-    pub prec: Option<Vec<Real<Item>>>,
-    pub rel_err_no_prec: Option<Real<Item>>,
-    pub rel_err_prec: Option<Real<Item>>,
+pub struct Solves<Item: RlstScalar> {
+    pub no_prec: Option<Vec<Vec<Real<Item>>>>,
+    pub prec: Option<Vec<Vec<Real<Item>>>>,
+    pub rel_err_no_prec: Option<Vec<Real<Item>>>,
+    pub rel_err_prec: Option<Vec<Real<Item>>>,
+    pub sols_no_prec: Option<Vec<Vec<Item>>>,
+    pub sols_prec: Option<Vec<Vec<Item>>>,
 }
 
 #[derive(Serialize)]
@@ -50,7 +52,7 @@ pub struct ErrorStatsOutput<Item: RlstScalar> {
     app_condition_number: Real<Item>,
     tot_num_samples: usize,
     residual_size: usize,
-    iterations: Iterations<Item>,
+    solves: Solves<Item>,
 }
 type CNTuple<T> = (Real<T>, Real<T>);
 type CondType<T> = (CNTuple<T>, Option<(CNTuple<T>, CNTuple<T>)>);
@@ -263,7 +265,7 @@ pub fn save_error_stats<
     structured_operator_op: &OpImpl,
     rsrs_operator: &mut OpImpl2,
     rsrs_data: &Rsrs<Item>,
-    iterations: Iterations<Item>,
+    solves: Solves<Item>,
     tol: Real<Item>,
     path_str: &str,
 ) where
@@ -357,7 +359,7 @@ pub fn save_error_stats<
         solve_error,
         tot_num_samples: rsrs_data.y_data.num_samples,
         residual_size: rsrs_data.stats.residual_size,
-        iterations,
+        solves,
     };
 
     let json_string = serde_json::to_string_pretty(&stats).expect("Failed to serialize");

@@ -1,5 +1,5 @@
 use crate::io::plot_results::time_piechart;
-use crate::io::read_and_write::{save_error_stats, save_rank_stats, save_time_stats, Iterations};
+use crate::io::read_and_write::{save_error_stats, save_rank_stats, save_time_stats, Solves};
 use crate::io::solve::solve_system;
 use crate::io::structured_operator::LocalFrom;
 use crate::io::structured_operator::{
@@ -62,6 +62,7 @@ pub struct ScenarioArgs<Item: RlstScalar> {
     dim_args: Vec<DimArg<Item>>,
     geometry_type: GeometryType,
     max_tree_depth: usize,
+    n_sources: i32,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -78,6 +79,7 @@ pub struct ScenarioOptions<Item: RlstScalar> {
     geometry_type: GeometryType,
     pub precision: Precision,
     max_tree_depth: usize,
+    n_sources: i32,
 }
 
 pub struct TestParams<Item: RlstScalar> {
@@ -112,7 +114,13 @@ impl<Item: RlstScalar> TestParams<Item> {
             GeometryType::TrefoilKnot => "trefoil_knot",
             GeometryType::Sphere => "sphere",
             GeometryType::Cube => "cube",
-            GeometryType::Satellite1 => "satellite1",
+            GeometryType::Dihedral => "dihedral",
+            GeometryType::Device => "device",
+            GeometryType::F16 => "f16",
+            GeometryType::RidgedHorn => "ridged_horn",
+            GeometryType::EMCCAlmond => "emcc_almond",
+            GeometryType::FrigateHull => "frigate_hull",
+            GeometryType::Plane => "plane",
         }
         .to_string();
         let structured_operator = self.get_structured_operator_name();
@@ -164,12 +172,14 @@ impl<Item: RlstScalar> ScenarioArgs<Item> {
         dim_args: Vec<DimArg<Item>>,
         geometry_type: GeometryType,
         max_tree_depth: usize,
+        n_sources: i32,
     ) -> Self {
         Self {
             id_tols,
             dim_args,
             geometry_type,
             max_tree_depth,
+            n_sources,
         }
     }
 }
@@ -183,6 +193,7 @@ impl<Item: RlstScalar> ScenarioOptions<Item> {
                 vec![DimArg::Kappa(Item::real(std::f64::consts::PI))],
                 GeometryType::SphereSurface,
                 6,
+                0,
             ),
         };
 
@@ -207,6 +218,7 @@ impl<Item: RlstScalar> ScenarioOptions<Item> {
             geometry_type: args.geometry_type,
             precision: data_type.precision,
             max_tree_depth: args.max_tree_depth,
+            n_sources: args.n_sources,
         }
     }
 }
@@ -284,6 +296,7 @@ macro_rules! implement_test_framework {
                         self.test_params.scenario_params.geometry_type.clone(),
                         dim_arg.0,
                         dim_arg.1,
+                        self.test_params.scenario_params.n_sources,
                     );
 
                     let structured_operator: StructuredOperatorInterface =
@@ -306,18 +319,21 @@ macro_rules! implement_test_framework {
                     let global_number_of_points: usize = tree.global_number_of_points();
                     let global_max_level: usize = tree.global_max_level();
 
-                    let mut iterations = Iterations {
+                    let mut solves = Solves {
                         no_prec: None,
                         prec: None,
                         rel_err_no_prec: None,
                         rel_err_prec: None,
+                        sols_no_prec: None,
+                        sols_prec: None,
                     };
-                    println!("rhs: {:?}", rhs.view().data()[0]);
+
                     match self.output_options.solve {
                         Solve::True(tol) => {
-                            let (its, rel_err) = solve_system(&operator, &rhs, tol);
-                            iterations.no_prec = Some(its);
-                            iterations.rel_err_no_prec = Some(rel_err);
+                            let (its, rel_err, sols) = solve_system(&operator, &rhs, tol);
+                            solves.no_prec = Some(its);
+                            solves.rel_err_no_prec = Some(rel_err);
+                            solves.sols_no_prec = Some(sols);
                         }
                         Solve::False => {}
                     };
@@ -330,7 +346,7 @@ macro_rules! implement_test_framework {
                     }
 
                     for &id_tol in self.test_params.scenario_params.id_tols.iter() {
-                        let mut iterations = iterations.clone();
+                        let mut solves = solves.clone();
 
                         println!("Test: {} points, tol:{}", dim, id_tol);
 
@@ -352,11 +368,12 @@ macro_rules! implement_test_framework {
                         match self.output_options.solve {
                             Solve::True(tol) => {
                                 rsrs_operator.inv(true);
-                                let (its, rel_err) =
+                                let (its, rel_err, sols) =
                                     solve_prec_system(&operator, &rsrs_operator, &rhs, tol);
                                 rsrs_operator.inv(false);
-                                iterations.prec = Some(its);
-                                iterations.rel_err_prec = Some(rel_err);
+                                solves.prec = Some(its);
+                                solves.rel_err_prec = Some(rel_err);
+                                solves.sols_prec = Some(sols);
                             }
                             Solve::False => {}
                         };
@@ -367,7 +384,7 @@ macro_rules! implement_test_framework {
                                     &operator,
                                     &mut rsrs_operator,
                                     &rsrs_algo,
-                                    iterations,
+                                    solves,
                                     id_tol,
                                     &path_str,
                                 );
@@ -415,7 +432,7 @@ macro_rules! implement_test_framework {
                                     &operator,
                                     &mut rsrs_operator,
                                     &rsrs_algo,
-                                    iterations,
+                                    solves,
                                     id_tol,
                                     &path_str,
                                 );
@@ -434,7 +451,7 @@ macro_rules! implement_test_framework {
                                     &operator,
                                     &mut rsrs_operator,
                                     &rsrs_algo,
-                                    iterations,
+                                    solves,
                                     id_tol,
                                     &path_str,
                                 );
@@ -558,11 +575,12 @@ macro_rules! implement_distributed_test_framework {
                     }
 
 
-                    let mut rhs: Element<rlst::operator::ConcreteElementContainer<_>> =
+                    let mut single_rhs: Element<rlst::operator::ConcreteElementContainer<_>> =
                         zero_element(operator.domain());
-                    rhs.view_mut()
+                    single_rhs.view_mut()
                         .local_mut()
                         .fill_from_seed_equally_distributed(rank as usize);
+                    let rhs = vec![single_rhs];
 
                     let dim = points.len();
 
@@ -574,18 +592,21 @@ macro_rules! implement_distributed_test_framework {
                     let global_number_of_points: usize = tree.global_number_of_points();
                     let global_max_level: usize = tree.global_max_level();
 
-                    let mut iterations = Iterations {
+                    let mut solves = Solves {
                         no_prec: None,
                         prec: None,
                         rel_err_prec: None,
-                        rel_err_no_prec: None
+                        rel_err_no_prec: None,
+                        sols_no_prec: None,
+                        sols_prec: None,
                     };
 
                     match self.output_options.solve {
                         Solve::True(tol) => {
-                                let (its, rel_err) = solve_system(&operator, &rhs, tol);
-                                iterations.no_prec = Some(its);
-                                iterations.rel_err_no_prec = Some(rel_err);
+                                let (its, rel_err, sols) = solve_system(&operator, &rhs, tol);
+                                solves.no_prec = Some(its);
+                                solves.rel_err_no_prec = Some(rel_err);
+                                solves.sols_no_prec = Some(sols);
                             },
                         Solve::False => {},
                     };
@@ -598,7 +619,7 @@ macro_rules! implement_distributed_test_framework {
                     }
 
                     for &id_tol in self.test_params.scenario_params.id_tols.iter() {
-                        let mut iterations = iterations.clone();
+                        let mut solves = solves.clone();
 
                         println!("Test: {} points, tol:{}", dim, id_tol);
 
@@ -613,10 +634,11 @@ macro_rules! implement_distributed_test_framework {
                         match self.output_options.solve {
                             Solve::True(tol) => {
                                 rsrs_operator.inv(true);
-                                let (its, rel_err) = solve_prec_system(&operator, &rsrs_operator, &rhs, tol);
+                                let (its, rel_err, sols) = solve_prec_system(&operator, &rsrs_operator, &rhs, tol);
                                 rsrs_operator.inv(false);
-                                iterations.prec = Some(its);
-                                iterations.rel_err_prec = Some(rel_err);
+                                solves.prec = Some(its);
+                                solves.rel_err_prec = Some(rel_err);
+                                solves.sols_prec = Some(sols);
                             }
                             Solve::False => {},
                         };
@@ -627,7 +649,7 @@ macro_rules! implement_distributed_test_framework {
                                     &operator,
                                     &mut rsrs_operator,
                                     &rsrs_algo,
-                                    iterations,
+                                    solves,
                                     id_tol,
                                     &path_str,
                                 );
@@ -672,7 +694,7 @@ macro_rules! implement_distributed_test_framework {
                                     &operator,
                                     &mut rsrs_operator,
                                     &rsrs_algo,
-                                    iterations,
+                                    solves,
                                     id_tol,
                                     &path_str,
                                 );
@@ -687,7 +709,7 @@ macro_rules! implement_distributed_test_framework {
                                     &operator,
                                     &mut rsrs_operator,
                                     &rsrs_algo,
-                                    iterations,
+                                    solves,
                                     id_tol,
                                     &path_str,
                                 );

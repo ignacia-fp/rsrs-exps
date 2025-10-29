@@ -2,91 +2,219 @@
 import numpy as np
 import bempp_cl.api
 
-def right_hand_side(operator, problem_type):
-    undefined_rhs = {'BasicStructuredOperator', 'KiFMMLaplaceOperator', 'KiFMMHelmholtzOperator', 'BemppClLaplaceSingleLayerCPID', 'KiFMMLaplaceOperatorV', 'BemppClLaplaceSingleLayerCPIDP1', 'BemppClHelmholtzSingleLayerCPID'}
+def generate_directions(n_dirs):
+    """Generate n_dirs approximately uniform unit directions on the sphere."""
+    if n_dirs <= 1:
+        return np.array([[1.0, 0.0, 0.0]])
+
+    indices = np.arange(0, n_dirs, dtype=float) + 0.5
+    phi = np.arccos(1 - 2 * indices / n_dirs)
+    theta = np.pi * (1 + 5**0.5) * indices  # golden angle
+
+    x = np.cos(theta) * np.sin(phi)
+    y = np.sin(theta) * np.sin(phi)
+    z = np.cos(phi)
+    dirs = np.stack((x, y, z), axis=1)
+
+    # 🔒 Explicit normalization (for safety)
+    dirs /= np.linalg.norm(dirs, axis=1)[:, None]
+    return dirs
+
+import numpy as np
+
+def generate_sources(grid, n_sources, padding=1.2):
+    """Generate monopole source positions around a geometry.
+    
+    Parameters
+    ----------
+    grid : bempp.api.Grid
+        The geometry grid of the scatterer.
+    n_sources : int
+        Number of monopole sources to place.
+    padding : float
+        Factor to expand the bounding radius ( >1 places sources outside ).
+    """
+    # Compute approximate bounding sphere
+    vertices = np.array(grid.vertices)
+    center = np.mean(vertices, axis=1)
+    max_radius = np.max(np.linalg.norm(vertices.T - center, axis=1))
+    radius = padding * max_radius
+
+    if n_sources <= 1:
+        return np.array([center + np.array([radius, 0.0, 0.0])])
+
+    # Fibonacci sphere for uniform angular distribution
+    indices = np.arange(0, n_sources, dtype=float) + 0.5
+    phi = np.arccos(1 - 2 * indices / n_sources)
+    theta = np.pi * (1 + 5**0.5) * indices
+
+    x = np.cos(theta) * np.sin(phi)
+    y = np.sin(theta) * np.sin(phi)
+    z = np.cos(phi)
+    directions = np.stack((x, y, z), axis=1)
+
+    sources = center + radius * directions
+    return sources
+
+
+def l_dirichlet_data(s):
+    s = np.asarray(s, dtype=np.float64)
+
+    @bempp_cl.api.real_callable
+    def dirichlet_data(x, n, domain_index, result):
+        r = np.linalg.norm(x - s)
+        result[0] = 1.0 / (4 * np.pi * r)
+
+    return dirichlet_data
+
+def h_dirichlet_data(d, kappa):
+    d = np.asarray(d, dtype=np.float64)
+
+    @bempp_cl.api.complex_callable
+    def dirichlet_data(x, n, domain_index, result):
+        result[0] = -1j * kappa * np.exp(1j * kappa * np.dot(d, x)) * np.dot(n, d)
+
+    return dirichlet_data
+
+def m_dirichlet_data(d, kappa):
+    d = np.asarray(d, dtype=np.float64)
+
+    @bempp_cl.api.complex_callable
+    def dirichlet_data(x, n, domain_index, result):
+        incident_field = np.exp(1j * kappa * np.dot(d, x)) * d
+        result[:] = np.cross(incident_field, n)
+
+    return dirichlet_data
+
+def h_combined_data(d, kappa):
+    d = np.asarray(d, dtype=np.float64)
+
+    @bempp_cl.api.complex_callable
+    def combined_data(x, n, domain_index, result):
+        result[0] = 1j * kappa * np.exp(1j * kappa * np.dot(d, x)) * (np.dot(n, d) - 1)
+
+    return combined_data
+
+def right_hand_side(operator, problem_type, n_sources=1):
+    """
+    Construct RHS vector(s) for a given operator and problem type.
+    Always returns a list of np.ndarray (one per source).
+
+    If n_sources=1:
+        - Generates n_sources distinct incident sources (plane waves for Helmholtz,
+          harmonic sources for Laplace, directional fields for Maxwell).
+    """
+
+    undefined_rhs = {
+        'BasicStructuredOperator', 'KiFMMLaplaceOperator', 'KiFMMHelmholtzOperator',
+        'KiFMMLaplaceOperatorV', 'BemppClLaplaceSingleLayerCPID',
+        'BemppClLaplaceSingleLayerCPIDP1', 'BemppClHelmholtzSingleLayerCPID'
+    }
+
+    # ---------------------------------------------------------------------
+    # Fallback operator: random RHS
+    # ---------------------------------------------------------------------
     if operator.operator_type in undefined_rhs:
-        print("Warning: problem types for this operator have not been defined, so a random vector is returned.")
-        if operator.rhs_data_type == np.complex64 or operator.rhs_data_type == np.complex128:
-            real_parts = np.random.rand(operator.n_points)
-            imag_parts = np.random.rand(operator.n_points)
-            rhs = real_parts + 1j*imag_parts
-            rhs = rhs.astype(operator.rhs_data_type)
+        print("Warning: undefined problem type for this operator. Returning random vector(s).")
+        rhs_dtype = operator.rhs_data_type
+        if np.issubdtype(rhs_dtype, np.complexfloating):
+            gen_vec = lambda: (np.random.rand(operator.n_points) +
+                               1j * np.random.rand(operator.n_points)).astype(rhs_dtype)
         else:
-            rhs = np.random.rand(operator.n_points).astype(operator.rhs_data_type)
-        return rhs
-    elif operator.operator_type == 'BemppClLaplaceSingleLayer' or operator.operator_type == 'BemppClLaplaceSingleLayerModified' or operator.operator_type == 'BemppClLaplaceSingleLayerCP' or operator.operator_type =='BemppClLaplaceSingleLayerMM' or operator.operator_type == 'BemppClLaplaceSingleLayerP1' or operator.operator_type == 'BemppClLaplaceSingleLayerModifiedP1':
+            gen_vec = lambda: np.random.rand(operator.n_points).astype(rhs_dtype)
+
+        n_sources = 10 if n_sources else 1
+        return [gen_vec() for _ in range(n_sources)]
+
+    # ---------------------------------------------------------------------
+    # LAPACE SINGLE LAYER
+    # ---------------------------------------------------------------------
+    elif operator.operator_type.startswith("BemppClLaplaceSingleLayer"):
+        identity = bempp_cl.api.operators.boundary.sparse.identity(
+            operator.domain, operator.range, operator.dual_to_range)
+        dlp = bempp_cl.api.operators.boundary.laplace.adjoint_double_layer(
+            operator.domain, operator.range, operator.domain)
+
         if problem_type == 'Dirichlet':
-            @bempp_cl.api.real_callable
-            def dirichlet_data(x, n, domain_index, result):
-                result[0] = 1./(4 * np.pi *((x[0] - .9)**2 + x[1]**2 + x[2]**2)**(0.5))
-                
-            dirichlet_fun = bempp_cl.api.GridFunction(operator.domain, fun=dirichlet_data)
+            rhs_list = []
+            sources = generate_sources(operator.domain.grid, n_sources)
 
-            identity = bempp_cl.api.operators.boundary.sparse.identity(operator.domain,
-                                                                    operator.range,
-                                                                    operator.dual_to_range)
-            dlp = bempp_cl.api.operators.boundary.laplace.adjoint_double_layer(operator.domain,
-                                                                    operator.range,
-                                                                    operator.domain, assembler = "fmm")#,
-                                                                    #assembler="fmm")
+            for s in sources:
+                d_data = l_dirichlet_data(s)
+                gfun = bempp_cl.api.GridFunction(operator.domain, fun=d_data)
+                rhs = (dlp - 0.5 * identity) * gfun
+                if operator.form == 'weak':
+                    rhs_list.append(rhs.projections(operator.dual_to_range))
+                else:  # strong form
+                    rhs_list.append(rhs.coefficients)
 
-            rhs = (dlp - 0.5 * identity) * dirichlet_fun
+            return rhs_list
 
-            if operator.operator_type == 'BemppClLaplaceSingleLayer' or operator.operator_type == 'BemppClLaplaceSingleLayerModified' or operator.operator_type == 'BemppClLaplaceSingleLayer':
-                return rhs.projections()
-            else:
-                return rhs.coefficients
-        
         elif problem_type == 'Neumann':
-            raise ValueError("Neumann problem not implemented.")
+            raise ValueError("Neumann problem not implemented for Laplace.")
 
-    elif operator.operator_type == 'BemppClHelmholtzSingleLayer' or operator.operator_type == 'BemppClHelmholtzSingleLayerCP' or operator.operator_type == 'BemppClHelmholtzSingleLayerP1':
+    # ---------------------------------------------------------------------
+    # HELMHOLTZ SINGLE LAYER
+    # ---------------------------------------------------------------------
+    elif operator.operator_type.startswith("BemppClHelmholtzSingleLayer"):
         kappa = operator.kappa
+        identity = bempp_cl.api.operators.boundary.sparse.identity(
+            operator.domain, operator.range, operator.dual_to_range)
+        dlp = bempp_cl.api.operators.boundary.helmholtz.adjoint_double_layer(
+            operator.domain, operator.range, operator.domain, kappa)
         if problem_type == 'Dirichlet':
-            @bempp_cl.api.complex_callable
-            def dirichlet_data(x, n, domain_index, result):
-                result[0] = -1j * kappa * np.exp(1j * kappa * x[0]) * n[0]
+            rhs_list = []
+            directions = generate_directions(n_sources)
 
-            dirichlet_fun = bempp_cl.api.GridFunction(operator.domain, fun=dirichlet_data)
+            for d in directions:
+                d_data = h_dirichlet_data(d, kappa)
+                gfun = bempp_cl.api.GridFunction(operator.domain, fun=d_data)
+                rhs = (dlp - 0.5 * identity) * gfun
+                if operator.form == 'weak':
+                    rhs_list.append(rhs.projections(operator.dual_to_range))
+                else:  # strong form
+                    rhs_list.append(rhs.coefficients)
+            return rhs_list
 
-            identity = bempp_cl.api.operators.boundary.sparse.identity(operator.domain,
-                                                                    operator.range,
-                                                                    operator.dual_to_range)
-            dlp = bempp_cl.api.operators.boundary.helmholtz.adjoint_double_layer(operator.domain,
-                                                                    operator.range,
-                                                                    operator.domain, 
-                                                                    kappa)#,
-                                                                    #assembler="fmm")
-            rhs = (dlp - 0.5 * identity) * dirichlet_fun
-            return rhs
-            '''if operator.operator_type == 'BemppClHelmholtzSingleLayer' or operator.operator_type == 'BemppClHelmholtzSingleLayerCP' or operator.operator_type == 'BemppClHelmholtzSingleLayerP1':
-                return rhs.projections()
-            else:
-                return rhs.coefficients'''
-        
         elif problem_type == 'Neumann':
-            raise ValueError("Neumann problem not implemented.")
-        
+            raise ValueError("Neumann problem not implemented for Helmholtz.")
+
+    # ---------------------------------------------------------------------
+    # MAXWELL EFIE
+    # ---------------------------------------------------------------------
     elif operator.operator_type == 'BemppClMaxwellEfie':
         kappa = operator.kappa
-        
-        @bempp_cl.api.complex_callable
-        def dirichlet_data(x, n, domain_index, result):
-            incident_field = np.array([-np.exp(1j * kappa * x[1]),
-                                        0. * x[2], 0. * x[2]])
-            result[:] = np.cross(incident_field, n)
+        rhs_list = []
+        directions = generate_directions(n_sources)
+        for d in directions:
+            d_data = m_dirichlet_data(d, kappa)
+            gfun = bempp_cl.api.GridFunction(operator.domain, fun=d_data)
+            if operator.form == 'weak':
+                    rhs_list.append(gfun.projections(operator.dual_to_range))
+            else:  # strong form
+                rhs_list.append(gfun.coefficients)
 
-        rhs = bempp_cl.api.GridFunction(operator.domain, fun=dirichlet_data)
+        return rhs_list
 
-        return rhs.coefficients
-    
+    # ---------------------------------------------------------------------
+    # COMBINED HELMHOLTZ
+    # ---------------------------------------------------------------------
     elif operator.operator_type == 'BemppClCombinedHelmholtz':
         kappa = operator.kappa
-        @bempp_cl.api.complex_callable
-        def combined_data(x, n, domain_index, result):
-            result[0] = 1j * kappa * np.exp(1j * kappa * x[0]) * (n[0] - 1)
+        rhs_list = []
+        directions = generate_directions(n_sources)
+        for d in directions:
+            combined_data = h_combined_data(d, kappa)
+            gfun = bempp_cl.api.GridFunction(operator.domain, fun=combined_data)
+            if operator.form == 'weak':
+                    rhs_list.append(gfun.projections(operator.dual_to_range))
+            else:  # strong form
+                rhs_list.append(gfun.coefficients)
 
+        return rhs_list
 
-        rhs = bempp_cl.api.GridFunction(operator.domain, fun=combined_data)
-
-        return rhs
+    # ---------------------------------------------------------------------
+    # Catch-all
+    # ---------------------------------------------------------------------
+    else:
+        raise ValueError(f"Unsupported operator type: {operator.operator_type}")

@@ -1,245 +1,251 @@
 #define NPY_NO_DEPRECATED_API NPY_1_7_API_VERSION
 #include "structured_operator_interface.h"
+
 #include <stdio.h>
 #include <stdlib.h>
-//#include <numpy/arrayobject.h>
-//#include <complex.h>
 
-StructuredOperator* fail(StructuredOperator *k) {
+// -------------------------
+// Helper for failure
+// -------------------------
+StructuredOperator* fail(StructuredOperator* k) {
+  PyErr_Print();
+  free(k);
+  return NULL;
+}
+
+// -------------------------
+// Create operator
+// -------------------------
+StructuredOperator* create_structured_operator(PyObject* instance) {
+  StructuredOperator* k =
+      (StructuredOperator*)malloc(sizeof(StructuredOperator));
+  if (!k) return NULL;
+
+  PyObject* points_obj = PyObject_GetAttrString(instance, "points");
+  PyObject* mat_obj = PyObject_GetAttrString(instance, "mat");
+  PyObject* n_points_obj = PyObject_GetAttrString(instance, "n_points");
+  PyObject* rhs_obj = PyObject_GetAttrString(instance, "rhs");
+
+  if (!points_obj || !PyArray_Check(points_obj)) return fail(k);
+  if (!mat_obj || !n_points_obj || !rhs_obj) return fail(k);
+  if (!PyLong_Check(n_points_obj)) return fail(k);
+
+  k->points = (PyArrayObject*)points_obj;
+  k->mat = (PyArrayObject*)mat_obj;
+  k->n_points = (int)PyLong_AsLong(n_points_obj);
+  k->pyobj = instance;
+  Py_INCREF(k->pyobj);
+
+  // Always wrap RHS as list
+  if (PyList_Check(rhs_obj)) {
+    k->rhs_list = rhs_obj;
+    k->n_rhs = (int)PyList_Size(rhs_obj);
+    Py_INCREF(rhs_obj);
+  } else if (PyArray_Check(rhs_obj)) {
+    PyObject* list = PyList_New(1);
+    Py_INCREF(rhs_obj);
+    PyList_SetItem(list, 0, rhs_obj);
+    k->rhs_list = list;
+    k->n_rhs = 1;
+  } else {
+    return fail(k);
+  }
+
+  return k;
+}
+
+// -------------------------
+// Initialize operator
+// -------------------------
+StructuredOperator* initialize_structured_operator(
+    const char* python_executable, const char* class_name, double arg1,
+    const char* geometry_type, double kappa, const char* precision,
+    int n_sources) {
+  if (!Py_IsInitialized()) {
+    wchar_t* program_name = Py_DecodeLocale(python_executable, NULL);
+    Py_SetProgramName(program_name);
+    Py_Initialize();
+    if (_import_array() < 0) return NULL;
+  }
+  PyRun_SimpleString("import sys; sys.path.append('.')");
+
+  PyObject* module = PyImport_ImportModule("python.structured_operators");
+  if (!module) return NULL;
+  PyObject* cls = PyObject_GetAttrString(module, class_name);
+  Py_DECREF(module);
+  if (!cls) return NULL;
+
+  PyObject* arg1_obj = ((int)arg1 == arg1) ? PyLong_FromLong((long)arg1)
+                                           : PyFloat_FromDouble(arg1);
+  PyObject* kappa_obj = PyFloat_FromDouble(kappa);
+  PyObject* geom_obj = PyUnicode_FromString(geometry_type);
+  PyObject* prec_obj = PyUnicode_FromString(precision);
+  PyObject* ms_obj = PyLong_FromLong(n_sources);
+  PyObject* args =
+      PyTuple_Pack(5, arg1_obj, kappa_obj, geom_obj, prec_obj, ms_obj);
+  Py_DECREF(arg1_obj);
+  Py_DECREF(kappa_obj);
+  Py_DECREF(geom_obj);
+  Py_DECREF(prec_obj);
+  Py_DECREF(ms_obj);
+  PyObject* instance = PyObject_CallObject(cls, args);
+  Py_DECREF(args);
+  Py_DECREF(cls);
+  if (!instance) return NULL;
+  return create_structured_operator(instance);
+}
+
+// -------------------------
+// Matrix-vector multiplications
+// -------------------------
+int mv_structured_operator_real(StructuredOperator* k, const double* input,
+                                double* output, int len) {
+  if (!k || !k->pyobj) return 0;
+
+  npy_intp dims[1] = {len};
+  PyObject* input_array =
+      PyArray_SimpleNewFromData(1, dims, NPY_DOUBLE, (void*)input);
+  if (!input_array) return 0;
+
+  PyObject* result = PyObject_CallMethod(k->pyobj, "mv", "O", input_array);
+  Py_DECREF(input_array);
+
+  if (!result) {
     PyErr_Print();
-    free(k);
+    return 0;
+  }
+
+  if (!PyArray_Check(result)) {
+    Py_DECREF(result);
+    fprintf(stderr, "Error: mv() did not return a numpy array\n");
+    return 0;
+  }
+
+  PyArrayObject* arr = (PyArrayObject*)result;
+  if (PyArray_NDIM(arr) != 1 || PyArray_DIM(arr, 0) != len) {
+    fprintf(stderr, "Error: mv() output has incorrect shape\n");
+    Py_DECREF(result);
+    return 0;
+  }
+
+  double* data = (double*)PyArray_DATA(arr);
+  for (int i = 0; i < len; ++i) output[i] = data[i];
+
+  Py_DECREF(result);
+  return 1;
+}
+
+int mv_structured_operator_complex(StructuredOperator* k,
+                                   const double _Complex* input,
+                                   double _Complex* output, int len) {
+  if (!k || !k->pyobj) return 0;
+  npy_intp dims[1] = {len};
+  PyObject* input_array =
+      PyArray_SimpleNewFromData(1, dims, NPY_CDOUBLE, (void*)input);
+  if (!input_array) return 0;
+  PyObject* result = PyObject_CallMethod(k->pyobj, "mv", "O", input_array);
+  Py_DECREF(input_array);
+  if (!result) {
+    PyErr_Print();
+    return 0;
+  }
+
+  if (!PyArray_Check(result)) {
+    Py_DECREF(result);
+    fprintf(stderr, "Error: mv() did not return a numpy array\n");
+    return 0;
+  }
+
+  PyArrayObject* arr = (PyArrayObject*)result;
+  if (PyArray_NDIM(arr) != 1 || PyArray_DIM(arr, 0) != len) {
+    fprintf(stderr, "Error: mv() output has incorrect shape\n");
+    Py_DECREF(result);
+    return 0;
+  }
+
+  double _Complex* data = (double _Complex*)PyArray_DATA(arr);
+  for (int i = 0; i < len; ++i) output[i] = data[i];
+
+  Py_DECREF(result);
+  return 1;
+}
+
+// -------------------------
+// Geometry and condition
+// -------------------------
+const double* get_points(StructuredOperator* k) {
+  if (!k || !k->points) return NULL;
+  if (PyArray_NDIM(k->points) != 2 || PyArray_DIM(k->points, 1) != 3)
     return NULL;
+  return (const double*)PyArray_DATA(k->points);
 }
 
-StructuredOperator* create_structured_operator(PyObject *structured_operator_instance) {
-    StructuredOperator *k = (StructuredOperator *)malloc(sizeof(StructuredOperator));
-    if (!k) return NULL;
-    PyObject *points_obj = PyObject_GetAttrString(structured_operator_instance, "points");
-    PyObject *mat_obj = PyObject_GetAttrString(structured_operator_instance, "mat");
-    PyObject *n_points_obj = PyObject_GetAttrString(structured_operator_instance, "n_points");
-    PyObject *rhs_obj = PyObject_GetAttrString(structured_operator_instance, "rhs");
-
-    if (!points_obj) {
-        printf("points_obj is NULL\n");
-        return fail(k);
-    }
-    if (!PyArray_Check(points_obj)) {
-        printf("points_obj is not a NumPy array\n");
-        return fail(k);
-    }
-    if (!mat_obj) {
-        printf("mat_obj is NULL\n");
-        return fail(k);
-    }
-    if (!n_points_obj) {
-        printf("n_points_obj is NULL\n");
-        return fail(k);
-    }
-    if (!PyLong_Check(n_points_obj)) {
-        printf("n_points_obj is not a Python int\n");
-        return fail(k);
-    }
-    if (!rhs_obj) {
-        printf("rhs_obj is NULL\n");
-        return fail(k);
-    }
-    k->points = (PyArrayObject *)points_obj;
-    k->mat = (PyArrayObject *)mat_obj;
-    k->n_points = (int)PyLong_AsLong(n_points_obj);
-    k->rhs = (PyArrayObject *)rhs_obj;
-    return k;
+size_t get_n_points(StructuredOperator* k) {
+  return k ? (size_t)k->n_points : 0;
 }
 
-StructuredOperator* initialize_structured_operator(const char* python_executable, const char *class_name, double arg1, const char *geometry_type, double kappa, const char *precision) {
-    
-    if (!Py_IsInitialized()) {
-        wchar_t *program_name = Py_DecodeLocale(python_executable, NULL);
-        Py_SetProgramName(program_name);
-
-        Py_Initialize();
-
-        if (_import_array() < 0) {
-            PyErr_Print();
-            return NULL;
-        }
-    }
-
-    PyRun_SimpleString("import sys; sys.path.append('.')");
-    PyObject *module = PyImport_ImportModule("python.structured_operators");
-    if (!module) {
-        PyErr_Print();
-        return NULL;
-    }
-    PyObject *structured_operator_class = PyObject_GetAttrString(module, class_name);
-    Py_DECREF(module);
-    if (!structured_operator_class) {
-        PyErr_Print();
-        return NULL;
-    }
-
-    PyObject *arg1_obj;
-    if ((int)arg1 == arg1) {
-        arg1_obj = PyLong_FromLong((long)arg1);
-    } else {
-        arg1_obj = PyFloat_FromDouble(arg1);
-    }
-
-    // Create Python string object for geometry_type
-    PyObject *kappa_obj = PyFloat_FromDouble(kappa);
-    PyObject *geometry_obj = PyUnicode_FromString(geometry_type);
-    PyObject *precision_obj = PyUnicode_FromString(precision);
-
-    // Create argument tuple with (arg1, kappa, geometry_type)
-    PyObject *args = PyTuple_Pack(4, arg1_obj, kappa_obj, geometry_obj, precision_obj);
-
-    Py_DECREF(arg1_obj);
-    Py_DECREF(kappa_obj);
-    Py_DECREF(geometry_obj);
-    Py_DECREF(precision_obj);
-
-
-    PyObject *instance = PyObject_CallObject(structured_operator_class, args);
-    Py_DECREF(args);
-    Py_DECREF(structured_operator_class);
-    if (!instance) {
-        PyErr_Print();
-        return NULL;
-    }
-    StructuredOperator *k = create_structured_operator(instance);
-    if (!k) return NULL;
-    k->pyobj = instance;  // take ownership
-    return k;
+double get_condition_number(StructuredOperator* k) {
+  if (!k || !k->pyobj) return -1.0;
+  PyObject* res = PyObject_CallMethod(k->pyobj, "cond", NULL);
+  if (!res) return -1.0;
+  double c = PyFloat_AsDouble(res);
+  Py_DECREF(res);
+  return c;
 }
 
+// -------------------------
+// Retrieve all RHS at once
+// -------------------------
+const double** get_all_real_rhs(StructuredOperator* k, int* n_rhs,
+                                int* len_out) {
+  if (!k || !k->rhs_list) return NULL;
+  *n_rhs = k->n_rhs;
+  *len_out = k->n_points;
 
-int mv_structured_operator_real(StructuredOperator *k, const double *input, double *output, int len) {
-    if (!k || k->n_points != len) return 0;
+  const double** ptrs = (const double**)malloc(k->n_rhs * sizeof(double*));
+  if (!ptrs) return NULL;
 
-    npy_intp dims[1] = {len};
-    PyObject *v = PyArray_SimpleNew(1, dims, NPY_DOUBLE);
-    if (!v) return 0;
-
-    memcpy(PyArray_DATA((PyArrayObject *)v), input, len * sizeof(double));
-    PyObject *result = PyObject_CallMethod(k->pyobj, "mv", "O", v);
-    Py_DECREF(v);
-    if (!result || !PyArray_Check(result)) {
-        Py_XDECREF(result);
-        PyErr_Print();
-        return 0;
+  for (int i = 0; i < k->n_rhs; ++i) {
+    PyObject* arr = PyList_GetItem(k->rhs_list, i);
+    if (!PyArray_Check(arr)) {
+      free(ptrs);
+      return NULL;
     }
-
-    PyArrayObject *result_arr = (PyArrayObject *)result;
-    if (PyArray_NDIM(result_arr) != 1 || PyArray_DIM(result_arr, 0) != len) {
-        Py_DECREF(result);
-        return 0;
-    }
-
-    memcpy(output, PyArray_DATA(result_arr), len * sizeof(double));
-    Py_DECREF(result);
-    return 1;
+    ptrs[i] = (const double*)PyArray_DATA((PyArrayObject*)arr);
+  }
+  return ptrs;
 }
 
-// input/output are arrays of double complex
-int mv_structured_operator_complex(StructuredOperator *k, const double _Complex *input, double _Complex *output, int len) {
-    if (!k || k->n_points != len) return 0;
+const double _Complex** get_all_complex_rhs(StructuredOperator* k, int* n_rhs,
+                                            int* len_out) {
+  if (!k || !k->rhs_list) return NULL;
+  *n_rhs = k->n_rhs;
+  *len_out = k->n_points;
 
-    npy_intp dims[1] = {len};
-    PyObject *v = PyArray_SimpleNew(1, dims, NPY_COMPLEX128);
-    if (!v) return 0;
+  const double _Complex** ptrs =
+      (const double _Complex**)malloc(k->n_rhs * sizeof(double _Complex*));
+  if (!ptrs) return NULL;
 
-    // Copy input complex values into NumPy array
-    memcpy(PyArray_DATA((PyArrayObject *)v), input, len * sizeof(double _Complex));
-
-    // Call Python method
-    PyObject *result = PyObject_CallMethod(k->pyobj, "mv", "O", v);
-    Py_DECREF(v);
-    if (!result || !PyArray_Check(result)) {
-        Py_XDECREF(result);
-        PyErr_Print();
-        return 0;
+  for (int i = 0; i < k->n_rhs; ++i) {
+    PyObject* arr = PyList_GetItem(k->rhs_list, i);
+    if (!PyArray_Check(arr)) {
+      free(ptrs);
+      return NULL;
     }
-
-    PyArrayObject *result_arr = (PyArrayObject *)result;
-
-    if (PyArray_NDIM(result_arr) != 1 || PyArray_DIM(result_arr, 0) != len ||
-        PyArray_TYPE(result_arr) != NPY_COMPLEX128) {
-        Py_DECREF(result);
-        return 0;
-    }
-
-    // Copy result to output
-    memcpy(output, PyArray_DATA(result_arr), len * sizeof(double _Complex));
-    Py_DECREF(result);
-    return 1;
+    ptrs[i] = (const double _Complex*)PyArray_DATA((PyArrayObject*)arr);
+  }
+  return ptrs;
 }
 
-
-const double* get_points(StructuredOperator *k) {
-    if (!k || !k->points) return NULL;
-
-    if (PyArray_NDIM(k->points) != 2 || PyArray_DIM(k->points, 1) != 3)
-        return NULL;
-
-    return (const double *)PyArray_DATA(k->points);
-}
-
-double get_condition_number(StructuredOperator *k) {
-    if (!k || !k->pyobj) {
-        fprintf(stderr, "Invalid structured_operator object\n");
-        return -1.0;
-    }
-
-    PyObject *result = PyObject_CallMethod(k->pyobj, "cond", NULL);
-    if (!result) {
-        PyErr_Print();
-        return -1.0;
-    }
-
-    double cond_number = PyFloat_AsDouble(result);
-    Py_DECREF(result);
-
-    if (PyErr_Occurred()) {
-        PyErr_Print();
-        return -1.0;
-    }
-
-    return cond_number;
-}
-
-size_t get_n_points(StructuredOperator *k) {
-    if (!k) return (size_t)-1;  // sentinel value for error
-    return (size_t)(k->n_points);
-}
-
-
-const double _Complex* structured_operator_get_complex_rhs(StructuredOperator *k) {
-    if (!k || !k->rhs) return NULL;
-
-    if (PyArray_NDIM(k->points) != 2)
-        return NULL;
-
-    return (const double _Complex *)PyArray_DATA(k->rhs);
-
-}
-
-
-const double * structured_operator_get_real_rhs(StructuredOperator *k) {
-    if (!k || !k->rhs) return NULL;
-
-    if (PyArray_NDIM(k->points) != 2)
-        return NULL;
-
-    return (const double *)PyArray_DATA(k->rhs);
-}
-
-
-void finalize_structured_operator(StructuredOperator *k) {
-    if (!k) return;
-    Py_DECREF(k->points);
-    Py_DECREF(k->mat);
-    Py_DECREF(k->pyobj);
-    free(k);
-    if (Py_IsInitialized()) {
-        Py_Finalize();
-    }
+// -------------------------
+// Clean up
+// -------------------------
+void finalize_structured_operator(StructuredOperator* k) {
+  if (!k) return;
+  Py_XDECREF(k->points);
+  Py_XDECREF(k->mat);
+  Py_XDECREF(k->rhs_list);
+  Py_XDECREF(k->pyobj);
+  free(k);
+  if (Py_IsInitialized()) Py_Finalize();
 }

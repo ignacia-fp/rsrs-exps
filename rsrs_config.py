@@ -86,7 +86,8 @@ class RSRSBenchmarkConfig:
         oversampling_diag = 16,
         tol_ext_near = 1e-16,
         tol_ext_diag = 1e-16,
-        fact_type = 1
+        fact_type = 1,
+        n_sources: int = 1,
     ):
         
         """
@@ -163,7 +164,13 @@ class RSRSBenchmarkConfig:
             1: CubeSurface
             2: CylinderSurface
             3: EllipsoidSurface
-            4: Satellite1
+            4: Dihedral
+            5: Device
+            6: F16
+            7: RidgedHorn
+            8: EMCCAlmond
+            9: FrigateHull
+            10: Plane
             Note: For Bempp-rs operators, only SphereSurface is supported.
 
         solve_tol : float, optional
@@ -236,6 +243,10 @@ class RSRSBenchmarkConfig:
             1: Joint
             Default is 1.
 
+        n_sources : int, optional
+            The number of distinct sources to consider during the computation.
+            Default is 1.
+
         Raises
         ------
         ValueError
@@ -275,7 +286,7 @@ class RSRSBenchmarkConfig:
 
         ## Geometry Type:
         ## !!! For Bempp-Rs tests we only have a sphere for now, so this parameter is irrelevant
-        self.geometry_types = ["SphereSurface", "CubeSurface", "CylinderSurface", "EllipsoidSurface", "Satellite1"] ## We can generate more with Gmsh and link them
+        self.geometry_types = ["SphereSurface", "CubeSurface", "CylinderSurface", "EllipsoidSurface", "Dihedral", "Device", "F16", "RidgedHorn", "EMCCAlmond", "FrigateHull", "Plane"] ## We can generate more with Gmsh and link them
 
         ## Output Arguments: (outputs that the test the test will return)
         # In all cases, it returns the errors ||A_app^{-1}A - I||_2 and ||A_app - A||_2/||A||_2,
@@ -348,13 +359,14 @@ class RSRSBenchmarkConfig:
         self.oversampling_diag = oversampling_diag
         self.tol_ext_near = tol_ext_near
         self.tol_ext_diag = tol_ext_diag
+        self.n_sources = n_sources
 
         if self.dim_arg_types[self.dim_arg_type_index] == "RefinementLevelAndDepth":
             if self.ref_level is None or self.depth is None:
                 raise ValueError("Both `ref_level` and `depth` must be specified for 'RefinementLevelAndDepth' dim_arg_type.")
         
         if self.dense_errors:
-            print("WARNING: computind dense errors is time and memory intensive. Use only for small test cases")
+            print("WARNING: computing dense errors is time and memory intensive. Use only for small test cases")
 
         if self.structured_operator_types[self.operator_type_index] == "BemppClHelmholtzSingleLayer" or self.structured_operator_types[self.operator_type_index] == "KiFMMHelmholtzOperator" or self.structured_operator_types[self.operator_type_index] == "BemppClHelmholtzSingleLayerCP":
             if self.kappa == None:
@@ -396,12 +408,12 @@ class RSRSBenchmarkConfig:
             "Meshwidth": {"Meshwidth": self.h},
             "RefinementLevelAndDepth": {"RefinementLevelAndDepth": (self.ref_level, self.depth)},
         }
-
         return {
             "id_tols": self.id_tols,
             "dim_args": [dim_args_map[dim_type]],
             "geometry_type": self.geometry_types[self.geometry],
-            "max_tree_depth": self.max_tree_depth
+            "max_tree_depth": self.max_tree_depth,
+            "n_sources": self.n_sources,
         }
 
     def output_args(self) -> Dict:
@@ -467,8 +479,6 @@ cargo run --release '{data_type_args_json}' '{scenario_args_json}' '{rsrs_args_j
         geom = camel_to_snake(self.geometry_types[self.geometry])
         op = self.structured_operator_types[self.operator_type_index]
         dim_key = self.dim_arg_types[self.dim_arg_type_index]
-
-        print("h", self.h)
 
         if dim_key == "RefinementLevelAndDepth":
             if self.ref_level > 1:
@@ -1388,4 +1398,162 @@ cargo run --release '{data_type_args_json}' '{scenario_args_json}' '{rsrs_args_j
                     path = Path(os.getcwd()) / "results" / folder / subfolder / filename
                     plt.savefig(path, dpi=300)
                 plt.show()
+
+    def relocate_grid(self):
+        """
+        Relocate the current grid to a different directory.
+        """
+        from pathlib import Path
+
+        folder = self.generate_folder_name()
+        subfolder = self.generate_sub_folder_name()
+        filename = f"grid.msh"
+
+        src = Path(os.getcwd()) / "results/current_grid.msh"
+        dst = Path(os.getcwd()) / "results" / folder / subfolder / filename
+
+        dst.parent.mkdir(parents=True, exist_ok=True)  # create target dirs if needed
+        src.rename(dst)
+
+    def load_sols(self, tol=1e-2):
+        all_stats = self.load_all_stats(kind="error")
+        all_stats.sort(key=lambda d: float(d["tolerance"]))
+
+        if tol == 0.0:
+            solves = all_stats[0].get("solves", {}).get("sols_no_prec", [])
+        else:
+            ind = 0
+            for data in all_stats:
+                if data is None:
+                    continue
+
+                tol_str = data["tolerance"]
+                if float(tol_str) == tol:
+                    break
+                else:
+                    ind += 1
+            solves = all_stats[ind].get("solves", {}).get("sols_prec", [])
+        solutions = []
+        for sol in solves:
+            arr = np.array(sol)
+                # Real case: 1D array
+            if arr.ndim == 1:
+                solutions.append(arr.astype(float))
+
+            # Complex case: 2D array with last dimension = 2 ([Re, Im])
+            elif arr.ndim == 2 and arr.shape[-1] == 2:
+                complex_arr = arr[:, 0] + 1j * arr[:, 1]
+                solutions.append(complex_arr)
+
+            else:
+                raise ValueError(f"Unexpected solution shape {arr.shape}")
+        return solutions
+
+    def get_far_field(self, tol=1e-2, n_grid_points=150, plane=0, lims = [-1,1,-1,1]):
+        import bempp_cl.api
+        import matplotlib
+        matplotlib.rcParams["figure.figsize"] = (5.0, 4.0)
+        sols = self.load_sols(tol)
+        folder = self.generate_folder_name()
+        subfolder = self.generate_sub_folder_name()
+        filename = f"grid.msh"
+        grid_path = Path(os.getcwd()) / "results" / folder / subfolder / filename
+        if not grid_path.exists():
+            self.relocate_grid()
+        grid = bempp_cl.api.import_grid(str(grid_path))
+        plot_grid = np.mgrid[lims[0] : lims[1] : n_grid_points * 1j, lims[2] : lims[3] : n_grid_points * 1j]
+        if plane == 0:
+            # xy plane
+            points = np.vstack((plot_grid[0].ravel(), plot_grid[1].ravel(), np.zeros(plot_grid[0].size)))
+        elif plane ==1:
+            # xz plane
+            points = np.vstack((plot_grid[0].ravel(), np.zeros(plot_grid[0].size), plot_grid[1].ravel()))
+        else:
+            # yz plane
+            points = np.vstack((np.zeros(plot_grid[0].size),plot_grid[0].ravel(), plot_grid[1].ravel()))
+        if self.structured_operator_types[self.operator_type_index] == "BemppClLaplaceSingleLayer":
+            space = bempp_cl.api.function_space(grid, "DP", 0)
+            dual_space = space
+            slp_pot = bempp_cl.api.operators.potential.laplace.single_layer(space, points)
+        elif self.structured_operator_types[self.operator_type_index] == "BemppClHelmholtzSingleLayer":
+            space = bempp_cl.api.function_space(grid, "DP", 0)
+            dual_space = space
+            slp_pot = bempp_cl.api.operators.potential.helmholtz.single_layer(space, points, self.kappa)
+        elif self.structured_operator_types[self.operator_type_index] == "BemppClMaxwellEfie":
+            space = bempp_cl.api.function_space(grid, "RWG", 0)
+            dual_space = space
+            slp_pot = bempp_cl.api.operators.potential.maxwell.electric_field(space, points, self.kappa)
+        for i, sol in enumerate(sols):
+            sol_fun = bempp_cl.api.GridFunction(space, projections=sol, dual_space=dual_space)
+            far_field = slp_pot * sol_fun
+            if self.structured_operator_types[self.operator_type_index] == "BemppClMaxwellEfie":
+                scattered_field = np.real(np.sum(far_field * far_field.conj(), axis=0))
+            else:
+                scattered_field = far_field
+            scattered_field = scattered_field.reshape((n_grid_points, n_grid_points))
+            plt.imshow(np.abs(scattered_field.T))
+            plt.title("Computed solution")
+            plt.colorbar()
+            sol_path = Path(os.getcwd()) / "results" / folder / subfolder / f"scattered_field_{i}.png"
+            plt.savefig(sol_path)
+            plt.close()
+
+    def get_rcs(self, tol=1e-2, number_of_angles=400, plane=0, polar=True):
+        import bempp_cl.api
+        plt.rcParams["figure.figsize"] = (10, 8)
+        sols = self.load_sols(tol)
+        folder = self.generate_folder_name()
+        subfolder = self.generate_sub_folder_name()
+        filename = f"grid.msh"
+        grid_path = Path(os.getcwd()) / "results" / folder / subfolder / filename
+        if not grid_path.exists():
+            self.relocate_grid()
+        grid = bempp_cl.api.import_grid(str(grid_path))
+        
+        angles = 2*np.pi * np.linspace(0, 1, number_of_angles)
+        if plane == 0:
+            # xy plane
+            unit_points = np.array([-np.cos(angles), -np.sin(angles), np.zeros(number_of_angles)])
+        elif plane ==1:
+            # xz plane
+            unit_points = np.array([-np.cos(angles), np.zeros(number_of_angles), -np.sin(angles)])
+        else:
+            # yz plane
+            unit_points = np.array([np.zeros(number_of_angles), -np.cos(angles), -np.sin(angles)])
+        if self.structured_operator_types[self.operator_type_index] == "BemppClLaplaceSingleLayer":
+            space = bempp_cl.api.function_space(grid, "DP", 0)
+            dual_space = space
+            slp_pot = bempp_cl.api.operators.potential.laplace.single_layer(space, unit_points)
+        elif self.structured_operator_types[self.operator_type_index] == "BemppClHelmholtzSingleLayer":
+            space = bempp_cl.api.function_space(grid, "DP", 0)
+            dual_space = space
+            slp_pot = bempp_cl.api.operators.potential.helmholtz.single_layer(space, unit_points, self.kappa)
+        elif self.structured_operator_types[self.operator_type_index] == "BemppClMaxwellEfie":
+            space = bempp_cl.api.function_space(grid, "RWG", 0)
+            dual_space = space
+            slp_pot = bempp_cl.api.operators.potential.maxwell.electric_field(space, unit_points, self.kappa)
+        far_field = np.zeros((3, number_of_angles), dtype="complex128")
+        for sol in sols:
+            sol_fun = bempp_cl.api.GridFunction(space, projections=sol, dual_space=dual_space)
+            scattered_field = slp_pot * sol_fun
+            far_field += scattered_field
+        cross_section = 10 * np.log10(4 * np.pi * np.sum(np.abs(far_field) ** 2, axis=0))
+
+        ax = plt.subplot(111, polar=polar)
+
+        if polar:
+            angles_full = np.concatenate([angles, [angles[0]]])
+            cross_section_full = np.concatenate([cross_section, [cross_section[0]]])
+        else:
+            angles_full = angles
+            cross_section_full = cross_section
+        ax.plot(angles_full, cross_section_full, lw=2)
+        if polar:
+            ax.set_theta_zero_location("N")  # 0° at the top
+            ax.set_theta_direction(-1)       # clockwise
+            ax.set_rlabel_position(225)      # move radial labels away from main lobe
+        ax.set_title("Scattering Cross Section [dB]", va='bottom')
+
+        sol_path = Path(os.getcwd()) / "results" / folder / subfolder / f"rcs.png"
+        plt.savefig(sol_path)
 
