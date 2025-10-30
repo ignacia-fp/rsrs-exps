@@ -88,6 +88,7 @@ class RSRSBenchmarkConfig:
         tol_ext_diag = 1e-16,
         fact_type = 1,
         n_sources: int = 1,
+        save_samples: bool = True
     ):
         
         """
@@ -360,6 +361,7 @@ class RSRSBenchmarkConfig:
         self.tol_ext_near = tol_ext_near
         self.tol_ext_diag = tol_ext_diag
         self.n_sources = n_sources
+        self.save_samples = save_samples
 
         if self.dim_arg_types[self.dim_arg_type_index] == "RefinementLevelAndDepth":
             if self.ref_level is None or self.depth is None:
@@ -445,7 +447,8 @@ class RSRSBenchmarkConfig:
             "min_level": self.min_level, ## Level at which the algorithm stops
             "hermitian": True,  ## Indicates if we should run RSRS for hermitian matrices (half the time and memory)
             "rank_picking": self.rank_pickings[self.rank_picking_index],
-            "fact_type": self.fact_types[self.fact_type]
+            "fact_type": self.fact_types[self.fact_type],
+            "save_samples": self.save_samples
         }
 
     def as_dict(self) -> Dict[str, Dict]:
@@ -456,7 +459,7 @@ class RSRSBenchmarkConfig:
             "rsrs_args": self.rsrs_args(),
         }
 
-    def generate_bash_script(self, filename: str = "run_test.sh"):
+    def generate_bash_script(self, filename: str = "run_test.sh", rayon_threads: int | None = None):
         def json_for_bash(obj):
             return json.dumps(obj).replace("'", "'\"'\"'")
 
@@ -465,15 +468,26 @@ class RSRSBenchmarkConfig:
         output_args_json = json_for_bash(self.output_args())
         rsrs_args_json = json_for_bash(self.rsrs_args())
 
-        bash_script = f"""#!/bin/bash
-export OPENBLAS_NUM_THREADS=1
-cargo run --release '{data_type_args_json}' '{scenario_args_json}' '{rsrs_args_json}' '{output_args_json}'
-"""
+        bash_lines = [
+            "#!/bin/bash",
+            "export OPENBLAS_NUM_THREADS=1",
+        ]
+
+        if rayon_threads is not None:
+            bash_lines.append(f"export RAYON_NUM_THREADS={rayon_threads}")
+        else:
+            # Explicitly clear RAYON_NUM_THREADS to ensure all cores are used
+            bash_lines.append("unset RAYON_NUM_THREADS")
+
+        bash_lines.append(
+            f"cargo run --release '{data_type_args_json}' '{scenario_args_json}' '{rsrs_args_json}' '{output_args_json}'"
+        )
 
         with open(filename, "w") as f:
-            f.write(bash_script)
+            f.write("\n".join(bash_lines) + "\n")
 
         subprocess.run(["chmod", "+x", filename], check=True)
+
 
     def generate_folder_name(self) -> str:
         geom = camel_to_snake(self.geometry_types[self.geometry])

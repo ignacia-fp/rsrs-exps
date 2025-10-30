@@ -26,6 +26,9 @@ use ndelement::types::ReferenceCellType;
 use ndgrid::traits::{Entity, Geometry, Grid, ParallelGrid, Point};
 use num::ToPrimitive;
 use rlst::tracing::trace_call;
+use std::fs;
+use std::io;
+use std::path::Path;
 
 #[derive(Debug, Clone, Deserialize)]
 pub enum Results {
@@ -90,6 +93,29 @@ pub struct TestParams<Item: RlstScalar> {
 pub struct TestFramework<Item: RlstScalar> {
     output_options: OutputOptions,
     test_params: TestParams<Item>,
+}
+
+fn move_if_exists<P: AsRef<Path>>(src: P, dst_dir: P) -> io::Result<()> {
+    let src = src.as_ref();
+    let dst_dir = dst_dir.as_ref();
+
+    if src.exists() {
+        // Create destination directory if it doesn't exist
+        if !dst_dir.exists() {
+            fs::create_dir_all(dst_dir)?;
+        }
+
+        // Build the destination path (preserve filename)
+        let file_name = src
+            .file_name()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "Source has no filename"))?;
+        let dst_path = dst_dir.join(file_name);
+
+        // Move the file (rename = move)
+        fs::rename(src, &dst_path)?;
+    }
+
+    Ok(())
 }
 
 impl<Item: RlstScalar> TestParams<Item> {
@@ -309,16 +335,6 @@ macro_rules! implement_test_framework {
                     let rhs = operator.get_rhs();
                     let dim = points.len();
 
-                    let max_leaf_points: usize = 50;
-                    let tree: Octree<'_, SimpleCommunicator> = Octree::new(
-                        &points,
-                        self.test_params.scenario_params.max_tree_depth,
-                        max_leaf_points,
-                        &comm,
-                    );
-                    let global_number_of_points: usize = tree.global_number_of_points();
-                    let global_max_level: usize = tree.global_max_level();
-
                     let mut solves = Solves {
                         no_prec: None,
                         prec: None,
@@ -338,14 +354,35 @@ macro_rules! implement_test_framework {
                         Solve::False => {}
                     };
 
-                    if comm.rank() == 0 {
-                        println!(
-                            "Setup octree with {} points and maximum level {}",
-                            global_number_of_points, global_max_level
-                        );
-                    }
+                    let path_str = self.test_params.get_test_dir(dim_num);
+
+                    let test_path = Path::new(&path_str).join("test_file.h5");
+                    let sketch_path = Path::new(&path_str).join("sketch_file.h5");
+                    let _ = move_if_exists(test_path.to_str().unwrap(), ".");
+                    let _ = move_if_exists(sketch_path.to_str().unwrap(), ".");
 
                     for &id_tol in self.test_params.scenario_params.id_tols.iter() {
+                        let max_leaf_points = if id_tol < 1.0 {
+                            50
+                        } else {
+                            2 * id_tol.to_usize().unwrap()
+                        };
+                        let tree: Octree<'_, SimpleCommunicator> = Octree::new(
+                            &points,
+                            self.test_params.scenario_params.max_tree_depth,
+                            max_leaf_points,
+                            &comm,
+                        );
+                        let global_number_of_points: usize = tree.global_number_of_points();
+                        let global_max_level: usize = tree.global_max_level();
+
+                        if comm.rank() == 0 {
+                            println!(
+                                "Setup octree with {} points and maximum level {}",
+                                global_number_of_points, global_max_level
+                            );
+                        }
+
                         let mut solves = solves.clone();
 
                         println!("Test: {} points, tol:{}", dim, id_tol);
@@ -362,8 +399,6 @@ macro_rules! implement_test_framework {
 
                         let mut rsrs_operator =
                             RsrsOperator::from_local_spaces(&mut rsrs_factors, domain, range);
-
-                        let path_str = self.test_params.get_test_dir(dim_num);
 
                         match self.output_options.solve {
                             Solve::True(tol) => {
@@ -471,6 +506,9 @@ macro_rules! implement_test_framework {
                             }
                         }
                     }
+
+                    let _ = move_if_exists("test_file.h5", &path_str);
+                    let _ = move_if_exists("sketch_file.h5", &path_str);
                 }
             }
         }
@@ -586,12 +624,6 @@ macro_rules! implement_distributed_test_framework {
 
                     println!("{} degrees of freedom", dim);
 
-                    let max_leaf_points: usize = 50;
-                    let tree: Octree<'_, SimpleCommunicator> =
-                        Octree::new(&points, self.test_params.scenario_params.max_tree_depth, max_leaf_points, &comm);
-                    let global_number_of_points: usize = tree.global_number_of_points();
-                    let global_max_level: usize = tree.global_max_level();
-
                     let mut solves = Solves {
                         no_prec: None,
                         prec: None,
@@ -611,14 +643,34 @@ macro_rules! implement_distributed_test_framework {
                         Solve::False => {},
                     };
 
-                    if comm.rank() == 0 {
-                        println!(
-                            "Setup octree with {} points and maximum level {}",
-                            global_number_of_points, global_max_level
-                        );
-                    }
+                    let path_str = self.test_params.get_test_dir(dim_num);
+
+                    let test_path = Path::new(&path_str).join("test_file.h5");
+                    let sketch_path = Path::new(&path_str).join("sketch_file.h5");
+                    let _ = move_if_exists(test_path.to_str().unwrap(), ".");
+                    let _ = move_if_exists(sketch_path.to_str().unwrap(), ".");
 
                     for &id_tol in self.test_params.scenario_params.id_tols.iter() {
+
+                        let max_leaf_points = if id_tol < 1.0 {
+                            50
+                        } else {
+                            2 * id_tol.to_usize().unwrap()
+                        };
+
+                        let tree: Octree<'_, SimpleCommunicator> =
+                            Octree::new(&points, self.test_params.scenario_params.max_tree_depth, max_leaf_points, &comm);
+                        let global_number_of_points: usize = tree.global_number_of_points();
+                        let global_max_level: usize = tree.global_max_level();
+
+
+                        if comm.rank() == 0 {
+                            println!(
+                                "Setup octree with {} points and maximum level {}",
+                                global_number_of_points, global_max_level
+                            );
+                        }
+
                         let mut solves = solves.clone();
 
                         println!("Test: {} points, tol:{}", dim, id_tol);
@@ -629,7 +681,7 @@ macro_rules! implement_distributed_test_framework {
                             Rsrs::new(&tree, self.test_params.rsrs_params.clone(), dim);
                         let mut rsrs_operator = rsrs_algo.get_rsrs_operator(operator.r());
 
-                        let path_str = self.test_params.get_test_dir(dim_num);
+
 
                         match self.output_options.solve {
                             Solve::True(tol) => {
@@ -726,6 +778,8 @@ macro_rules! implement_distributed_test_framework {
                             }
                         }
                     }
+                    let _ = move_if_exists("test_file.h5", &path_str);
+                    let _ = move_if_exists("sketch_file.h5", &path_str);
                 }
             }
         }
