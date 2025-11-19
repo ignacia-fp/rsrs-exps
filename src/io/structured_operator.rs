@@ -52,7 +52,7 @@ extern "C" {
     // Geometry / info
     // -------------------------
     fn get_points(structured_operator: *mut StructuredOperatorOpaque) -> *const f64;
-    fn get_condition_number(structured_operator: *mut StructuredOperatorOpaque) -> f64;
+    //fn get_condition_number(structured_operator: *mut StructuredOperatorOpaque) -> f64;
     fn get_n_points(structured_operator: *mut StructuredOperatorOpaque) -> usize;
 
     // -------------------------
@@ -69,6 +69,32 @@ extern "C" {
         n_rhs: *mut libc::c_int,
         len_out: *mut libc::c_int,
     ) -> *const *const num::Complex<f64>;
+
+    fn mv_structured_operator_real32(
+        op: *mut StructuredOperatorOpaque,
+        input: *const f32,
+        output: *mut f32,
+        len: libc::c_int,
+    ) -> libc::c_int;
+
+    fn mv_structured_operator_complex32(
+        op: *mut StructuredOperatorOpaque,
+        input: *const num::Complex<f32>,
+        output: *mut num::Complex<f32>,
+        len: libc::c_int,
+    ) -> libc::c_int;
+
+    fn get_all_real_rhs_f32(
+        op: *mut StructuredOperatorOpaque,
+        n_rhs: *mut libc::c_int,
+        len_out: *mut libc::c_int,
+    ) -> *const *const f32;
+
+    fn get_all_complex_rhs_f32(
+        op: *mut StructuredOperatorOpaque,
+        n_rhs: *mut libc::c_int,
+        len_out: *mut libc::c_int,
+    ) -> *const *const num::Complex<f32>;
 }
 
 #[derive(Clone)]
@@ -235,7 +261,8 @@ macro_rules! implement_structured_operator {
             }
 
             fn get_condition_number(&self) -> Real<Self::Item> {
-                unsafe { get_condition_number(self.raw) }
+                num::Zero::zero()
+                //unsafe { get_condition_number(self.raw) }
             }
         }
     };
@@ -249,6 +276,29 @@ pub fn rhs_real(structured_operator: &StructuredOperatorInterface) -> Option<Vec
     let mut len_out: libc::c_int = 0;
 
     let ptr = unsafe { get_all_real_rhs(structured_operator.raw, &mut n_rhs, &mut len_out) };
+    if ptr.is_null() || n_rhs <= 0 || len_out <= 0 {
+        return None;
+    }
+
+    let slice = unsafe { std::slice::from_raw_parts(ptr, n_rhs as usize) };
+    let mut all_rhs = Vec::with_capacity(n_rhs as usize);
+
+    for &rhs_ptr in slice.iter() {
+        if rhs_ptr.is_null() {
+            return None;
+        }
+        let rhs_slice = unsafe { std::slice::from_raw_parts(rhs_ptr, len_out as usize) };
+        all_rhs.push(rhs_slice.to_vec());
+    }
+
+    Some(all_rhs)
+}
+
+pub fn rhs_real32(structured_operator: &StructuredOperatorInterface) -> Option<Vec<Vec<f32>>> {
+    let mut n_rhs: libc::c_int = 0;
+    let mut len_out: libc::c_int = 0;
+
+    let ptr = unsafe { get_all_real_rhs_f32(structured_operator.raw, &mut n_rhs, &mut len_out) };
     if ptr.is_null() || n_rhs <= 0 || len_out <= 0 {
         return None;
     }
@@ -292,7 +342,34 @@ pub fn rhs_complex(
     Some(all_rhs)
 }
 
+pub fn rhs_complex32(
+    structured_operator: &StructuredOperatorInterface,
+) -> Option<Vec<Vec<num::Complex<f32>>>> {
+    let mut n_rhs: libc::c_int = 0;
+    let mut len_out: libc::c_int = 0;
+
+    let ptr = unsafe { get_all_complex_rhs_f32(structured_operator.raw, &mut n_rhs, &mut len_out) };
+    if ptr.is_null() || n_rhs <= 0 || len_out <= 0 {
+        return None;
+    }
+
+    let slice = unsafe { std::slice::from_raw_parts(ptr, n_rhs as usize) };
+    let mut all_rhs = Vec::with_capacity(n_rhs as usize);
+
+    for &rhs_ptr in slice.iter() {
+        if rhs_ptr.is_null() {
+            return None;
+        }
+        let rhs_slice = unsafe { std::slice::from_raw_parts(rhs_ptr, len_out as usize) };
+        all_rhs.push(rhs_slice.to_vec());
+    }
+
+    Some(all_rhs)
+}
+
+implement_structured_operator!(f32, mv_structured_operator_real32, rhs_real32);
 implement_structured_operator!(f64, mv_structured_operator_real, rhs_real);
+implement_structured_operator!(c32, mv_structured_operator_complex32, rhs_complex32);
 implement_structured_operator!(c64, mv_structured_operator_complex, rhs_complex);
 
 // -------------------------

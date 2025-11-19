@@ -170,6 +170,100 @@ int mv_structured_operator_complex(StructuredOperator* k,
   return 1;
 }
 
+int mv_structured_operator_real32(StructuredOperator* k, const float* input,
+                                  float* output, int len) {
+  if (!k || !k->pyobj) return 0;
+
+  npy_intp dims[1] = {len};
+
+  // Create NumPy array that views the input f32 buffer (no copy)
+  PyObject* input_array =
+      PyArray_SimpleNewFromData(1, dims, NPY_FLOAT32, (void*)input);
+  if (!input_array) return 0;
+
+  PyObject* result = PyObject_CallMethod(k->pyobj, "mv", "O", input_array);
+  Py_DECREF(input_array);
+
+  if (!result) {
+    PyErr_Print();
+    return 0;
+  }
+
+  if (!PyArray_Check(result)) {
+    Py_DECREF(result);
+    fprintf(stderr, "Error: mv() did not return a numpy array\n");
+    return 0;
+  }
+
+  PyArrayObject* arr = (PyArrayObject*)result;
+  if (PyArray_NDIM(arr) != 1 || PyArray_DIM(arr, 0) != len) {
+    fprintf(stderr, "Error: mv() output has incorrect shape\n");
+    Py_DECREF(result);
+    return 0;
+  }
+
+  if (PyArray_TYPE(arr) != NPY_FLOAT32) {
+    fprintf(stderr, "Error: mv() output has wrong dtype (expected float32)\n");
+    Py_DECREF(result);
+    return 0;
+  }
+
+  float* data = (float*)PyArray_DATA(arr);
+  for (int i = 0; i < len; ++i) {
+    output[i] = data[i];
+  }
+
+  Py_DECREF(result);
+  return 1;
+}
+
+int mv_structured_operator_complex32(StructuredOperator* k,
+                                     const float _Complex* input,
+                                     float _Complex* output, int len) {
+  if (!k || !k->pyobj) return 0;
+
+  npy_intp dims[1] = {len};
+  PyObject* input_array =
+      PyArray_SimpleNewFromData(1, dims, NPY_CFLOAT, (void*)input);
+  if (!input_array) return 0;
+
+  PyObject* result = PyObject_CallMethod(k->pyobj, "mv", "O", input_array);
+  Py_DECREF(input_array);
+
+  if (!result) {
+    PyErr_Print();
+    return 0;
+  }
+
+  if (!PyArray_Check(result)) {
+    Py_DECREF(result);
+    fprintf(stderr, "Error: mv() did not return a numpy array\n");
+    return 0;
+  }
+
+  PyArrayObject* arr = (PyArrayObject*)result;
+  if (PyArray_NDIM(arr) != 1 || PyArray_DIM(arr, 0) != len) {
+    fprintf(stderr, "Error: mv() output has incorrect shape\n");
+    Py_DECREF(result);
+    return 0;
+  }
+
+  if (PyArray_TYPE(arr) != NPY_CFLOAT) {
+    fprintf(stderr,
+            "Error: mv() output has wrong dtype (expected complex64)\n");
+    Py_DECREF(result);
+    return 0;
+  }
+
+  float _Complex* data = (float _Complex*)PyArray_DATA(arr);
+  for (int i = 0; i < len; ++i) {
+    output[i] = data[i];
+  }
+
+  Py_DECREF(result);
+  return 1;
+}
+
 // -------------------------
 // Geometry and condition
 // -------------------------
@@ -233,6 +327,61 @@ const double _Complex** get_all_complex_rhs(StructuredOperator* k, int* n_rhs,
       return NULL;
     }
     ptrs[i] = (const double _Complex*)PyArray_DATA((PyArrayObject*)arr);
+  }
+  return ptrs;
+}
+
+const float** get_all_real_rhs_f32(StructuredOperator* k, int* n_rhs,
+                                   int* len_out) {
+  if (!k || !k->rhs_list) return NULL;
+
+  *n_rhs = k->n_rhs;
+  *len_out = k->n_points;
+
+  const float** ptrs = (const float**)malloc(k->n_rhs * sizeof(float*));
+  if (!ptrs) return NULL;
+
+  for (int i = 0; i < k->n_rhs; ++i) {
+    PyObject* arr = PyList_GetItem(k->rhs_list, i);
+    if (!PyArray_Check(arr)) {
+      free(ptrs);
+      return NULL;
+    }
+    PyArrayObject* a = (PyArrayObject*)arr;
+    if (PyArray_TYPE(a) != NPY_FLOAT32) {
+      fprintf(stderr, "Error: RHS[%d] is not float32\n", i);
+      free(ptrs);
+      return NULL;
+    }
+    ptrs[i] = (const float*)PyArray_DATA(a);
+  }
+  return ptrs;
+}
+
+const float _Complex** get_all_complex_rhs_f32(StructuredOperator* k,
+                                               int* n_rhs, int* len_out) {
+  if (!k || !k->rhs_list) return NULL;
+
+  *n_rhs = k->n_rhs;
+  *len_out = k->n_points;
+
+  const float _Complex** ptrs =
+      (const float _Complex**)malloc(k->n_rhs * sizeof(float _Complex*));
+  if (!ptrs) return NULL;
+
+  for (int i = 0; i < k->n_rhs; ++i) {
+    PyObject* arr = PyList_GetItem(k->rhs_list, i);
+    if (!PyArray_Check(arr)) {
+      free(ptrs);
+      return NULL;
+    }
+    PyArrayObject* a = (PyArrayObject*)arr;
+    if (PyArray_TYPE(a) != NPY_CFLOAT) {
+      fprintf(stderr, "Error: complex RHS[%d] is not complex64\n", i);
+      free(ptrs);
+      return NULL;
+    }
+    ptrs[i] = (const float _Complex*)PyArray_DATA(a);
   }
   return ptrs;
 }

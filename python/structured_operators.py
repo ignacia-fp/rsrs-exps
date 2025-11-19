@@ -191,7 +191,7 @@ class KiFMMLaplaceOperator(BaseStructuredOperator):
                 self.rhs_data_type = np.float32
             else:
                 self.rhs_data_type = np.float64
-            
+            print("Precision:", self.rhs_data_type)
             self.operator_type = 'real'
             self.operator_type = 'KiFMMLaplaceOperator'
             points = self.points.ravel()

@@ -90,6 +90,7 @@ class RSRSBenchmarkConfig:
         n_sources: int = 1,
         save_samples: bool = True,
         num_threads: int = 64,
+        min_num_samples: int = 0,
     ):
         
         """
@@ -339,6 +340,7 @@ class RSRSBenchmarkConfig:
         self.diag_stab = diag_stab
         self.op_stabilisation = op_stabilisation
         self.fact_type = fact_type
+        self.min_num_samples = min_num_samples
 
         # Store other parameters
         self.h = h ## Characteristic meshwidth
@@ -433,6 +435,7 @@ class RSRSBenchmarkConfig:
         return {
             "oversampling": self.oversampling_near,  ## Oversampling for each individual block
             "oversampling_diag_blocks": self.oversampling_diag,  ## Oversampling used when extracting diagonal blocks when RSRS finishes
+            "min_num_samples": self.min_num_samples,
             "initial_num_samples": 20,  ## Initial num samples: useful only when sampling is done in parallel way (not active yet)
             "stabilise": stab(self.op_stabilisation),
             "null_method": self.null_methods[self.null_method_index],

@@ -326,8 +326,8 @@ macro_rules! implement_test_framework {
                             .clone(),
                         self.test_params.scenario_params.precision.clone(),
                         self.test_params.scenario_params.geometry_type.clone(),
-                        dim_arg.0,
-                        dim_arg.1,
+                        dim_arg.0.into(),
+                        dim_arg.1.into(),
                         self.test_params.scenario_params.n_sources,
                     );
 
@@ -431,7 +431,7 @@ macro_rules! implement_test_framework {
                                 save_time_stats(&rsrs_algo, id_tol, &path_str);
                                 save_rank_stats(&rsrs_algo, id_tol, &path_str);
                                 if self.output_options.plot {
-                                    time_piechart(id_tol, &path_str);
+                                    time_piechart(id_tol.into(), &path_str);
                                 }
 
                                 if self.output_options.factors_cn {
@@ -506,7 +506,7 @@ macro_rules! implement_test_framework {
                                 }
 
                                 if self.output_options.plot {
-                                    time_piechart(id_tol, &path_str);
+                                    time_piechart(id_tol.into(), &path_str);
                                 }
                             }
                         }
@@ -519,7 +519,7 @@ macro_rules! implement_test_framework {
         }
     };
 }
-
+implement_test_framework!(f32);
 implement_test_framework!(f64);
 implement_test_framework!(c64);
 
@@ -713,7 +713,7 @@ macro_rules! implement_distributed_test_framework {
                                 save_time_stats(&rsrs_algo, id_tol, &path_str);
                                 save_rank_stats(&rsrs_algo, id_tol, &path_str);
                                 if self.output_options.plot {
-                                    time_piechart(id_tol, &path_str);
+                                    time_piechart(id_tol.into(), &path_str);
                                 }
 
                                 if self.output_options.factors_cn{
@@ -778,7 +778,7 @@ macro_rules! implement_distributed_test_framework {
                                 }
 
                                 if self.output_options.plot {
-                                    time_piechart(id_tol, &path_str);
+                                    time_piechart(id_tol.into(), &path_str);
                                 }
                             }
                         }

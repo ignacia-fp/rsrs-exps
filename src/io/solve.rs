@@ -15,7 +15,7 @@ pub fn solve_system<
 >(
     target_op: &OpImpl,
     rhs_list: &[Element<rlst::operator::ConcreteElementContainer<<Space as LinearSpace>::E>>],
-    tol: <Item as RlstScalar>::Real,
+    tol: f64,
 ) -> (
     Vec<Vec<<Item as RlstScalar>::Real>>, // GMRES residuals
     Vec<<Item as RlstScalar>::Real>,      // relative norm
@@ -79,7 +79,7 @@ pub fn solve_prec_system<
     target_op: &OpImpl,
     rsrs_operator: &OpImpl2,
     rhs_list: &[Element<rlst::operator::ConcreteElementContainer<<Space as LinearSpace>::E>>],
-    tol: <Item as RlstScalar>::Real,
+    tol: f64,
 ) -> (
     Vec<Vec<<Item as RlstScalar>::Real>>, // GMRES residuals
     Vec<<Item as RlstScalar>::Real>,      // relative norm

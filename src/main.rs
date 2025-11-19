@@ -148,7 +148,19 @@ where
             .expect("Could not determine ScalarType");
 
         match dtype {
-            ScalarType::F32 | ScalarType::C32 => panic!("Single precision not implemented"),
+            ScalarType::F32 => {
+                let scenario_options =
+                    ScenarioOptions::new(None::<ScenarioArgs<f32>>, data_type.clone());
+                let rsrs_options = RsrsOptions::<f32>::new(None::<RsrsArgs<f32>>);
+                let output_options =
+                    OutputOptions::new(Solve::True(1e-5), false, false, false, Results::All);
+                let mut test_framework =
+                    TestFramework::<f32>::new(scenario_options, rsrs_options, output_options);
+                <TestFramework<f32> as TestFrameworkImpl<f32, ArrayVectorSpace<f32>>>::run_tests(
+                    &mut test_framework,
+                );
+            }
+            ScalarType::C32 => panic!("Single precision not implemented"),
 
             ScalarType::F64 => {
                 let scenario_options =

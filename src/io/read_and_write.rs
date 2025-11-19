@@ -8,6 +8,7 @@ use bempp_rsrs::rsrs::{
     rsrs_cycle::Rsrs,
     rsrs_factors::{IdTimes, LuTimes},
 };
+use num::FromPrimitive;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 use rand_distr::{Distribution, Standard, StandardNormal};
@@ -249,7 +250,7 @@ where
 
 pub fn save_error_stats<
     'a,
-    Item: RlstScalar<Real = f64>
+    Item: RlstScalar
         + RandScalar
         + MatrixInverse
         + MatrixPseudoInverse
@@ -287,21 +288,21 @@ pub fn save_error_stats<
     stats_path.push_str(".json");
 
     rsrs_operator.inv(false);
-
+    let tol_eigs = <Space::F as RlstScalar>::Real::from_f64(1e-10).unwrap();
     let (app_err_left, app_err_right) =
         rsrs_error_estimator(structured_operator_op, rsrs_operator, 10, false);
 
     let diff = DiffOperator(structured_operator_op.r(), rsrs_operator.r());
     let normal = NormalOperator(diff.r());
-    let mut eigs1 = Eigs::new(normal.r(), 1e-10, None, None, None);
+    let mut eigs1 = Eigs::new(normal.r(), tol_eigs, None, None, None);
     let (sigma_1, _) = eigs1.run(None, 1, None, false);
 
     let normal_structured = NormalOperator(structured_operator_op.r());
-    let mut eigs2 = Eigs::new(normal_structured.r(), 1e-10, None, None, None);
+    let mut eigs2 = Eigs::new(normal_structured.r(), tol_eigs, None, None, None);
     let (sigma_2, _) = eigs2.run(None, 1, None, false);
 
     let normal_rsrs = NormalOperator(rsrs_operator.r());
-    let mut eigs3 = Eigs::new(normal_rsrs.r(), 1e-10, None, None, None);
+    let mut eigs3 = Eigs::new(normal_rsrs.r(), tol_eigs, None, None, None);
     let (c_1, _) = eigs3.run(None, 1, None, false);
 
     let norm_2_error = sigma_1[0].abs().sqrt() / sigma_2[0].abs().sqrt();
@@ -316,11 +317,11 @@ pub fn save_error_stats<
     let diff = DiffOperator(prod1.r(), id_op.r());
     let normal = NormalOperator(diff.r());
 
-    let mut eigs1 = Eigs::new(normal.r(), 1e-10, None, None, None);
+    let mut eigs1 = Eigs::new(normal.r(), tol_eigs, None, None, None);
     let (sigma_1, _) = eigs1.run(None, 1, None, false);
 
     let normal_rsrs = NormalOperator(rsrs_operator.r());
-    let mut eigs2 = Eigs::new(normal_rsrs.r(), 1e-10, None, None, None);
+    let mut eigs2 = Eigs::new(normal_rsrs.r(), tol_eigs, None, None, None);
     let (c_2, _) = eigs2.run(None, 1, None, false);
 
     let norm_2_error_inv = sigma_1[0].abs().sqrt();
