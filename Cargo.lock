@@ -270,7 +270,7 @@ dependencies = [
 [[package]]
 name = "bempp-rsrs"
 version = "0.0.1-dev"
-source = "git+https://github.com/bempp/rsrs.git?branch=edit_steps_order#503b8230ec215097ec40a7db3a3a05f1ce29c7b7"
+source = "git+https://github.com/bempp/rsrs.git?branch=edit_steps_order#4d167f9c817d8a5d3c4b8e33b9de88f16d95bdcd"
 dependencies = [
  "bempp-octree",
  "cbindgen 0.29.2",
