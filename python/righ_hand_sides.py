@@ -122,9 +122,7 @@ def right_hand_side(operator, problem_type, n_sources=1):
                                1j * np.random.rand(operator.n_points)).astype(rhs_dtype)
         else:
             gen_vec = lambda: np.random.rand(operator.n_points).astype(rhs_dtype)
-
-        n_sources = 10 if n_sources else 1
-        return [gen_vec() for _ in range(n_sources)]
+        return [gen_vec().ravel() for _ in range(n_sources)]
 
     # ---------------------------------------------------------------------
     # LAPACE SINGLE LAYER

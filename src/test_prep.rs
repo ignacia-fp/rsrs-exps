@@ -172,7 +172,12 @@ impl<Item: RlstScalar> TestParams<Item> {
                 )
             };
 
-            format!("{}_{}_{}", geometry, structured_operator, dim_pred)
+            let threads = format!("num_threads_{}", self.rsrs_params.num_threads);
+
+            format!(
+                "{}_{}_{}_{}",
+                geometry, structured_operator, dim_pred, threads
+            )
         } else {
             let (h, kappa) = self.scenario_params.dim_args[dim_num];
             let dim_pred = format!(
@@ -180,9 +185,10 @@ impl<Item: RlstScalar> TestParams<Item> {
                 h, self.scenario_params.max_tree_depth
             );
             let kappa = format!("{:.2}", kappa);
+            let threads = format!("num_threads_{}", self.rsrs_params.num_threads);
             format!(
-                "{}_{}_{}_{}",
-                geometry, structured_operator, dim_pred, kappa
+                "{}_{}_{}_{}_{}",
+                geometry, structured_operator, dim_pred, kappa, threads
             )
         };
 
@@ -363,9 +369,9 @@ macro_rules! implement_test_framework {
 
                     for &id_tol in self.test_params.scenario_params.id_tols.iter() {
                         let max_leaf_points = if id_tol < 1.0 {
-                            50
+                            100
                         } else {
-                            2 * id_tol.to_usize().unwrap()
+                            (1.2 * id_tol).to_usize().unwrap()
                         };
                         let tree: Octree<'_, SimpleCommunicator> = Octree::new(
                             &points,
@@ -399,7 +405,6 @@ macro_rules! implement_test_framework {
 
                         let mut rsrs_operator =
                             RsrsOperator::from_local_spaces(&mut rsrs_factors, domain, range);
-
                         match self.output_options.solve {
                             Solve::True(tol) => {
                                 rsrs_operator.inv(true);
@@ -482,14 +487,14 @@ macro_rules! implement_test_framework {
                                 }
                             }
                             Results::Time => {
-                                save_error_stats(
+                                /*save_error_stats(
                                     &operator,
                                     &mut rsrs_operator,
                                     &rsrs_algo,
                                     solves,
                                     id_tol,
                                     &path_str,
-                                );
+                                );*/
                                 save_time_stats(&rsrs_algo, id_tol, &path_str);
 
                                 if self.output_options.factors_cn {
@@ -653,9 +658,9 @@ macro_rules! implement_distributed_test_framework {
                     for &id_tol in self.test_params.scenario_params.id_tols.iter() {
 
                         let max_leaf_points = if id_tol < 1.0 {
-                            50
+                            100
                         } else {
-                            2 * id_tol.to_usize().unwrap()
+                            (1.2 * id_tol).to_usize().unwrap()
                         };
 
                         let tree: Octree<'_, SimpleCommunicator> =
@@ -757,14 +762,14 @@ macro_rules! implement_distributed_test_framework {
                                 }
                             }
                             Results::Time => {
-                                save_error_stats(
+                                /*save_error_stats(
                                     &operator,
                                     &mut rsrs_operator,
                                     &rsrs_algo,
                                     solves,
                                     id_tol,
                                     &path_str,
-                                );
+                                );*/
                                 save_time_stats(&rsrs_algo, id_tol, &path_str);
 
                                 if self.output_options.factors_cn{

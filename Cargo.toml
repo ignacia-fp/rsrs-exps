@@ -53,7 +53,7 @@ strum_macros = "0.24"
 regex = "1"
 bempp-quadrature = "0.1.0"
 env_logger = "0.11"
-
+num_cpus = "1.16"
 
 [profile.release]
 debug = 1

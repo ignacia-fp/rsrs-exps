@@ -88,7 +88,8 @@ class RSRSBenchmarkConfig:
         tol_ext_diag = 1e-16,
         fact_type = 1,
         n_sources: int = 1,
-        save_samples: bool = True
+        save_samples: bool = True,
+        num_threads: int = 64,
     ):
         
         """
@@ -362,6 +363,7 @@ class RSRSBenchmarkConfig:
         self.tol_ext_diag = tol_ext_diag
         self.n_sources = n_sources
         self.save_samples = save_samples
+        self.num_threads = num_threads
 
         if self.dim_arg_types[self.dim_arg_type_index] == "RefinementLevelAndDepth":
             if self.ref_level is None or self.depth is None:
@@ -448,7 +450,8 @@ class RSRSBenchmarkConfig:
             "hermitian": True,  ## Indicates if we should run RSRS for hermitian matrices (half the time and memory)
             "rank_picking": self.rank_pickings[self.rank_picking_index],
             "fact_type": self.fact_types[self.fact_type],
-            "save_samples": self.save_samples
+            "save_samples": self.save_samples,
+            "num_threads": self.num_threads
         }
 
     def as_dict(self) -> Dict[str, Dict]:
@@ -471,13 +474,21 @@ class RSRSBenchmarkConfig:
         bash_lines = [
             "#!/bin/bash",
             "export OPENBLAS_NUM_THREADS=1",
+            "export MKL_NUM_THREADS=1",
+            "export MKL_DOMAIN_NUM_THREADS=1",
+            "export MKL_DYNAMIC=FALSE",
+            "export GOTO_NUM_THREADS=1",
+            "export BLIS_NUM_THREADS=1",
+            "export VECLIB_MAXIMUM_THREADS=1",
+            "export OMP_NUM_THREADS=1",
+            "export OMP_DYNAMIC=FALSE",
         ]
 
-        if rayon_threads is not None:
-            bash_lines.append(f"export RAYON_NUM_THREADS={rayon_threads}")
-        else:
+        #if rayon_threads is not None:
+        #    bash_lines.append(f"export RAYON_NUM_THREADS={rayon_threads}")
+        #else:
             # Explicitly clear RAYON_NUM_THREADS to ensure all cores are used
-            bash_lines.append("unset RAYON_NUM_THREADS")
+        bash_lines.append("unset RAYON_NUM_THREADS")
 
         bash_lines.append(
             f"cargo run --release '{data_type_args_json}' '{scenario_args_json}' '{rsrs_args_json}' '{output_args_json}'"
@@ -1463,7 +1474,7 @@ class RSRSBenchmarkConfig:
                 raise ValueError(f"Unexpected solution shape {arr.shape}")
         return solutions
 
-    def get_far_field(self, tol=1e-2, n_grid_points=150, plane=0, lims = [-1,1,-1,1]):
+    def get_far_field(self, tol=1e-2, n_grid_points=150, plane=0, lims = [-1,1,-1,1], c=0.0):
         import bempp_cl.api
         import matplotlib
         matplotlib.rcParams["figure.figsize"] = (5.0, 4.0)
@@ -1478,13 +1489,13 @@ class RSRSBenchmarkConfig:
         plot_grid = np.mgrid[lims[0] : lims[1] : n_grid_points * 1j, lims[2] : lims[3] : n_grid_points * 1j]
         if plane == 0:
             # xy plane
-            points = np.vstack((plot_grid[0].ravel(), plot_grid[1].ravel(), np.zeros(plot_grid[0].size)))
+            points = np.vstack((plot_grid[0].ravel(), plot_grid[1].ravel(), np.zeros(plot_grid[0].size) + c))
         elif plane ==1:
             # xz plane
-            points = np.vstack((plot_grid[0].ravel(), np.zeros(plot_grid[0].size), plot_grid[1].ravel()))
+            points = np.vstack((plot_grid[0].ravel(), np.zeros(plot_grid[0].size) + c, plot_grid[1].ravel()))
         else:
             # yz plane
-            points = np.vstack((np.zeros(plot_grid[0].size),plot_grid[0].ravel(), plot_grid[1].ravel()))
+            points = np.vstack((np.zeros(plot_grid[0].size) + c,plot_grid[0].ravel(), plot_grid[1].ravel()))
         if self.structured_operator_types[self.operator_type_index] == "BemppClLaplaceSingleLayer":
             space = bempp_cl.api.function_space(grid, "DP", 0)
             dual_space = space
@@ -1497,18 +1508,24 @@ class RSRSBenchmarkConfig:
             space = bempp_cl.api.function_space(grid, "RWG", 0)
             dual_space = space
             slp_pot = bempp_cl.api.operators.potential.maxwell.electric_field(space, points, self.kappa)
+        elif self.structured_operator_types[self.operator_type_index] == "BemppClCombinedHelmholtz":
+            space = bempp_cl.api.function_space(grid, "DP", 0)
+            dual_space = space
+            slp_pot = bempp_cl.api.operators.potential.helmholtz.single_layer(space, points, self.kappa)
         for i, sol in enumerate(sols):
             sol_fun = bempp_cl.api.GridFunction(space, projections=sol, dual_space=dual_space)
             far_field = slp_pot * sol_fun
             if self.structured_operator_types[self.operator_type_index] == "BemppClMaxwellEfie":
                 scattered_field = np.real(np.sum(far_field * far_field.conj(), axis=0))
+            elif self.structured_operator_types[self.operator_type_index] == "BemppClCombinedHelmholtz":
+                scattered_field = np.real(np.exp(1j * self.kappa * points[plane]) - far_field)
             else:
                 scattered_field = far_field
             scattered_field = scattered_field.reshape((n_grid_points, n_grid_points))
             plt.imshow(np.abs(scattered_field.T))
             plt.title("Computed solution")
             plt.colorbar()
-            sol_path = Path(os.getcwd()) / "results" / folder / subfolder / f"scattered_field_{i}.png"
+            sol_path = Path(os.getcwd()) / "results" / folder / subfolder / f"scattered_field_{plane}_{i}_{c}.png"
             plt.savefig(sol_path)
             plt.close()
 
@@ -1542,6 +1559,10 @@ class RSRSBenchmarkConfig:
             space = bempp_cl.api.function_space(grid, "DP", 0)
             dual_space = space
             slp_pot = bempp_cl.api.operators.potential.helmholtz.single_layer(space, unit_points, self.kappa)
+        elif self.structured_operator_types[self.operator_type_index] == "BemppClCombinedHelmholtz":
+            space = bempp_cl.api.function_space(grid, "DP", 0)
+            dual_space = space
+            slp_pot = bempp_cl.api.operators.potential.helmholtz.single_layer(space, unit_points, self.kappa)
         elif self.structured_operator_types[self.operator_type_index] == "BemppClMaxwellEfie":
             space = bempp_cl.api.function_space(grid, "RWG", 0)
             dual_space = space
@@ -1568,6 +1589,6 @@ class RSRSBenchmarkConfig:
             ax.set_rlabel_position(225)      # move radial labels away from main lobe
         ax.set_title("Scattering Cross Section [dB]", va='bottom')
 
-        sol_path = Path(os.getcwd()) / "results" / folder / subfolder / f"rcs.png"
+        sol_path = Path(os.getcwd()) / "results" / folder / subfolder / f"rcs_{plane}.png"
         plt.savefig(sol_path)
 

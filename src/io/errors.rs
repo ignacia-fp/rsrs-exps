@@ -643,6 +643,7 @@ where
         side: Side::Left,
         factor_type: FactorType::F,
         t_trans: false,
+        num_threads: num_cpus::get(),
     };
 
     if get_factors_errors {
@@ -723,6 +724,7 @@ where
         side: Side::Left,
         factor_type: FactorType::F,
         t_trans: false,
+        num_threads: num_cpus::get(),
     };
 
     let factor_options_right = MulOptions {
@@ -731,6 +733,7 @@ where
         side: Side::Right,
         factor_type: FactorType::S,
         t_trans: false,
+        num_threads: num_cpus::get(),
     };
 
     let errors: Vec<_> = factors
@@ -779,6 +782,7 @@ where
                         side: Side::Left,
                         factor_type: FactorType::F,
                         t_trans: false,
+                        num_threads: num_cpus::get(),
                     };
                     diag_box_factor.arr.mul(&mut app_dbox, Side::Left, &options);
 
@@ -797,6 +801,7 @@ where
                         side: Side::Left,
                         factor_type: FactorType::F,
                         t_trans: false,
+                        num_threads: num_cpus::get(),
                     };
 
                     diag_box_factor

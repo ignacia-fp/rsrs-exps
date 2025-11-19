@@ -94,11 +94,11 @@ def get_geometry(geometry_type, dim_param):
     elif geometry_type == 'ellipsoid_surface':
         return bempp_cl.api.shapes.ellipsoid(h=dim_param)
     elif geometry_type == 'trefoil_knot':
-        random_points_in_trefoil_knot(n_points=dim_param)
+        return random_points_in_trefoil_knot(n_points=dim_param)
     elif geometry_type == 'sphere': 
-        random_points_in_sphere(n_points=dim_param)
+        return random_points_in_sphere(n_points=dim_param)
     elif geometry_type == 'cube': 
-        random_points_in_cube(n_points=dim_param)
+        return random_points_in_cube(n_points=dim_param)
     elif geometry_type == 'sheets':
         corners1 = np.array([[-.5, -1, 0],
                              [-.5, 1, 0],
