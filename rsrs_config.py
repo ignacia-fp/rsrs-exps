@@ -501,8 +501,7 @@ class RSRSBenchmarkConfig:
             f.write("\n".join(bash_lines) + "\n")
 
         subprocess.run(["chmod", "+x", filename], check=True)
-
-
+        
     def generate_folder_name(self) -> str:
         geom = camel_to_snake(self.geometry_types[self.geometry])
         op = self.structured_operator_types[self.operator_type_index]
