@@ -264,6 +264,131 @@ int mv_structured_operator_complex32(StructuredOperator* k,
   return 1;
 }
 
+// ================================
+// Transposed matrix-vector product
+// ================================
+int mv_structured_operator_real_trans(StructuredOperator* k,
+                                      const double* input, double* output,
+                                      int len) {
+  if (!k || !k->pyobj) return 0;
+
+  npy_intp dims[1] = {len};
+  PyObject* input_array =
+      PyArray_SimpleNewFromData(1, dims, NPY_DOUBLE, (void*)input);
+  if (!input_array) return 0;
+
+  // Call Python method "mv_trans"
+  PyObject* result =
+      PyObject_CallMethod(k->pyobj, "mv_trans", "O", input_array);
+  Py_DECREF(input_array);
+
+  if (!result) {
+    PyErr_Print();
+    return 0;
+  }
+  if (!PyArray_Check(result)) {
+    fprintf(stderr, "mv_trans() did not return numpy array\n");
+    Py_DECREF(result);
+    return 0;
+  }
+
+  PyArrayObject* arr = (PyArrayObject*)result;
+  if (PyArray_NDIM(arr) != 1 || PyArray_DIM(arr, 0) != len) {
+    fprintf(stderr, "mv_trans() output wrong length\n");
+    Py_DECREF(result);
+    return 0;
+  }
+
+  double* data = (double*)PyArray_DATA(arr);
+  for (int i = 0; i < len; ++i) output[i] = data[i];
+
+  Py_DECREF(result);
+  return 1;
+}
+
+int mv_structured_operator_complex_trans(StructuredOperator* k,
+                                         const double _Complex* input,
+                                         double _Complex* output, int len) {
+  if (!k || !k->pyobj) return 0;
+
+  npy_intp dims[1] = {len};
+  PyObject* input_array =
+      PyArray_SimpleNewFromData(1, dims, NPY_CDOUBLE, (void*)input);
+  if (!input_array) return 0;
+
+  PyObject* result =
+      PyObject_CallMethod(k->pyobj, "mv_trans", "O", input_array);
+  Py_DECREF(input_array);
+
+  if (!result) {
+    PyErr_Print();
+    return 0;
+  }
+  if (!PyArray_Check(result)) {
+    Py_DECREF(result);
+    return 0;
+  }
+
+  PyArrayObject* arr = (PyArrayObject*)result;
+  if (PyArray_DIM(arr, 0) != len) {
+    Py_DECREF(result);
+    return 0;
+  }
+
+  double _Complex* data = (double _Complex*)PyArray_DATA(arr);
+  for (int i = 0; i < len; ++i) output[i] = data[i];
+  Py_DECREF(result);
+  return 1;
+}
+
+int mv_structured_operator_real32_trans(StructuredOperator* k,
+                                        const float* input, float* output,
+                                        int len) {
+  if (!k || !k->pyobj) return 0;
+
+  npy_intp dims[1] = {len};
+  PyObject* input_array =
+      PyArray_SimpleNewFromData(1, dims, NPY_FLOAT32, (void*)input);
+
+  PyObject* result =
+      PyObject_CallMethod(k->pyobj, "mv_trans", "O", input_array);
+  Py_DECREF(input_array);
+  if (!result) return 0;
+
+  if (!PyArray_Check(result) || PyArray_DIM((PyArrayObject*)result, 0) != len)
+    return 0;
+
+  float* data = (float*)PyArray_DATA((PyArrayObject*)result);
+  for (int i = 0; i < len; ++i) output[i] = data[i];
+
+  Py_DECREF(result);
+  return 1;
+}
+
+int mv_structured_operator_complex32_trans(StructuredOperator* k,
+                                           const float _Complex* input,
+                                           float _Complex* output, int len) {
+  if (!k || !k->pyobj) return 0;
+
+  npy_intp dims[1] = {len};
+  PyObject* input_array =
+      PyArray_SimpleNewFromData(1, dims, NPY_CFLOAT, (void*)input);
+
+  PyObject* result =
+      PyObject_CallMethod(k->pyobj, "mv_trans", "O", input_array);
+  Py_DECREF(input_array);
+  if (!result) return 0;
+
+  if (!PyArray_Check(result) || PyArray_DIM((PyArrayObject*)result, 0) != len)
+    return 0;
+
+  float _Complex* data = (float _Complex*)PyArray_DATA((PyArrayObject*)result);
+  for (int i = 0; i < len; ++i) output[i] = data[i];
+
+  Py_DECREF(result);
+  return 1;
+}
+
 // -------------------------
 // Geometry and condition
 // -------------------------

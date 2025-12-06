@@ -48,6 +48,34 @@ extern "C" {
         len: libc::c_int,
     ) -> libc::c_int;
 
+    fn mv_structured_operator_real_trans(
+        structured_operator: *mut StructuredOperatorOpaque,
+        input: *const f64,
+        output: *mut f64,
+        len: libc::c_int,
+    ) -> libc::c_int;
+
+    fn mv_structured_operator_complex_trans(
+        structured_operator: *mut StructuredOperatorOpaque,
+        input: *const num::Complex<f64>,
+        output: *mut num::Complex<f64>,
+        len: libc::c_int,
+    ) -> libc::c_int;
+
+    fn mv_structured_operator_real32_trans(
+        op: *mut StructuredOperatorOpaque,
+        input: *const f32,
+        output: *mut f32,
+        len: libc::c_int,
+    ) -> libc::c_int;
+
+    fn mv_structured_operator_complex32_trans(
+        op: *mut StructuredOperatorOpaque,
+        input: *const num::Complex<f32>,
+        output: *mut num::Complex<f32>,
+        len: libc::c_int,
+    ) -> libc::c_int;
+
     // -------------------------
     // Geometry / info
     // -------------------------
@@ -150,17 +178,18 @@ impl StructuredOperatorParams {
     }
 }
 
-type BemppRsOperator<T> = Operator<T>;
+/*type BemppRsOperator<T> = Operator<T>;
 pub enum StructuredOperatorImplType<T: OperatorBase + AsApply> {
     Python(StructuredOperatorInterface),
     Rust(BemppRsOperator<T>),
-}
+}*/
 
 type Real<T> = <T as rlst::RlstScalar>::Real;
 pub trait StructuredOperatorImpl<Item: RlstScalar> {
     type Item: RlstScalar;
     fn new(params: &StructuredOperatorParams) -> Self;
     fn mv(&self, input: &[Item], output: &mut [Item]);
+    fn mv_trans(&self, input: &[Item], output: &mut [Item]);
     fn get_points(&self) -> Option<Vec<Point>>;
     fn rhs(&self) -> Vec<Vec<Self::Item>>; // updated to multi-RHS
     fn get_condition_number(&self) -> Real<Self::Item>;
@@ -187,7 +216,7 @@ print(sys.prefix)
 }
 
 macro_rules! implement_structured_operator {
-    ($scalar:ty, $mv:expr, $rhs_fn:expr) => {
+    ($scalar:ty, $mv:expr, $mv_t:expr, $rhs_fn:expr) => {
         impl StructuredOperatorImpl<$scalar> for StructuredOperatorInterface {
             type Item = $scalar;
 
@@ -248,6 +277,19 @@ macro_rules! implement_structured_operator {
                             self.n_points as libc::c_int
                         ) != 0,
                         "mv_structured_operator call failed"
+                    );
+                }
+            }
+
+            fn mv_trans(&self, input: &[Self::Item], output: &mut [Self::Item]) {
+                unsafe {
+                    assert!(
+                        $mv_t(
+                            self.raw,
+                            input.as_ptr(),
+                            output.as_mut_ptr(),
+                            self.n_points as libc::c_int
+                        ) != 0
                     );
                 }
             }
@@ -367,10 +409,30 @@ pub fn rhs_complex32(
     Some(all_rhs)
 }
 
-implement_structured_operator!(f32, mv_structured_operator_real32, rhs_real32);
-implement_structured_operator!(f64, mv_structured_operator_real, rhs_real);
-implement_structured_operator!(c32, mv_structured_operator_complex32, rhs_complex32);
-implement_structured_operator!(c64, mv_structured_operator_complex, rhs_complex);
+implement_structured_operator!(
+    f32,
+    mv_structured_operator_real32,
+    mv_structured_operator_real32_trans,
+    rhs_real32
+);
+implement_structured_operator!(
+    f64,
+    mv_structured_operator_real,
+    mv_structured_operator_real_trans,
+    rhs_real
+);
+implement_structured_operator!(
+    c32,
+    mv_structured_operator_complex32,
+    mv_structured_operator_complex32_trans,
+    rhs_complex32
+);
+implement_structured_operator!(
+    c64,
+    mv_structured_operator_complex,
+    mv_structured_operator_complex_trans,
+    rhs_complex
+);
 
 // -------------------------
 // Convert 1D points array to Bempp Points
@@ -521,9 +583,13 @@ impl<Item: RlstScalar, Op: StructuredOperatorImpl<Item> + Shape<2>> AsApply
         trans_mode: TransMode,
     ) {
         match trans_mode {
-            TransMode::NoTrans | TransMode::Trans => {
+            TransMode::NoTrans => {
                 self.op
                     .mv(x.imp().view().data(), y.imp_mut().view_mut().data_mut());
+            }
+            TransMode::Trans => {
+                self.op
+                    .mv_trans(x.imp().view().data(), y.imp_mut().view_mut().data_mut());
             }
             TransMode::ConjNoTrans | TransMode::ConjTrans => {
                 panic!("Conjugate transpose modes not supported for multiplication.")

@@ -58,6 +58,10 @@ class BaseStructuredOperator(ABC):
     @abstractmethod
     def mv(self, v):
         pass
+
+    @abstractmethod
+    def mv_trans(self, v):
+        pass
     
     @property
     @abstractmethod
@@ -87,6 +91,9 @@ class BasicStructuredOperator(BaseStructuredOperator):
 
     def mv(self, v):
         return self.mat @ v
+    
+    def mv_trans(self, v):
+        return self.mat.T @ v
     
     @property
     def cond(self):
@@ -129,6 +136,10 @@ class BemppClLaplaceSingleLayer(BaseStructuredOperator):
     def mv(self, v):
         return self.mat * v
     
+
+    def mv_trans(self, v):
+        return self.mat.T * v
+    
     @property
     def cond(self):
         raise ValueError("Condition number not implemented yet for this operator.")
@@ -168,6 +179,9 @@ class BemppClHelmholtzSingleLayer(BaseStructuredOperator):
 
     def mv(self, v):
         return self.mat * v
+    
+    def mv_trans(self, v):
+        return self.mat.T * v
     
     @property
     def cond(self):
@@ -227,6 +241,9 @@ class KiFMMLaplaceOperator(BaseStructuredOperator):
         res = np.copy(charges) + (1/self.n_points)*self.mat.all_potentials_u.reshape(-1)
         return res
     
+    def mv_trans(self, v):
+        return self.mv(v)
+    
     @property
     def cond(self):
         raise ValueError("Condition number not implemented yet for this operator.")
@@ -284,6 +301,9 @@ class KiFMMHelmholtzOperator(BaseStructuredOperator):
         res = np.copy(charges) + (1/self.n_points)*self.mat.all_potentials_u.reshape(-1)
         return res
     
+    def mv_trans(self, v):
+        return self.mv(v)
+    
     @property
     def cond(self):
         raise ValueError("Condition number not implemented yet for this operator.")
@@ -309,6 +329,9 @@ class BemppRsLaplaceOperator(BaseStructuredOperator):
 
     def mv(self, v):
         raise ValueError("Mv implemented in rust.")
+    
+    def mv_trans(self, v):
+        raise ValueError("Mv trans implemented in rust.")
     
     @property
     def cond(self):
@@ -349,6 +372,9 @@ class BemppClLaplaceSingleLayerModified(BaseStructuredOperator):
 
     def mv(self, v):
         return self.mat * v
+    
+    def mv_trans(self, v):
+        return self.mat.T * v
     
     @property
     def cond(self):
@@ -402,15 +428,17 @@ class BemppClLaplaceSingleLayerCP(BaseStructuredOperator):
             self.mat_T = single_layer.T*g_inv*prec.T*g_inv
             self.rhs_data_type = self.mat.dtype
             self.form = 'strong'
-            rhs = self.get_rhs(n_sources=self.n_sources)
-            self.rhs = [self.mat_T*(g_inv*prec*g_inv*r) for r in rhs]
+            self.rhs = self.get_rhs(n_sources=self.n_sources)
             self.n_points = self.rhs[0].shape[0]
         except Exception as e:
             print("Error initializing BemppClLaplaceSingleLayerCP:", e)
             raise
 
     def mv(self, v):
-        return self.mat_T*(self.mat * v)
+        return self.mat * v
+    
+    def mv_trans(self, v):
+        return self.mat_T * v
     
     @property
     def cond(self):
@@ -454,6 +482,9 @@ class BemppClLaplaceSingleLayerMM(BaseStructuredOperator):
     def mv(self, v):
         return self.mat * v
     
+    def mv_trans(self, v):
+        return self.mat.T * v
+    
     @property
     def cond(self):
         raise ValueError("Condition number not implemented yet for this operator.")
@@ -493,14 +524,17 @@ class BemppClHelmholtzSingleLayerCP(BaseStructuredOperator):
             self.mat_T = single_layer.T*g_inv*hypersingular.T*g_inv
             self.form = 'strong'
             self.rhs_data_type = self.mat.dtype
-            self.rhs = [self.mat_T*(g_inv*(hypersingular*r)) for r in self.get_rhs(n_sources=self.n_sources)]
+            self.rhs = self.get_rhs(n_sources=self.n_sources)
             self.n_points = self.rhs[0].shape[0]
         except Exception as e:
             print("Error initializing BemppClHelmholtzSingleLayerCP:", e)
             raise
 
     def mv(self, v):
-        return self.mat_T*(self.mat * v)
+        return self.mat * v
+    
+    def mv_trans(self, v):
+        return self.mat_T * v
     
     @property
     def cond(self):
@@ -549,7 +583,10 @@ class BemppClLaplaceSingleLayerCPID(BaseStructuredOperator):
             raise
 
     def mv(self, v):
-        return self.mat_T*(self.mat * v)
+        return self.mat * v
+    
+    def mv_trans(self, v):
+        return self.mat_T * v
     
     @property
     def cond(self):
@@ -591,6 +628,9 @@ class BemppClLaplaceSingleLayerP1(BaseStructuredOperator):
 
     def mv(self, v):
         return self.mat * v
+    
+    def mv_trans(self, v):
+        return self.mat.T * v
     
     @property
     def cond(self):
@@ -651,6 +691,9 @@ class KiFMMLaplaceOperatorV(BaseStructuredOperator):
         res = np.copy(charges) + (1/self.n_points)*self.mat.all_potentials_u.reshape(-1)
         return res
     
+    def mv_trans(self, v):
+        return self.mv(v)
+    
     @property
     def cond(self):
         raise ValueError("Condition number not implemented yet for this operator.")
@@ -693,6 +736,9 @@ class BemppClLaplaceSingleLayerModifiedP1(BaseStructuredOperator):
     def mv(self, v):
         return self.mat * v
     
+    def mv_trans(self, v):
+        return self.mat.T * v
+    
     @property
     def cond(self):
         raise ValueError("Condition number not implemented yet for this operator.")
@@ -724,7 +770,6 @@ class BemppClLaplaceSingleLayerCPIDP1(BaseStructuredOperator):
             self.domain = bempp_cl.api.function_space(self.grid, "P", 1)
             self.dual_to_range = self.domain
             self.range = bempp_cl.api.function_space(self.grid, "P", 1)
-
             identity = bempp_cl.api.operators.boundary.sparse.identity(self.domain,
                                                                     self.range,
                                                                     self.dual_to_range).weak_form()
@@ -732,20 +777,22 @@ class BemppClLaplaceSingleLayerCPIDP1(BaseStructuredOperator):
             adjoint_double_layer = bempp_cl.api.operators.boundary.laplace.adjoint_double_layer(
                 self.domain, self.range, self.dual_to_range).weak_form()
             g_inv = get_inverse_mass_matrix(self.range, self.dual_to_range)
-            adjoint_double_layer_T = adjoint_double_layer.transpose()
-            self.mat = 0.25*identity + adjoint_double_layer*g_inv*adjoint_double_layer
+            adjoint_double_layer_T = adjoint_double_layer.T#bempp_cl.api.operators.boundary.laplace.double_layer(
+                #self.domain, self.range, self.dual_to_range).weak_form()
+            self.mat = g_inv*(0.25*identity + adjoint_double_layer*g_inv*adjoint_double_layer)
             self.mat_T = (0.25*identity + adjoint_double_layer_T*g_inv*adjoint_double_layer_T)*g_inv
-            self.n_points = self.mat.shape[1]
             self.rhs_data_type = self.mat.dtype
-            rhs = self.get_rhs(n_sources=self.n_sources)
-            self.rhs = [self.mat_T*r for r in rhs]
+            self.rhs = self.get_rhs(n_sources=self.n_sources)
             
         except Exception as e:
             print("Error initializing BemppClLaplaceSingleLayerCPIDP1:", e)
             raise
 
     def mv(self, v):
-        return self.mat_T*(self.mat * v)
+        return self.mat * v
+    
+    def mv_trans(self, v):
+        return self.mat_T * v
     
     @property
     def cond(self):
@@ -790,13 +837,15 @@ class BemppClHelmholtzSingleLayerCPID(BaseStructuredOperator):
             self.form = 'strong'
             self.rhs_data_type = self.mat.dtype
             self.rhs = self.get_rhs(n_sources=self.n_sources)
-            self.rhs = [self.mat_T*r for r in self.rhs]
         except Exception as e:
             print("Error initializing BemppClHelmholtzSingleLayerCPID:", e)
             raise
 
     def mv(self, v):
-        return self.mat_T*(self.mat * v)
+        return self.mat * v
+    
+    def mv_trans(self, v):
+        return self.mat_T * v
     
     @property
     def cond(self):
@@ -829,13 +878,7 @@ class BemppClMaxwellEfie(BaseStructuredOperator):
             self.domain = bempp_cl.api.function_space(self.grid, "RWG", 0)
             self.dual_to_range = self.domain
             self.range = bempp_cl.api.function_space(self.grid, "SNC", 0)
-            self.mat = bempp_cl.api.operators.boundary.maxwell.electric_field(self.domain, self.dual_to_range, self.range, kappa).weak_form()   
-            #identity = bempp_cl.api.operators.boundary.sparse.identity(self.domain,
-            #                                                        self.range,
-            #                                                        self.dual_to_range).weak_form()
-            #magnetic = bempp_cl.api.operators.boundary.maxwell.magnetic_field(self.domain, self.dual_to_range, self.range, kappa).weak_form() 
-            #electric = bempp_cl.api.operators.boundary.maxwell.electric_field(self.domain, self.dual_to_range, self.range, kappa).weak_form() 
-            #self.mat = magnetic - 0.5*identity              
+            self.mat = bempp_cl.api.operators.boundary.maxwell.electric_field(self.domain, self.dual_to_range, self.range, kappa).weak_form()               
             self.rhs_data_type = self.mat.dtype
             self.rhs = self.get_rhs(n_sources=self.n_sources)
             self.n_points = self.mat.shape[0]
@@ -845,6 +888,9 @@ class BemppClMaxwellEfie(BaseStructuredOperator):
 
     def mv(self, v):
         return self.mat * v
+    
+    def mv_trans(self, v):
+        return self.mat.T * v
     
     @property
     def cond(self):
@@ -887,6 +933,9 @@ class BemppClHelmholtzSingleLayerP1(BaseStructuredOperator):
     def mv(self, v):
         return self.mat * v
     
+    def mv_trans(self, v):
+        return self.mat.T * v
+    
     @property
     def cond(self):
         raise ValueError("Condition number not implemented yet for this operator.")
@@ -925,26 +974,19 @@ class BemppClCombinedHelmholtz(BaseStructuredOperator):
                 self.domain, self.range, self.dual_to_range, kappa
             ).weak_form()
             self.mat = 0.5 * identity + adlp - 1j * kappa * slp#, assembler = "fmm").weak_form()
-            '''identity = bempp_cl.api.operators.boundary.sparse.identity(
-                self.dual_to_range, self.dual_to_range, self.domain
-            ).weak_form()
-            dlp = bempp_cl.api.operators.boundary.helmholtz.double_layer(
-                self.dual_to_range, self.dual_to_range, self.domain, kappa
-            ).weak_form()
-            slp = bempp_cl.api.operators.boundary.helmholtz.single_layer(
-                self.dual_to_range, self.dual_to_range, self.domain, kappa
-            ).weak_form()'''
             self.mat_T = 0.5 * identity.T + adlp.T - 1j * kappa * slp.T#(0.5 * identity + dlp - 1j * kappa * slp)
             self.rhs_data_type = self.mat.dtype
             self.rhs = self.get_rhs(n_sources=self.n_sources)
-            self.rhs = [self.mat_T*r for r in self.rhs]
             self.n_points = self.mat.shape[1]
         except Exception as e:
             print("Error initializing BemppClCombinedHelmholtz:", e)
             raise
 
     def mv(self, v):
-        return self.mat_T*(self.mat * v)
+        return self.mat * v
+    
+    def mv_trans(self, v):
+        return self.mat_T * v
     
     @property
     def cond(self):

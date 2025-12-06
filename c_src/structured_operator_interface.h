@@ -40,6 +40,22 @@ int mv_structured_operator_complex32(StructuredOperator* k,
                                      const float _Complex* input,
                                      float _Complex* output, int len);
 
+int mv_structured_operator_real_trans(StructuredOperator* k,
+                                      const double* input, double* output,
+                                      int len);
+
+int mv_structured_operator_complex_trans(StructuredOperator* k,
+                                         const double _Complex* input,
+                                         double _Complex* output, int len);
+
+int mv_structured_operator_real32_trans(StructuredOperator* k,
+                                        const float* input, float* output,
+                                        int len);
+
+int mv_structured_operator_complex32_trans(StructuredOperator* k,
+                                           const float _Complex* input,
+                                           float _Complex* output, int len);
+
 // New: get all RHS (real, float32)
 const float** get_all_real_rhs_f32(StructuredOperator* k, int* n_rhs,
                                    int* len_out);

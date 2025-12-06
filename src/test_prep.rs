@@ -362,14 +362,19 @@ macro_rules! implement_test_framework {
 
                     let path_str = self.test_params.get_test_dir(dim_num);
 
-                    let test_path = Path::new(&path_str).join("test_file.h5");
-                    let sketch_path = Path::new(&path_str).join("sketch_file.h5");
+                    let test_path = Path::new(&path_str).join("y_test_file.h5");
+                    let sketch_path = Path::new(&path_str).join("y_sketch_file.h5");
+                    let _ = move_if_exists(test_path.to_str().unwrap(), ".");
+                    let _ = move_if_exists(sketch_path.to_str().unwrap(), ".");
+
+                    let test_path = Path::new(&path_str).join("z_test_file.h5");
+                    let sketch_path = Path::new(&path_str).join("z_sketch_file.h5");
                     let _ = move_if_exists(test_path.to_str().unwrap(), ".");
                     let _ = move_if_exists(sketch_path.to_str().unwrap(), ".");
 
                     for &id_tol in self.test_params.scenario_params.id_tols.iter() {
                         let max_leaf_points = if id_tol < 1.0 {
-                            100
+                            50
                         } else {
                             (1.2 * id_tol).to_usize().unwrap()
                         };
@@ -427,6 +432,7 @@ macro_rules! implement_test_framework {
                                     solves,
                                     id_tol,
                                     &path_str,
+                                    false,
                                 );
                                 save_time_stats(&rsrs_algo, id_tol, &path_str);
                                 save_rank_stats(&rsrs_algo, id_tol, &path_str);
@@ -475,6 +481,7 @@ macro_rules! implement_test_framework {
                                     solves,
                                     id_tol,
                                     &path_str,
+                                    false,
                                 );
                                 save_rank_stats(&rsrs_algo, id_tol, &path_str);
 
@@ -512,8 +519,10 @@ macro_rules! implement_test_framework {
                         }
                     }
 
-                    let _ = move_if_exists("test_file.h5", &path_str);
-                    let _ = move_if_exists("sketch_file.h5", &path_str);
+                    let _ = move_if_exists("y_test_file.h5", &path_str);
+                    let _ = move_if_exists("y_sketch_file.h5", &path_str);
+                    let _ = move_if_exists("z_test_file.h5", &path_str);
+                    let _ = move_if_exists("z_sketch_file.h5", &path_str);
                 }
             }
         }
@@ -650,15 +659,20 @@ macro_rules! implement_distributed_test_framework {
 
                     let path_str = self.test_params.get_test_dir(dim_num);
 
-                    let test_path = Path::new(&path_str).join("test_file.h5");
-                    let sketch_path = Path::new(&path_str).join("sketch_file.h5");
+                    let test_path = Path::new(&path_str).join("y_test_file.h5");
+                    let sketch_path = Path::new(&path_str).join("y_sketch_file.h5");
+                    let _ = move_if_exists(test_path.to_str().unwrap(), ".");
+                    let _ = move_if_exists(sketch_path.to_str().unwrap(), ".");
+
+                    let test_path = Path::new(&path_str).join("z_test_file.h5");
+                    let sketch_path = Path::new(&path_str).join("z_sketch_file.h5");
                     let _ = move_if_exists(test_path.to_str().unwrap(), ".");
                     let _ = move_if_exists(sketch_path.to_str().unwrap(), ".");
 
                     for &id_tol in self.test_params.scenario_params.id_tols.iter() {
 
                         let max_leaf_points = if id_tol < 1.0 {
-                            100
+                            50
                         } else {
                             (1.2 * id_tol).to_usize().unwrap()
                         };
@@ -709,6 +723,7 @@ macro_rules! implement_distributed_test_framework {
                                     solves,
                                     id_tol,
                                     &path_str,
+                                    true
                                 );
                                 save_time_stats(&rsrs_algo, id_tol, &path_str);
                                 save_rank_stats(&rsrs_algo, id_tol, &path_str);
@@ -754,6 +769,7 @@ macro_rules! implement_distributed_test_framework {
                                     solves,
                                     id_tol,
                                     &path_str,
+                                    true,
                                 );
                                 save_rank_stats(&rsrs_algo, id_tol, &path_str);
                                 if self.output_options.factors_cn{
@@ -783,8 +799,10 @@ macro_rules! implement_distributed_test_framework {
                             }
                         }
                     }
-                    let _ = move_if_exists("test_file.h5", &path_str);
-                    let _ = move_if_exists("sketch_file.h5", &path_str);
+                    let _ = move_if_exists("y_test_file.h5", &path_str);
+                    let _ = move_if_exists("y_sketch_file.h5", &path_str);
+                    let _ = move_if_exists("z_test_file.h5", &path_str);
+                    let _ = move_if_exists("z_sketch_file.h5", &path_str);
                 }
             }
         }

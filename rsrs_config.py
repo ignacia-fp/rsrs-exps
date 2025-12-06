@@ -91,6 +91,7 @@ class RSRSBenchmarkConfig:
         save_samples: bool = True,
         num_threads: int = 64,
         min_num_samples: int = 0,
+        symmetric: bool = True
     ):
         
         """
@@ -366,6 +367,7 @@ class RSRSBenchmarkConfig:
         self.n_sources = n_sources
         self.save_samples = save_samples
         self.num_threads = num_threads
+        self.symmetric = symmetric
 
         if self.dim_arg_types[self.dim_arg_type_index] == "RefinementLevelAndDepth":
             if self.ref_level is None or self.depth is None:
@@ -450,7 +452,7 @@ class RSRSBenchmarkConfig:
             "tol_diag_ext": self.tol_ext_diag,  ## Tolerance used to compute pseudo inverses when extracting diagonal blocks.
             "min_rank": self.min_rank,  ## Minimum size of the box. If the box is smaller, it will be saved for the next level.
             "min_level": self.min_level, ## Level at which the algorithm stops
-            "hermitian": True,  ## Indicates if we should run RSRS for hermitian matrices (half the time and memory)
+            "symmetric": self.symmetric,  ## Indicates if we should run RSRS for symmetric matrices (half the time and memory)
             "rank_picking": self.rank_pickings[self.rank_picking_index],
             "fact_type": self.fact_types[self.fact_type],
             "save_samples": self.save_samples,
@@ -465,14 +467,24 @@ class RSRSBenchmarkConfig:
             "rsrs_args": self.rsrs_args(),
         }
 
-    def generate_bash_script(self, filename: str = "run_test.sh", rayon_threads: int | None = None):
-        def json_for_bash(obj):
-            return json.dumps(obj).replace("'", "'\"'\"'")
+    def generate_bash_script(
+        self,
+        filename: str = "run_test.sh",
+        json_num_threads: list[int] | None = None,
+        refinement_levels: list[int] | None = None,
+    ):
+        import json
+        import subprocess
+        import shlex
 
-        data_type_args_json = json_for_bash(self.data_type_args())
-        scenario_args_json = json_for_bash(self.scenario_args())
-        output_args_json = json_for_bash(self.output_args())
-        rsrs_args_json = json_for_bash(self.rsrs_args())
+        # Base JSON blocks
+        data_type_args = self.data_type_args()
+        scenario_args_base = self.scenario_args()
+        output_args = self.output_args()
+
+        def esc(x):
+            """Shell-escape a JSON string safely using shlex."""
+            return shlex.quote(json.dumps(x))
 
         bash_lines = [
             "#!/bin/bash",
@@ -485,22 +497,50 @@ class RSRSBenchmarkConfig:
             "export VECLIB_MAXIMUM_THREADS=1",
             "export OMP_NUM_THREADS=1",
             "export OMP_DYNAMIC=FALSE",
+            "unset RAYON_NUM_THREADS",
+            "",
         ]
 
-        #if rayon_threads is not None:
-        #    bash_lines.append(f"export RAYON_NUM_THREADS={rayon_threads}")
-        #else:
-            # Explicitly clear RAYON_NUM_THREADS to ensure all cores are used
-        bash_lines.append("unset RAYON_NUM_THREADS")
+        if refinement_levels is None:
+            refinement_levels = [
+                scenario_args_base["dim_args"][0]["RefinementLevelAndDepth"][0]
+            ]
 
-        bash_lines.append(
-            f"cargo run --release '{data_type_args_json}' '{scenario_args_json}' '{rsrs_args_json}' '{output_args_json}'"
-        )
+        if json_num_threads is None:
+            json_num_threads = [self.rsrs_args().get("num_threads", 1)]
+
+        bash_lines.append("echo \"Running RSRS benchmarks\"")
+        bash_lines.append("")
+
+        for rl in refinement_levels:
+            bash_lines.append(f"echo \"RefinementLevel = {rl}\"")
+
+            # Inject refinement level
+            scenario_args = dict(scenario_args_base)
+            scenario_args["dim_args"] = [{"RefinementLevelAndDepth": [rl, 2]}]
+
+            # Escape static JSON
+            data_json = esc(data_type_args)
+            scenario_json = esc(scenario_args)
+            output_json = esc(output_args)
+
+            for nt in json_num_threads:
+                rsrs_args = self.rsrs_args()
+                rsrs_args["num_threads"] = nt
+                rsrs_json = esc(rsrs_args)
+
+                bash_lines.append(f"  echo \"  num_threads = {nt}\"")
+                bash_lines.append(
+                    f"  cargo run --release {data_json} {scenario_json} {rsrs_json} {output_json}"
+                )
+
+            bash_lines.append("")
 
         with open(filename, "w") as f:
             f.write("\n".join(bash_lines) + "\n")
 
         subprocess.run(["chmod", "+x", filename], check=True)
+
         
     def generate_folder_name(self) -> str:
         geom = camel_to_snake(self.geometry_types[self.geometry])
@@ -538,7 +578,7 @@ class RSRSBenchmarkConfig:
                 f"_initsam_{args['initial_num_samples']}"
                 f"_mrnk_{args['min_rank']}"
                 f"_mlvl_{args['min_level']}"
-                f"_herm_{camel_to_snake(str(args['hermitian']))}"
+                f"_herm_{camel_to_snake(str(args['symmetric']))}"
                 f"_rpick_{args['rank_picking']}"
                 f"_next_{args['near_block_extraction_method']}"
                 f"_tolextn_{args['tol_ext_near']:.0e}"
@@ -556,7 +596,7 @@ class RSRSBenchmarkConfig:
                 f"_stabilised_{sci_no_padding(self.op_stabilisation)}"
                 f"_mrnk_{args['min_rank']}"
                 f"_mlvl_{args['min_level']}"
-                f"_herm_{camel_to_snake(str(args['hermitian']))}"
+                f"_herm_{camel_to_snake(str(args['symmetric']))}"
                 f"_rpick_{args['rank_picking']}"
                 f"_next_{args['near_block_extraction_method']}"
                 f"_tolextn_{args['tol_ext_near']:.0e}"

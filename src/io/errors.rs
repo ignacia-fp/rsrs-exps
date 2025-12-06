@@ -148,7 +148,24 @@ pub struct NormalOperator<
     Item: RlstScalar + RandScalar,
     Space: SamplingSpace<F = Item> + IndexableSpace,
     Op1: OperatorBase<Domain = Space, Range = Space>,
->(pub Op1);
+> {
+    pub op: Op1,
+    pub transpose_is_identity: bool,
+}
+
+impl<
+        Item: RlstScalar + RandScalar,
+        Space: SamplingSpace<F = Item> + IndexableSpace,
+        Op1: OperatorBase<Domain = Space, Range = Space>,
+    > NormalOperator<Item, Space, Op1>
+{
+    pub fn new(op: Op1, transpose_is_identity: bool) -> Self {
+        Self {
+            op,
+            transpose_is_identity,
+        }
+    }
+}
 
 impl<
         Item: RlstScalar + RandScalar,
@@ -157,7 +174,7 @@ impl<
     > std::fmt::Debug for NormalOperator<Item, Space, Op1>
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let dim_1 = self.0.domain().dimension();
+        let dim_1 = self.op.domain().dimension();
         write!(f, "Id Operator: [{}x{}]", dim_1, dim_1).unwrap();
         Ok(())
     }
@@ -214,11 +231,11 @@ impl<
     type Range = Space;
 
     fn domain(&self) -> Rc<Self::Domain> {
-        self.0.domain().clone()
+        self.op.domain().clone()
     }
 
     fn range(&self) -> Rc<Self::Range> {
-        self.0.range().clone()
+        self.op.range().clone()
     }
 }
 
@@ -294,16 +311,23 @@ where
     ) {
         let mut y_aux_1 = zero_element(self.range());
         let mut y_aux_2 = zero_element(self.range());
-        self.0
+        self.op
             .apply_extended(alpha, x.r(), beta, y_aux_1.r_mut(), TransMode::NoTrans);
         let y_aux_1_conj = self.domain().conj_vec(&y_aux_1);
-        self.0.apply_extended(
-            alpha,
-            y_aux_1_conj,
-            beta,
-            y_aux_2.r_mut(),
-            TransMode::NoTrans,
-        );
+
+        if self.transpose_is_identity {
+            self.op.apply_extended(
+                alpha,
+                y_aux_1_conj,
+                beta,
+                y_aux_2.r_mut(),
+                TransMode::NoTrans,
+            );
+        } else {
+            self.op
+                .apply_extended(alpha, y_aux_1_conj, beta, y_aux_2.r_mut(), TransMode::Trans);
+        }
+
         let y_aux_2_conj = self.domain().conj_vec(&y_aux_2);
         y.r_mut().fill_inplace(y_aux_2_conj);
     }
@@ -653,7 +677,7 @@ where
                 let mut err_sq = empty_array();
                 err_rect
                     .r_mut()
-                    .fill_from_resize(composed_factor_data.rectg.r() - arr_rt.r());
+                    .fill_from_resize(composed_factor_data.rectg.arr.r() - arr_rt.r());
 
                 let mut app_lu = rlst_dynamic_array2!(Item, [ind_r.len(), ind_r.len()]);
                 app_lu.set_identity();

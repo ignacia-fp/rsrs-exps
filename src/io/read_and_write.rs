@@ -113,6 +113,8 @@ struct TimeStatsOutput {
     index_calculation: u128,
     sorting_near_field: u128,
     residual_calculation: u128,
+    level_effort: Vec<bempp_rsrs::rsrs::rsrs_factors::LevelEffort>,
+    mv_avg_time: Vec<u128>,
 }
 
 #[derive(Serialize)]
@@ -218,6 +220,8 @@ pub fn save_time_stats<Item: RlstScalar + MatrixInverse + MatrixPseudoInverse + 
             .active_points,
         limiting_level: rsrs_data.stats.limiting_factors.limiting_level.level,
         elapsed_time_at_limiting: rsrs_data.stats.limiting_factors.limiting_level.elapsed_time,
+        level_effort: rsrs_data.stats.level_effort.clone(),
+        mv_avg_time: rsrs_data.stats.mv_avg_time.clone(),
     };
 
     let json_string = serde_json::to_string_pretty(&stats).expect("Failed to serialize");
@@ -269,6 +273,7 @@ pub fn save_error_stats<
     solves: Solves<Item>,
     tol: Real<Item>,
     path_str: &str,
+    transpose_is_identity: bool,
 ) where
     StandardNormal: Distribution<Real<Item>>,
     Standard: Distribution<Real<Item>>,
@@ -293,15 +298,24 @@ pub fn save_error_stats<
         rsrs_error_estimator(structured_operator_op, rsrs_operator, 10, false);
 
     let diff = DiffOperator(structured_operator_op.r(), rsrs_operator.r());
-    let normal = NormalOperator(diff.r());
+    let normal = NormalOperator {
+        op: diff.r(),
+        transpose_is_identity,
+    };
     let mut eigs1 = Eigs::new(normal.r(), tol_eigs, None, None, None);
     let (sigma_1, _) = eigs1.run(None, 1, None, false);
 
-    let normal_structured = NormalOperator(structured_operator_op.r());
+    let normal_structured = NormalOperator {
+        op: structured_operator_op.r(),
+        transpose_is_identity,
+    };
     let mut eigs2 = Eigs::new(normal_structured.r(), tol_eigs, None, None, None);
     let (sigma_2, _) = eigs2.run(None, 1, None, false);
 
-    let normal_rsrs = NormalOperator(rsrs_operator.r());
+    let normal_rsrs = NormalOperator {
+        op: rsrs_operator.r(),
+        transpose_is_identity,
+    };
     let mut eigs3 = Eigs::new(normal_rsrs.r(), tol_eigs, None, None, None);
     let (c_1, _) = eigs3.run(None, 1, None, false);
 
@@ -315,12 +329,18 @@ pub fn save_error_stats<
 
     let prod1 = rsrs_operator.r().product(structured_operator_op.r());
     let diff = DiffOperator(prod1.r(), id_op.r());
-    let normal = NormalOperator(diff.r());
+    let normal = NormalOperator {
+        op: diff.r(),
+        transpose_is_identity,
+    };
 
     let mut eigs1 = Eigs::new(normal.r(), tol_eigs, None, None, None);
     let (sigma_1, _) = eigs1.run(None, 1, None, false);
 
-    let normal_rsrs = NormalOperator(rsrs_operator.r());
+    let normal_rsrs = NormalOperator {
+        op: rsrs_operator.r(),
+        transpose_is_identity,
+    };
     let mut eigs2 = Eigs::new(normal_rsrs.r(), tol_eigs, None, None, None);
     let (c_2, _) = eigs2.run(None, 1, None, false);
 
