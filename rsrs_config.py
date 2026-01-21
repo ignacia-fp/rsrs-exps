@@ -89,7 +89,7 @@ class RSRSBenchmarkConfig:
         fact_type = 1,
         n_sources: int = 1,
         save_samples: bool = True,
-        num_threads: int = 64,
+        num_threads: int = 32,
         min_num_samples: int = 0,
         symmetric: bool = True
     ):
@@ -175,6 +175,8 @@ class RSRSBenchmarkConfig:
             8: EMCCAlmond
             9: FrigateHull
             10: Plane
+            11: Square
+            12: Cube
             Note: For Bempp-rs operators, only SphereSurface is supported.
 
         solve_tol : float, optional
@@ -290,7 +292,7 @@ class RSRSBenchmarkConfig:
 
         ## Geometry Type:
         ## !!! For Bempp-Rs tests we only have a sphere for now, so this parameter is irrelevant
-        self.geometry_types = ["SphereSurface", "CubeSurface", "CylinderSurface", "EllipsoidSurface", "Dihedral", "Device", "F16", "RidgedHorn", "EMCCAlmond", "FrigateHull", "Plane"] ## We can generate more with Gmsh and link them
+        self.geometry_types = ["SphereSurface", "CubeSurface", "CylinderSurface", "EllipsoidSurface", "Dihedral", "Device", "F16", "RidgedHorn", "EMCCAlmond", "FrigateHull", "Plane", "Square", "Cube"] ## We can generate more with Gmsh and link them
 
         ## Output Arguments: (outputs that the test the test will return)
         # In all cases, it returns the errors ||A_app^{-1}A - I||_2 and ||A_app - A||_2/||A||_2,
@@ -540,7 +542,6 @@ class RSRSBenchmarkConfig:
             f.write("\n".join(bash_lines) + "\n")
 
         subprocess.run(["chmod", "+x", filename], check=True)
-
         
     def generate_folder_name(self) -> str:
         geom = camel_to_snake(self.geometry_types[self.geometry])

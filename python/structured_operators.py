@@ -570,10 +570,10 @@ class BemppClLaplaceSingleLayerCPID(BaseStructuredOperator):
                                                                     self.dual_to_range).weak_form()
             
             adjoint_double_layer = bempp_cl.api.operators.boundary.laplace.adjoint_double_layer(
-                self.domain, self.range, self.dual_to_range).weak_form()
+                self.domain, self.range, self.dual_to_range, assembler="fmm").weak_form()
             g_inv = get_inverse_mass_matrix(self.range, self.dual_to_range)
-            adjoint_double_layer_T = adjoint_double_layer.T#bempp_cl.api.operators.boundary.laplace.double_layer(
-                #self.domain, self.range, self.dual_to_range).weak_form()
+            adjoint_double_layer_T = bempp_cl.api.operators.boundary.laplace.double_layer(
+                self.domain, self.range, self.dual_to_range, assembler="fmm").weak_form()
             self.mat = g_inv*(0.25*identity + adjoint_double_layer*g_inv*adjoint_double_layer)
             self.mat_T = (0.25*identity + adjoint_double_layer_T*g_inv*adjoint_double_layer_T)*g_inv
             self.rhs_data_type = self.mat.dtype
