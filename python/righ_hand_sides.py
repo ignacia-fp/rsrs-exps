@@ -72,9 +72,18 @@ def h_dirichlet_data(d, kappa):
 
     @bempp_cl.api.complex_callable
     def dirichlet_data(x, n, domain_index, result):
-        result[0] = -1j * kappa * np.exp(1j * kappa * np.dot(d, x)) * np.dot(n, d)
+        result[0] = -1j * kappa * np.exp(1j * kappa * np.dot(d, x))
 
     return dirichlet_data
+
+def h_neumann_data(d, kappa):
+    d = np.asarray(d, dtype=np.float64)
+
+    @bempp_cl.api.complex_callable
+    def neumann_data(x, n, domain_index, result):
+        result[0] = -1j * kappa * np.exp(1j * kappa * np.dot(d, x)) * np.dot(n, d)
+
+    return neumann_data
 
 def m_dirichlet_data(d, kappa):
     d = np.asarray(d, dtype=np.float64)
@@ -125,13 +134,13 @@ def right_hand_side(operator, problem_type, n_sources=1):
         return [gen_vec().ravel() for _ in range(n_sources)]
 
     # ---------------------------------------------------------------------
-    # LAPACE SINGLE LAYER
+    # LAPLACE SINGLE LAYER
     # ---------------------------------------------------------------------
     elif operator.operator_type.startswith("BemppClLaplaceSingleLayer"):
         identity = bempp_cl.api.operators.boundary.sparse.identity(
             operator.domain, operator.range, operator.dual_to_range)
         dlp = bempp_cl.api.operators.boundary.laplace.adjoint_double_layer(
-            operator.domain, operator.range, operator.domain, assembler="fmm")
+            operator.domain, operator.range, operator.domain)
 
         if problem_type == 'Dirichlet':
             rhs_list = []
@@ -176,6 +185,54 @@ def right_hand_side(operator, problem_type, n_sources=1):
 
         elif problem_type == 'Neumann':
             raise ValueError("Neumann problem not implemented for Helmholtz.")
+        
+    elif operator.operator_type == 'BemppClLaplaceCombined':
+        rhs_list = []
+        sources = generate_sources(operator.domain.grid, n_sources)
+
+        for s in sources:
+            d_data = l_dirichlet_data(s)
+            rhs = bempp_cl.api.GridFunction(operator.domain, fun=d_data)
+            if operator.form == 'weak':
+                rhs_list.append(rhs.projections(operator.dual_to_range))
+            else:  # strong form
+                rhs_list.append(rhs.coefficients)
+
+        return rhs_list
+        
+    elif operator.operator_type == 'BemppClLaplaceSecond':
+        rhs_list = []
+        sources = generate_sources(operator.domain.grid, n_sources)
+
+        for s in sources:
+            d_data = l_dirichlet_data(s)
+            rhs = bempp_cl.api.GridFunction(operator.domain, fun=d_data)
+            if operator.form == 'weak':
+                rhs_list.append(rhs.projections(operator.dual_to_range))
+            else:  # strong form
+                rhs_list.append(rhs.coefficients)
+
+        return rhs_list
+
+    elif operator.operator_type == 'BemppClHelmholtzCombined':
+        kappa = operator.kappa
+        if problem_type == 'Dirichlet':
+            rhs_list = []
+            directions = generate_directions(n_sources)
+
+            for d in directions:
+                d_data = h_dirichlet_data(d, kappa)
+                rhs = bempp_cl.api.GridFunction(operator.domain, fun=d_data)
+                if operator.form == 'weak':
+                    rhs_list.append(rhs.projections(operator.dual_to_range))
+                else:  # strong form
+                    rhs_list.append(rhs.coefficients)
+
+            return rhs_list
+
+        elif problem_type == 'Neumann':
+            raise ValueError("Neumann problem not implemented for Helmholtz.")
+
 
     # ---------------------------------------------------------------------
     # MAXWELL EFIE
@@ -197,12 +254,12 @@ def right_hand_side(operator, problem_type, n_sources=1):
     # ---------------------------------------------------------------------
     # COMBINED HELMHOLTZ
     # ---------------------------------------------------------------------
-    elif operator.operator_type == 'BemppClCombinedHelmholtz':
+    elif operator.operator_type == 'BemppClBurtonMiller':
         kappa = operator.kappa
         rhs_list = []
         directions = generate_directions(n_sources)
         for d in directions:
-            combined_data = h_combined_data(d, kappa)
+            combined_data = h_neumann_data(d, kappa)
             gfun = bempp_cl.api.GridFunction(operator.domain, fun=combined_data)
             if operator.form == 'weak':
                     rhs_list.append(gfun.projections(operator.dual_to_range))

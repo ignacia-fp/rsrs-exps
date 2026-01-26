@@ -108,19 +108,21 @@ class RSRSBenchmarkConfig:
             3: KiFMMLaplaceOperator
             4: KiFMMHelmholtzOperator
             5: BemppRsLaplaceOperator
-            6: BemppClLaplaceSingleLayerModified
+            6: BemppClLaplaceCombined
             7: BemppClLaplaceSingleLayerCP
             8: BemppClLaplaceSingleLayerMM
             9: BemppClHelmholtzSingleLayerCP
             10: BemppClLaplaceSingleLayerCPID
             11: BemppClLaplaceSingleLayerP1,
             12: KiFMMLaplaceOperatorV,
-            13: BemppClLaplaceSingleLayerModifiedP1,
+            13: BemppClLaplaceCombinedP1,
             14: BemppClLaplaceSingleLayerCPIDP1,
             15: BemppClHelmholtzSingleLayerCPID,
             16: BemppClMaxwellEfie
             17: BemppClHelmholtzSingleLayerP1
-            18: BemppClCombinedHelmholtz
+            18: BemppClBurtonMiller
+            19: BemppCLHelmholtzCombined
+            20: BemppClLaplaceSecond
             The choice affects the problem type and required parameters and more kernels can be addded in python/structured_operators.py
 
         precision : int, optional
@@ -275,10 +277,11 @@ class RSRSBenchmarkConfig:
         ## Data Type Arguments (what operator, which precision):
         self.structured_operator_types = [
             "BasicStructuredOperator", "BemppClLaplaceSingleLayer", "BemppClHelmholtzSingleLayer",
-            "KiFMMLaplaceOperator", "KiFMMHelmholtzOperator", "BemppRsLaplaceOperator", "BemppClLaplaceSingleLayerModified",
+            "KiFMMLaplaceOperator", "KiFMMHelmholtzOperator", "BemppRsLaplaceOperator", "BemppClLaplaceCombined",
             "BemppClLaplaceSingleLayerCP", "BemppClLaplaceSingleLayerMM", "BemppClHelmholtzSingleLayerCP", "BemppClLaplaceSingleLayerCPID",
-            "BemppClLaplaceSingleLayerP1", "KiFMMLaplaceOperatorV", "BemppClLaplaceSingleLayerModifiedP1", "BemppClLaplaceSingleLayerCPIDP1",
-            "BemppClHelmholtzSingleLayerCPID", "BemppClMaxwellEfie", "BemppClHelmholtzSingleLayerP1", "BemppClCombinedHelmholtz"
+            "BemppClLaplaceSingleLayerP1", "KiFMMLaplaceOperatorV", "BemppClLaplaceCombinedP1", "BemppClLaplaceSingleLayerCPIDP1",
+            "BemppClHelmholtzSingleLayerCPID", "BemppClMaxwellEfie", "BemppClHelmholtzSingleLayerP1", "BemppClBurtonMiller", "BemppClHelmholtzCombined",
+            "BemppClLaplaceSecond"
         ]
         self.precision_types = ["Single", "Double"] # Single precision methods have not been enabled yet
 
@@ -468,8 +471,46 @@ class RSRSBenchmarkConfig:
             "output_args": self.output_args(),
             "rsrs_args": self.rsrs_args(),
         }
+    
+    def generate_bash_script(self, filename: str = "run_test.sh", rayon_threads: int | None = None):
+        def json_for_bash(obj):
+            return json.dumps(obj).replace("'", "'\"'\"'")
 
-    def generate_bash_script(
+        data_type_args_json = json_for_bash(self.data_type_args())
+        scenario_args_json = json_for_bash(self.scenario_args())
+        output_args_json = json_for_bash(self.output_args())
+        rsrs_args_json = json_for_bash(self.rsrs_args())
+
+        bash_lines = [
+            "#!/bin/bash",
+            "export OPENBLAS_NUM_THREADS=1",
+            "export MKL_NUM_THREADS=1",
+            "export MKL_DOMAIN_NUM_THREADS=1",
+            "export MKL_DYNAMIC=FALSE",
+            "export GOTO_NUM_THREADS=1",
+            "export BLIS_NUM_THREADS=1",
+            "export VECLIB_MAXIMUM_THREADS=1",
+            "export OMP_NUM_THREADS=1",
+            "export OMP_DYNAMIC=FALSE",
+        ]
+
+        #if rayon_threads is not None:
+        #    bash_lines.append(f"export RAYON_NUM_THREADS={rayon_threads}")
+        #else:
+            # Explicitly clear RAYON_NUM_THREADS to ensure all cores are used
+        bash_lines.append("unset RAYON_NUM_THREADS")
+
+        bash_lines.append(
+            f"cargo run --release '{data_type_args_json}' '{scenario_args_json}' '{rsrs_args_json}' '{output_args_json}'"
+        )
+
+        with open(filename, "w") as f:
+            f.write("\n".join(bash_lines) + "\n")
+
+        subprocess.run(["chmod", "+x", filename], check=True)
+
+
+    def generate_bash_script_multi(
         self,
         filename: str = "run_test.sh",
         json_num_threads: list[int] | None = None,
@@ -1551,7 +1592,7 @@ class RSRSBenchmarkConfig:
             space = bempp_cl.api.function_space(grid, "RWG", 0)
             dual_space = space
             slp_pot = bempp_cl.api.operators.potential.maxwell.electric_field(space, points, self.kappa)
-        elif self.structured_operator_types[self.operator_type_index] == "BemppClCombinedHelmholtz":
+        elif self.structured_operator_types[self.operator_type_index] == "BemppClBurtonMiller":
             space = bempp_cl.api.function_space(grid, "DP", 0)
             dual_space = space
             slp_pot = bempp_cl.api.operators.potential.helmholtz.single_layer(space, points, self.kappa)
@@ -1560,7 +1601,7 @@ class RSRSBenchmarkConfig:
             far_field = slp_pot * sol_fun
             if self.structured_operator_types[self.operator_type_index] == "BemppClMaxwellEfie":
                 scattered_field = np.real(np.sum(far_field * far_field.conj(), axis=0))
-            elif self.structured_operator_types[self.operator_type_index] == "BemppClCombinedHelmholtz":
+            elif self.structured_operator_types[self.operator_type_index] == "BemppClBurtonMiller":
                 scattered_field = np.real(np.exp(1j * self.kappa * points[plane]) - far_field)
             else:
                 scattered_field = far_field
@@ -1602,7 +1643,7 @@ class RSRSBenchmarkConfig:
             space = bempp_cl.api.function_space(grid, "DP", 0)
             dual_space = space
             slp_pot = bempp_cl.api.operators.potential.helmholtz.single_layer(space, unit_points, self.kappa)
-        elif self.structured_operator_types[self.operator_type_index] == "BemppClCombinedHelmholtz":
+        elif self.structured_operator_types[self.operator_type_index] == "BemppClBurtonMiller":
             space = bempp_cl.api.function_space(grid, "DP", 0)
             dual_space = space
             slp_pot = bempp_cl.api.operators.potential.helmholtz.single_layer(space, unit_points, self.kappa)

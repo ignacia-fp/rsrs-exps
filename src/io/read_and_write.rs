@@ -96,6 +96,7 @@ struct TimeStatsOutput {
     min_samples: usize,
     max_level: usize,
     limiting_level: usize,
+    leaf_count: usize,
     dim: usize,
     max_boxes: usize,
     max_points: usize,
@@ -219,6 +220,7 @@ pub fn save_time_stats<Item: RlstScalar + MatrixInverse + MatrixPseudoInverse + 
             .limiting_level
             .active_points,
         limiting_level: rsrs_data.stats.limiting_factors.limiting_level.level,
+        leaf_count: rsrs_data.stats.limiting_factors.leaf_count,
         elapsed_time_at_limiting: rsrs_data.stats.limiting_factors.limiting_level.elapsed_time,
         level_effort: rsrs_data.stats.level_effort.clone(),
         mv_avg_time: rsrs_data.stats.mv_avg_time.clone(),
