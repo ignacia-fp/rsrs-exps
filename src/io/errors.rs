@@ -814,8 +814,8 @@ where
                     let err_diag = spectral_norm_estimator(&res, 10).unwrap()
                         / spectral_norm_estimator(&exact_diag_box, 10).unwrap();
 
-                    let mut app_inv_dbox = rlst_dynamic_array2!(Item, shape);
-                    app_inv_dbox.set_identity();
+                    let mut identity = rlst_dynamic_array2!(Item, shape);
+                    identity.set_identity();
 
                     let base_options = BaseFactorOptions {
                         inv: true,
@@ -825,15 +825,12 @@ where
 
                     diag_box_factor
                         .arr
-                        .mul(&mut app_inv_dbox, &Side::Left, &base_options);
-
-                    let _ = exact_diag_box.r_mut().into_inverse_alloc().unwrap();
+                        .mul(&mut exact_diag_box, &Side::Left, &base_options);
 
                     let mut res: DynamicArray<Item, 2> = empty_array();
-                    res.fill_from_resize(exact_diag_box.r() - app_inv_dbox.r());
+                    res.fill_from_resize(exact_diag_box.r() - identity.r());
 
-                    let err_inv_diag = spectral_norm_estimator(&res, 10).unwrap()
-                        / spectral_norm_estimator(&exact_diag_box, 10).unwrap();
+                    let err_inv_diag = spectral_norm_estimator(&res, 10).unwrap();
 
                     let errors: ErrorsFactor = (err_diag, err_inv_diag, 0.0, 0.0);
                     errors
@@ -1000,14 +997,6 @@ pub fn get_boxes_errors<
 {
     let (id_error_stats, lu_error_stats) =
         el_factors_inv_mul_errors(rsrs_factors, structured_operator_mat);
-
-    // Print ID stats per level
-    /*id_error_stats.iter().enumerate().for_each(|(level, s)| {
-        println!(
-            "Errors ID, level {} : ({} +/- {}, {} +/- {})",
-            level, s.0, s.4, s.1, s.5
-        );
-    });*/
 
     for (level, level_stats) in id_error_stats.iter().enumerate() {
         for (batch, s) in level_stats.iter().enumerate() {

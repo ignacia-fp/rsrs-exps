@@ -348,7 +348,6 @@ pub fn save_error_stats<
 
     let condition_number = c_2[0].abs().sqrt() * c_1[0].abs().sqrt();
 
-    println!("app inv right");
     let (app_inv_err_left, app_inv_err_right) =
         rsrs_error_estimator(structured_operator_op, rsrs_operator, 10, true);
 
