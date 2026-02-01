@@ -1,13 +1,11 @@
 use super::errors::rsrs_error_estimator;
 use crate::io::errors::{DiffOperator, IdOperator, NormalOperator};
-use bempp_rsrs::rsrs::rsrs_factors::Inv;
+use bempp_rsrs::rsrs::rsrs_cycle::Rsrs;
+use bempp_rsrs::rsrs::rsrs_factors::rsrs_operator::Inv;
 use bempp_rsrs::rsrs::sketch::SampleType;
 use bempp_rsrs::rsrs::sketch::SamplingSpace;
-use bempp_rsrs::rsrs::{
-    box_skeletonisation::UpdateTimes,
-    rsrs_cycle::Rsrs,
-    rsrs_factors::{IdTimes, LuTimes},
-};
+use bempp_rsrs::rsrs::statistics::LevelEffort;
+use bempp_rsrs::rsrs::statistics::{IdTimes, LuTimes, UpdateTimes};
 use num::FromPrimitive;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
@@ -114,7 +112,7 @@ struct TimeStatsOutput {
     index_calculation: u128,
     sorting_near_field: u128,
     residual_calculation: u128,
-    level_effort: Vec<bempp_rsrs::rsrs::rsrs_factors::LevelEffort>,
+    level_effort: Vec<LevelEffort>,
     mv_avg_time: Vec<u128>,
 }
 
@@ -350,6 +348,7 @@ pub fn save_error_stats<
 
     let condition_number = c_2[0].abs().sqrt() * c_1[0].abs().sqrt();
 
+    println!("app inv right");
     let (app_inv_err_left, app_inv_err_right) =
         rsrs_error_estimator(structured_operator_op, rsrs_operator, 10, true);
 

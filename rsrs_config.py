@@ -81,7 +81,7 @@ class RSRSBenchmarkConfig:
         max_tree_depth: int = 6,
         lu_stab = 0,
         diag_stab = 0,
-        op_stabilisation = 0,
+        op_shift = 0,
         oversampling_near = 8,
         oversampling_diag = 16,
         tol_ext_near = 1e-16,
@@ -91,7 +91,9 @@ class RSRSBenchmarkConfig:
         save_samples: bool = True,
         num_threads: int = 32,
         min_num_samples: int = 0,
-        symmetric: bool = True
+        symmetric: bool = True,
+        flush_factors: bool = False,
+        store_far: bool = False,
     ):
         
         """
@@ -344,7 +346,7 @@ class RSRSBenchmarkConfig:
         self.rrqr_index = rrqr
         self.lu_stab = lu_stab
         self.diag_stab = diag_stab
-        self.op_stabilisation = op_stabilisation
+        self.op_shift = op_shift
         self.fact_type = fact_type
         self.min_num_samples = min_num_samples
 
@@ -373,6 +375,8 @@ class RSRSBenchmarkConfig:
         self.save_samples = save_samples
         self.num_threads = num_threads
         self.symmetric = symmetric
+        self.flush_factors = flush_factors
+        self.store_far = store_far
 
         if self.dim_arg_types[self.dim_arg_type_index] == "RefinementLevelAndDepth":
             if self.ref_level is None or self.depth is None:
@@ -444,7 +448,7 @@ class RSRSBenchmarkConfig:
             "oversampling_diag_blocks": self.oversampling_diag,  ## Oversampling used when extracting diagonal blocks when RSRS finishes
             "min_num_samples": self.min_num_samples,
             "initial_num_samples": 20,  ## Initial num samples: useful only when sampling is done in parallel way (not active yet)
-            "stabilise": stab(self.op_stabilisation),
+            "shift": stab(self.op_shift),
             "null_method": self.null_methods[self.null_method_index],
             "qr_method": qr_method(self.rrqr_keys[self.rrqr_index], value=self.f),
             "near_block_extraction_method": self.block_extraction_methods[self.block_extraction_method_index],
@@ -461,7 +465,9 @@ class RSRSBenchmarkConfig:
             "rank_picking": self.rank_pickings[self.rank_picking_index],
             "fact_type": self.fact_types[self.fact_type],
             "save_samples": self.save_samples,
-            "num_threads": self.num_threads
+            "num_threads": self.num_threads,
+            "flush_factors": self.flush_factors,
+            "store_far": self.store_far,
         }
 
     def as_dict(self) -> Dict[str, Dict]:
@@ -611,7 +617,7 @@ class RSRSBenchmarkConfig:
         else:
             rrqr_pred = "rrqr"
 
-        if self.op_stabilisation == 0:
+        if self.op_shift == 0:
             return (
                 f"rsrs_null_{args['null_method']}"
                 f"_toln_{args['tol_null']:.0e}"
@@ -635,7 +641,7 @@ class RSRSBenchmarkConfig:
                 f"_os_{args['oversampling']}"
                 f"_osdiag_{args['oversampling_diag_blocks']}"
                 f"_initsam_{args['initial_num_samples']}"
-                f"_stabilised_{sci_no_padding(self.op_stabilisation)}"
+                f"_stabilised_{sci_no_padding(self.op_shift)}"
                 f"_mrnk_{args['min_rank']}"
                 f"_mlvl_{args['min_level']}"
                 f"_herm_{camel_to_snake(str(args['symmetric']))}"

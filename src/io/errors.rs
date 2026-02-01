@@ -1,9 +1,10 @@
-use bempp_rsrs::rsrs::rsrs_factors::Inv;
-use bempp_rsrs::rsrs::rsrs_factors::LevelIdFactors;
-use bempp_rsrs::rsrs::rsrs_factors::RsrsFactors;
-use bempp_rsrs::rsrs::rsrs_factors::{
+use bempp_rsrs::rsrs::rsrs_factors::base_factors::{BaseFactorOptions, FactorData};
+use bempp_rsrs::rsrs::rsrs_factors::commutative_factors::MultiLevelIdFactors;
+use bempp_rsrs::rsrs::rsrs_factors::commutative_factors::RsrsFactors;
+use bempp_rsrs::rsrs::rsrs_factors::commutative_factors::{
     CommutativeFactors, Factor, FactorOperations, FactorType, IdFactor, LuFactor, MulOptions,
 };
+use bempp_rsrs::rsrs::rsrs_factors::rsrs_operator::Inv;
 use bempp_rsrs::rsrs::sketch::{SampleType, SamplingSpace};
 use bempp_rsrs::utils::data_ins_ext::{ExtInsType, Extraction, MatrixExtraction};
 use mpi::traits::Communicator;
@@ -661,18 +662,15 @@ where
     .unwrap()
     .ext;
 
-    let factor_options = MulOptions {
+    let base_options = BaseFactorOptions {
         inv: false,
-        trans: false,
-        side: Side::Left,
-        factor_type: FactorType::F,
-        t_trans: false,
-        num_threads: num_cpus::get(),
+        trans: TransMode::NoTrans,
+        trans_target: false,
     };
 
     if get_factors_errors {
         let (err_rect, err_sq) = match &lu_factor.u_arr {
-            bempp_rsrs::rsrs::rsrs_factors::FactorData::Comp(composed_factor_data) => {
+            FactorData::Comp(composed_factor_data) => {
                 let mut err_rect = empty_array();
                 let mut err_sq = empty_array();
                 err_rect
@@ -682,9 +680,10 @@ where
                 let mut app_lu = rlst_dynamic_array2!(Item, [ind_r.len(), ind_r.len()]);
                 app_lu.set_identity();
 
+                let b_options = base_options.clone();
                 composed_factor_data
                     .sq
-                    .mul(&mut app_lu, Side::Left, &factor_options);
+                    .mul(&mut app_lu, Side::Left, &b_options);
 
                 let arr_rr = <Extraction<Item> as MatrixExtraction>::new(
                     arr,
@@ -700,7 +699,7 @@ where
                     err_sq.norm_fro() / arr_rr.norm_fro(),
                 )
             }
-            bempp_rsrs::rsrs::rsrs_factors::FactorData::Reg(_array) => todo!(),
+            FactorData::Reg(_array) => todo!(),
         };
 
         let arr_rt = arr_rt.r().norm_fro();
@@ -742,22 +741,21 @@ where
 {
     let target_arr = Arc::new(Mutex::new(target_arr));
 
-    let factor_options_left = MulOptions {
+    let base_options = BaseFactorOptions {
         inv: true,
-        trans: false,
+        trans: TransMode::NoTrans,
+        trans_target: false,
+    };
+    let factor_options_left = MulOptions {
+        base_options: base_options.clone(),
         side: Side::Left,
         factor_type: FactorType::F,
-        t_trans: false,
-        num_threads: num_cpus::get(),
     };
 
     let factor_options_right = MulOptions {
-        inv: true,
-        trans: false,
+        base_options: base_options.clone(),
         side: Side::Right,
         factor_type: FactorType::S,
-        t_trans: false,
-        num_threads: num_cpus::get(),
     };
 
     let errors: Vec<_> = factors
@@ -800,15 +798,15 @@ where
                     let mut app_dbox = rlst_dynamic_array2!(Item, shape);
                     app_dbox.set_identity();
 
-                    let options = MulOptions {
+                    let base_options = BaseFactorOptions {
                         inv: false,
-                        trans: false,
-                        side: Side::Left,
-                        factor_type: FactorType::F,
-                        t_trans: false,
-                        num_threads: num_cpus::get(),
+                        trans: TransMode::NoTrans,
+                        trans_target: false,
                     };
-                    diag_box_factor.arr.mul(&mut app_dbox, Side::Left, &options);
+
+                    diag_box_factor
+                        .arr
+                        .mul(&mut app_dbox, &Side::Left, &base_options);
 
                     let mut res: DynamicArray<Item, 2> = empty_array();
                     res.fill_from_resize(exact_diag_box.r() - app_dbox.r());
@@ -819,18 +817,15 @@ where
                     let mut app_inv_dbox = rlst_dynamic_array2!(Item, shape);
                     app_inv_dbox.set_identity();
 
-                    let options = MulOptions {
+                    let base_options = BaseFactorOptions {
                         inv: true,
-                        trans: false,
-                        side: Side::Left,
-                        factor_type: FactorType::F,
-                        t_trans: false,
-                        num_threads: num_cpus::get(),
+                        trans: TransMode::NoTrans,
+                        trans_target: false,
                     };
 
                     diag_box_factor
                         .arr
-                        .mul(&mut app_inv_dbox, Side::Left, &options);
+                        .mul(&mut app_inv_dbox, &Side::Left, &base_options);
 
                     let _ = exact_diag_box.r_mut().into_inverse_alloc().unwrap();
 
@@ -868,7 +863,7 @@ where
         .num_levels)
         .map(|level_it| {
             let (id_errors, lu_errors) = match &rsrs_factors.id_factors {
-                LevelIdFactors::Single(id_factors) => {
+                MultiLevelIdFactors::Single(id_factors) => {
                     let factors = &id_factors[level_it];
                     let id_errors = commutative_factors_errors(factors, target_arr);
                     let lu_errors = rsrs_factors.lu_factors[level_it]
@@ -880,7 +875,7 @@ where
                         .collect();
                     (vec![id_errors], lu_errors)
                 }
-                LevelIdFactors::Batched(id_factors) => {
+                MultiLevelIdFactors::Batched(id_factors) => {
                     let mut id_errors = Vec::new();
                     let mut lu_errors = Vec::new();
 

@@ -1,4 +1,4 @@
-use bempp_rsrs::rsrs::rsrs_cycle::{RsrsArgs, RsrsOptions};
+use bempp_rsrs::rsrs::args::{RsrsArgs, RsrsOptions};
 use regex::Regex;
 use rlst::prelude::*;
 use rsrs_exps::io::structured_operators_types::StructuredOperatorType;

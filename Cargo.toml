@@ -19,7 +19,7 @@ itertools = "0.13.*"
 rand = { version = "0.8.5", features = ["alloc"] }
 rand_chacha = "0.3.*"
 num = "0.4.*"
-rlst = { git = "https://github.com/linalg-rs/rlst.git", branch = "extend_abstract_operator", features = [
+rlst = { git = "https://github.com/ignacia-fp/rlst.git", branch = "extend_abstract_operator", features = [
     "enable_tracing",
 ] }
 bempp-octree = { git = "https://github.com/bempp/octree.git" }
@@ -33,7 +33,7 @@ paste = "1"
 ndgrid = { git = "https://github.com/ignacia-fp/ndgrid-for-rsrs.git", features = [
     "serde",
 ] }
-bempp-rsrs = { git = "https://github.com/bempp/rsrs.git", branch = "edit_steps_order" }
+bempp-rsrs = { git = "https://github.com/bempp/rsrs.git", branch = "new_rsrs_factors" }
 bempp = { git = "https://github.com/ignacia-fp/bempp-rs-for-rsrs.git", features = [
     "enable_tracing",
 ] }
