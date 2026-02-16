@@ -62,6 +62,13 @@ uv pip install gmsh
 
 NOTE: Exafmm will not work o Apple Silicon. To run these operators on your mac, you should remove `assembler="fmm"` when building an operator.
 
+To run using Docker image:
+
+```bash
+docker compose build
+docker compose run --rm dev
+```
+
 
 
 ## Example of usage:
