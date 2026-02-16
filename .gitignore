@@ -1,6 +1,23 @@
-/target
 *.json
+*.msh
+
+# Rust
+target/
+Cargo.lock
+
+# Python
+.venv/
 .python-version
 __pycache__/
-.DS_Store
 *.pyc
+*.pyo
+*.pyd
+
+# Dependencies directory used by Docker
+deps/
+
+# macOS
+.DS_Store
+
+# Temporary
+*.log
