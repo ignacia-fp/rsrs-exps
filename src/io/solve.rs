@@ -61,7 +61,10 @@ where
         res_vec.push(residuals);
         res_norm_vec.push(rel_norm);
         let mut sol_vec = rlst_dynamic_array2!(Item, [1, dim]);
-        target_op.r().domain().fill_array(&sol, &mut sol_vec, 0);
+        target_op
+            .r()
+            .domain()
+            .fill_array(&sol, &mut sol_vec, 0, TransMode::NoTrans);
         sols_vec.push(sol_vec.data().to_vec());
     }
 
@@ -126,7 +129,10 @@ where
         res_vec.push(residuals);
         res_norm_vec.push(rel_norm);
         let mut sol_vec = rlst_dynamic_array2!(Item, [1, dim]);
-        target_op.r().domain().fill_array(&sol, &mut sol_vec, 0);
+        target_op
+            .r()
+            .domain()
+            .fill_array(&sol, &mut sol_vec, 0, TransMode::NoTrans);
         sols_vec.push(sol_vec.data().to_vec());
     }
 

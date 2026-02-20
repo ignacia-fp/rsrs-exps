@@ -413,10 +413,11 @@ class BemppClLaplaceSecond(BaseStructuredOperator):
                                                                     self.range,
                                                                     self.dual_to_range).weak_form()
             dl = bempp_cl.api.operators.boundary.laplace.double_layer(
-                self.domain, self.range, self.dual_to_range).weak_form()
-            #self.ginv = get_inverse_mass_matrix(self.domain, self.dual_to_range)
+                self.domain, self.range, self.dual_to_range, assembler= "fmm").weak_form()
+            adl = bempp_cl.api.operators.boundary.laplace.adjoint_double_layer(
+                self.domain, self.range, self.dual_to_range, assembler= "fmm").weak_form()
             self.mat = 0.5*identity + dl
-            self.mat_T = 0.5*identity + dl.T
+            self.mat_T = 0.5*identity + adl
             self.rhs_data_type = self.mat.dtype
             self.form = 'weak'
             self.rhs = self.get_rhs(n_sources=self.n_sources)
@@ -932,7 +933,8 @@ class BemppClMaxwellEfie(BaseStructuredOperator):
             self.domain = bempp_cl.api.function_space(self.grid, "RWG", 0)
             self.dual_to_range = self.domain
             self.range = bempp_cl.api.function_space(self.grid, "SNC", 0)
-            self.mat = bempp_cl.api.operators.boundary.maxwell.electric_field(self.domain, self.dual_to_range, self.range, kappa).weak_form()               
+            self.mat = bempp_cl.api.operators.boundary.maxwell.electric_field(self.domain, self.dual_to_range, self.range, kappa).weak_form()  
+            self.mat_T = self.mat.T      
             self.rhs_data_type = self.mat.dtype
             self.rhs = self.get_rhs(n_sources=self.n_sources)
             self.n_points = self.mat.shape[0]
@@ -944,7 +946,7 @@ class BemppClMaxwellEfie(BaseStructuredOperator):
         return self.mat * v
     
     def mv_trans(self, v):
-        return self.mat.T * v
+        return self.mat_T * v
     
     @property
     def cond(self):
@@ -1024,19 +1026,20 @@ class BemppClBurtonMiller(BaseStructuredOperator):
             identity = bempp_cl.api.operators.boundary.sparse.identity(self.domain,
                                                                     self.range,
                                                                     self.dual_to_range).weak_form()
-            adl = bempp_cl.api.operators.boundary.helmholtz.adjoint_double_layer(
+            dl = bempp_cl.api.operators.boundary.helmholtz.double_layer(
                 self.domain, self.range, self.dual_to_range, kappa
             ).weak_form()
-            sl = bempp_cl.api.operators.boundary.helmholtz.single_layer(
-                self.domain, self.range, self.dual_to_range, kappa
-            ).weak_form()
+            #adl = bempp_cl.api.operators.boundary.helmholtz.adjoint_double_layer(
+            #    self.domain, self.range, self.dual_to_range, kappa
+            #).weak_form()
             hl = bempp_cl.api.operators.boundary.helmholtz.single_layer(
                 self.domain, self.range, self.dual_to_range, kappa
             ).weak_form()
-            self.mat = 0.5*identity + eta * (kappa*kappa* sl  + hl) - adl
-            self.mat_T = 0.5*identity + eta * (kappa*kappa* sl.T  + hl.T) - adl.T
+            self.mat = 0.5 * identity - dl + (1j / kappa) * hl
+            self.mat_T = 0.5 * identity - dl.T + (1j / kappa) * hl
             self.form = 'weak'
             self.rhs_data_type = self.mat.dtype
+            self.n_points = self.mat.shape[0]
             self.rhs = self.get_rhs(n_sources=self.n_sources)
         except Exception as e:
             print("Error initializing BemppClBurtonMiller:", e)
@@ -1081,12 +1084,15 @@ class BemppClHelmholtzCombined(BaseStructuredOperator):
                                                                     self.range,
                                                                     self.dual_to_range).weak_form()
             sl = bempp_cl.api.operators.boundary.helmholtz.single_layer(
-                self.domain, self.range, self.dual_to_range, kappa).weak_form()
+                self.domain, self.range, self.dual_to_range, kappa, assembler = "fmm").weak_form()
             dl = bempp_cl.api.operators.boundary.helmholtz.double_layer(
-                self.domain, self.range, self.dual_to_range, kappa).weak_form()
-            self.mat = 1j*kappa*sl + 0.5*identity + dl
-            self.mat_T = 1j*kappa*sl + 0.5*identity + dl.T
+                self.domain, self.range, self.dual_to_range, kappa, assembler = "fmm").weak_form()
+            dlt = bempp_cl.api.operators.boundary.helmholtz.adjoint_double_layer(
+                self.domain, self.range, self.dual_to_range, kappa, assembler = "fmm").weak_form()
+            self.mat =  0.5*identity + dl - 1j*kappa*sl
+            self.mat_T =  0.5*identity + dlt - 1j*kappa*sl
             self.rhs_data_type = self.mat.dtype
+            self.n_points = self.mat.shape[0]
             self.rhs = self.get_rhs(n_sources=self.n_sources)
         except Exception as e:
             print("Error initializing BemppClHelmholtzCombined:", e)
@@ -1110,3 +1116,6 @@ class BemppClHelmholtzCombined(BaseStructuredOperator):
     
     def get_rhs(self, n_sources=1):
         return right_hand_side(self, 'Dirichlet', n_sources)
+    
+
+    

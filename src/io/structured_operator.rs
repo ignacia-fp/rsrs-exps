@@ -147,6 +147,7 @@ pub enum GeometryType {
     EMCCAlmond,
     FrigateHull,
     Plane,
+    Square,
 }
 
 pub struct StructuredOperatorParams {
@@ -243,6 +244,7 @@ macro_rules! implement_structured_operator {
                     GeometryType::EMCCAlmond => "emcc_almond",
                     GeometryType::FrigateHull => "frigate_hull",
                     GeometryType::Plane => "plane",
+                    GeometryType::Square => "square",
                 })
                 .unwrap();
 

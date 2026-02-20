@@ -1,4 +1,5 @@
 
+from unittest import result
 import numpy as np
 import bempp_cl.api
 
@@ -72,7 +73,7 @@ def h_dirichlet_data(d, kappa):
 
     @bempp_cl.api.complex_callable
     def dirichlet_data(x, n, domain_index, result):
-        result[0] = -1j * kappa * np.exp(1j * kappa * np.dot(d, x))
+        result[0] = -np.exp(1j * kappa * np.dot(d, x))
 
     return dirichlet_data
 
@@ -87,10 +88,10 @@ def h_neumann_data(d, kappa):
 
 def m_dirichlet_data(d, kappa):
     d = np.asarray(d, dtype=np.float64)
-
+    polarization = np.array([-1.0, 0, 0])
     @bempp_cl.api.complex_callable
     def dirichlet_data(x, n, domain_index, result):
-        incident_field = np.exp(1j * kappa * np.dot(d, x)) * d
+        incident_field = polarization * np.exp(1j * kappa * np.dot(d, x))
         result[:] = np.cross(incident_field, n)
 
     return dirichlet_data
@@ -103,6 +104,27 @@ def h_combined_data(d, kappa):
         result[0] = 1j * kappa * np.exp(1j * kappa * np.dot(d, x)) * (np.dot(n, d) - 1)
 
     return combined_data
+
+
+def h_bm_data(d, k, normalise=True):
+    d = np.asarray(d, dtype=np.float64)
+    if d.shape != (3,):
+        raise ValueError("d must be a 3-vector.")
+    if normalise:
+        nd = np.linalg.norm(d)
+        if nd == 0:
+            raise ValueError("d must be non-zero.")
+        d = d / nd
+
+    @bempp_cl.api.complex_callable
+    def bm_rhs(x, n, domain_index, result):
+        # phase = exp(i k d·x)
+        phase = np.exp(1j * k * (d[0]*x[0] + d[1]*x[1] + d[2]*x[2]))
+        ndotd = n[0]*d[0] + n[1]*d[1] + n[2]*d[2]
+        result[0] = phase * (1.0 - ndotd)
+
+    return bm_rhs
+
 
 def right_hand_side(operator, problem_type, n_sources=1):
     """
@@ -259,7 +281,7 @@ def right_hand_side(operator, problem_type, n_sources=1):
         rhs_list = []
         directions = generate_directions(n_sources)
         for d in directions:
-            combined_data = h_neumann_data(d, kappa)
+            combined_data = h_bm_data(d, kappa)
             gfun = bempp_cl.api.GridFunction(operator.domain, fun=combined_data)
             if operator.form == 'weak':
                     rhs_list.append(gfun.projections(operator.dual_to_range))

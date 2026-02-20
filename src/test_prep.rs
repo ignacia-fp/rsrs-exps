@@ -148,6 +148,7 @@ impl<Item: RlstScalar> TestParams<Item> {
             GeometryType::EMCCAlmond => "emcc_almond",
             GeometryType::FrigateHull => "frigate_hull",
             GeometryType::Plane => "plane",
+            GeometryType::Square => "square",
         }
         .to_string();
         let structured_operator = self.get_structured_operator_name();
@@ -377,7 +378,7 @@ macro_rules! implement_test_framework {
                         let max_leaf_points = if id_tol < 1.0 {
                             50
                         } else {
-                            (1.2 * id_tol).to_usize().unwrap()
+                            (6.0 * id_tol).to_usize().unwrap()
                         };
                         let tree: Octree<'_, SimpleCommunicator> = Octree::new(
                             &points,
@@ -571,6 +572,7 @@ macro_rules! implement_distributed_test_framework {
                         bempp::shapes::sphere(1.0, (0.0, 0.0, 0.0), dim_arg.0, &comm).unwrap()
                     };
 
+
                     let local_tree_depth = 1;
                     let global_tree_depth = dim_arg.1 as usize;
                     let expansion_order = 6;
@@ -675,7 +677,7 @@ macro_rules! implement_distributed_test_framework {
                         let max_leaf_points = if id_tol < 1.0 {
                             50
                         } else {
-                            (1.2 * id_tol).to_usize().unwrap()
+                            (6.0 * id_tol).to_usize().unwrap()
                         };
 
                         let tree: Octree<'_, SimpleCommunicator> =
