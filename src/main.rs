@@ -14,21 +14,21 @@ use std::fs;
 fn extract_operator_types(python_code: &str) -> HashMap<String, String> {
     let mut map = HashMap::new();
 
-    // Regex to match class declarations inheriting from BaseStructuredOperator
     let class_regex = Regex::new(r"class (\w+)\(BaseStructuredOperator\):").unwrap();
 
-    // Regex to match assignment of self.operator_type
-    let operator_type_regex = Regex::new(r#"self\.operator_type\s*=\s*['"](\w+)['"]"#).unwrap();
+    // Only accept 'real' or 'complex' to avoid false matches
+    let scalar_type_regex =
+        Regex::new(r#"self\.scalar_type\s*=\s*['"](real|complex)['"]"#).unwrap();
 
-    let mut current_class = None;
+    let mut current_class: Option<String> = None;
 
     for line in python_code.lines() {
         if let Some(cap) = class_regex.captures(line) {
             current_class = Some(cap[1].to_string());
-        } else if let Some(cap) = operator_type_regex.captures(line) {
+        } else if let Some(cap) = scalar_type_regex.captures(line) {
             if let Some(class_name) = &current_class {
                 map.insert(class_name.clone(), cap[1].to_string());
-                current_class = None; // Reset for next class
+                current_class = None;
             }
         }
     }

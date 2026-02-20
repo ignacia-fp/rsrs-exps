@@ -58,40 +58,64 @@ StructuredOperator* create_structured_operator(PyObject* instance) {
 // Initialize operator
 // -------------------------
 StructuredOperator* initialize_structured_operator(
-    const char* python_executable, const char* class_name, double arg1,
-    const char* geometry_type, double kappa, const char* precision,
-    int n_sources) {
+    const char* python_executable,
+    const char* class_name,
+    double arg1,
+    const char* geometry_type,
+    double kappa,
+    const char* precision,
+    int n_sources,
+    int init_samples)   // <-- ADDED
+{
   if (!Py_IsInitialized()) {
     wchar_t* program_name = Py_DecodeLocale(python_executable, NULL);
     Py_SetProgramName(program_name);
     Py_Initialize();
     if (_import_array() < 0) return NULL;
   }
+
   PyRun_SimpleString("import sys; sys.path.append('.')");
 
   PyObject* module = PyImport_ImportModule("python.structured_operators");
   if (!module) return NULL;
+
   PyObject* cls = PyObject_GetAttrString(module, class_name);
   Py_DECREF(module);
   if (!cls) return NULL;
 
-  PyObject* arg1_obj = ((int)arg1 == arg1) ? PyLong_FromLong((long)arg1)
-                                           : PyFloat_FromDouble(arg1);
+  PyObject* arg1_obj = ((int)arg1 == arg1)
+                           ? PyLong_FromLong((long)arg1)
+                           : PyFloat_FromDouble(arg1);
+
   PyObject* kappa_obj = PyFloat_FromDouble(kappa);
   PyObject* geom_obj = PyUnicode_FromString(geometry_type);
   PyObject* prec_obj = PyUnicode_FromString(precision);
-  PyObject* ms_obj = PyLong_FromLong(n_sources);
-  PyObject* args =
-      PyTuple_Pack(5, arg1_obj, kappa_obj, geom_obj, prec_obj, ms_obj);
+  PyObject* ns_obj = PyLong_FromLong(n_sources);
+  PyObject* init_obj = PyLong_FromLong(init_samples);
+
+
+  PyObject* args = PyTuple_Pack(
+      6,
+      arg1_obj,
+      kappa_obj,
+      geom_obj,
+      prec_obj,
+      ns_obj,
+      init_obj);
+
   Py_DECREF(arg1_obj);
   Py_DECREF(kappa_obj);
   Py_DECREF(geom_obj);
   Py_DECREF(prec_obj);
-  Py_DECREF(ms_obj);
+  Py_DECREF(ns_obj);
+  Py_DECREF(init_obj);
+
   PyObject* instance = PyObject_CallObject(cls, args);
   Py_DECREF(args);
   Py_DECREF(cls);
+
   if (!instance) return NULL;
+
   return create_structured_operator(instance);
 }
 

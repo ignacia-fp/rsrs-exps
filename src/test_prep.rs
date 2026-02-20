@@ -331,6 +331,7 @@ macro_rules! implement_test_framework {
                         dim_arg.0.into(),
                         dim_arg.1.into(),
                         self.test_params.scenario_params.n_sources,
+                        self.test_params.rsrs_params.sketching.min_num_samples as i32
                     );
 
                     let structured_operator: StructuredOperatorInterface =

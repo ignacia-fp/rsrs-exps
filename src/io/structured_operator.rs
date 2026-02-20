@@ -27,6 +27,7 @@ extern "C" {
         kappa: libc::c_double,
         precision: *const std::ffi::c_char,
         n_sources: std::ffi::c_int,
+        init_samples: std::ffi::c_int,
     ) -> *mut StructuredOperatorOpaque;
 
     fn finalize_structured_operator(structured_operator: *mut StructuredOperatorOpaque);
@@ -157,8 +158,8 @@ pub struct StructuredOperatorParams {
     dim_arg: f64,
     kappa: f64,
     n_sources: i32,
+    init_samples: i32,
 }
-
 impl StructuredOperatorParams {
     pub fn new(
         structured_operator_type: StructuredOperatorType,
@@ -167,6 +168,7 @@ impl StructuredOperatorParams {
         dim_arg: f64,
         kappa: f64,
         n_sources: i32,
+        init_samples: i32,
     ) -> Self {
         Self {
             structured_operator_type,
@@ -175,10 +177,10 @@ impl StructuredOperatorParams {
             dim_arg,
             kappa,
             n_sources,
+            init_samples,
         }
     }
 }
-
 /*type BemppRsOperator<T> = Operator<T>;
 pub enum StructuredOperatorImplType<T: OperatorBase + AsApply> {
     Python(StructuredOperatorInterface),
@@ -259,6 +261,7 @@ macro_rules! implement_structured_operator {
                         params.kappa,
                         precision_str.as_ptr(),
                         params.n_sources as libc::c_int,
+                        params.init_samples as libc::c_int,
                     )
                 };
 

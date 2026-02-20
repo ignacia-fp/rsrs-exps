@@ -1,5 +1,6 @@
 *.json
 *.msh
+*.h5
 
 # Rust
 target/
@@ -12,6 +13,8 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
+*.tmp
+*.cpython-310.pyc
 
 # Dependencies directory used by Docker
 deps/
