@@ -109,7 +109,22 @@ where
                     <TestFramework<f32> as TestFrameworkImpl<f32, ArrayVectorSpace<f32>>>::run_tests(&mut test_framework);
                 }
             }
-            ScalarType::C32 => panic!("Single precision not implemented"),
+            ScalarType::C32 => {
+                let scenario_args = serde_json::from_str::<ScenarioArgs<c32>>(&args[2])
+                    .expect("Failed to deserialize scenario args");
+                let rsrs_args = serde_json::from_str::<RsrsArgs<c32>>(&args[3])
+                    .expect("Failed to deserialize rsrs args");
+                let output_options =
+                    serde_json::from_str(&args[4]).expect("Failed to deserialize output args");
+
+                let scenario_options = ScenarioOptions::new(Some(scenario_args), data_type);
+                let rsrs_options = RsrsOptions::<c32>::new(Some(rsrs_args));
+                let mut test_framework =
+                    TestFramework::<c32>::new(scenario_options, rsrs_options, output_options);
+                <TestFramework<c32> as TestFrameworkImpl<c32, ArrayVectorSpace<c32>>>::run_tests(
+                    &mut test_framework,
+                );
+            },
 
             ScalarType::F64 => {
                 let scenario_args = serde_json::from_str::<ScenarioArgs<f64>>(&args[2])

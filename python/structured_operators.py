@@ -1376,10 +1376,10 @@ class BemppClMaxwellEfie(BaseStructuredOperator):
                 self.domain, self.dual_to_range, self.range, kappa
             ).weak_form()
             self.mat_T = self.mat.T
+            self.n_points = self.mat.shape[0]
             _maybe_generate_samples(self.mat, self.mat_T, self.n_points, self.init_samples)
             self.rhs_data_type = self.mat.dtype
             self.rhs = self.get_rhs(n_sources=self.n_sources)
-            self.n_points = self.mat.shape[0]
         except Exception as e:
             print("Error initializing BemppClMaxwellEfie:", e)
             raise

@@ -534,6 +534,7 @@ macro_rules! implement_test_framework {
 implement_test_framework!(f32);
 implement_test_framework!(f64);
 implement_test_framework!(c64);
+implement_test_framework!(c32);
 
 macro_rules! implement_distributed_test_framework {
     ($scalar:ty) => {
