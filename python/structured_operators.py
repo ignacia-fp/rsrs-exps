@@ -22,6 +22,7 @@ from kifmm_py import (
     FftFieldTranslation,
 )
 import time
+from threadpoolctl import threadpool_limits, threadpool_info
 
 bempp_cl.api.GLOBAL_PARAMETERS.fmm.expansion_order = 3
 # bempp_cl.api.GLOBAL_PARAMETERS.quadrature.regular = 1
@@ -37,6 +38,8 @@ def _set_bempp_precision(precision: str) -> None:
 
 import time
 import numpy as np
+
+NPROC=10
 
 def _maybe_generate_samples(
     op,
@@ -54,6 +57,7 @@ def _maybe_generate_samples(
     # If True and op and op_T are effectively the same, only store y_* (otherwise store both y_* and z_*)
     save_only_y_if_symmetric: bool = False,
 ):
+    print(threadpool_info())
     """
     Ensure at least init_samples are present on disk (in sampling/).
     If fewer exist, append the missing number.
@@ -64,105 +68,106 @@ def _maybe_generate_samples(
     and we compute common*[Omega_y Omega_z] in one multiply.
     """
 
-    t_total0 = time.perf_counter()
+    with threadpool_limits(limits=NPROC): 
+        t_total0 = time.perf_counter()
 
-    y_test = f"{prefix_y}_test_file"
-    y_sk   = f"{prefix_y}_sketch_file"
-    z_test = f"{prefix_z}_test_file"
-    z_sk   = f"{prefix_z}_sketch_file"
+        y_test = f"{prefix_y}_test_file"
+        y_sk   = f"{prefix_y}_sketch_file"
+        z_test = f"{prefix_z}_test_file"
+        z_sk   = f"{prefix_z}_sketch_file"
 
-    # Count existing samples (rows)
-    t0 = time.perf_counter()
-    m_old = existing_num_rows(y_test) or 0
-    t_count = time.perf_counter() - t0
+        # Count existing samples (rows)
+        t0 = time.perf_counter()
+        m_old = existing_num_rows(y_test) or 0
+        t_count = time.perf_counter() - t0
 
-    if init_samples <= m_old:
-        t_total = time.perf_counter() - t_total0
-        print(
-            f"[sampling] already have {m_old} samples (target={init_samples}); "
-            f"nothing to do. (count={t_count:.3f}s, total={t_total:.3f}s)"
-        )
-        return
-
-    n_add = init_samples - m_old
-    print(f"[sampling] have {m_old}, target {init_samples} -> appending {n_add} samples")
-
-    # RNG
-    t0 = time.perf_counter()
-    rng_y = make_rng(base_seed, stream_tag="Omega_y", m_existing=m_old)
-    rng_z = make_rng(base_seed, stream_tag="Omega_z", m_existing=m_old)
-    Omega_y = rng_y.standard_normal((n, n_add))
-    Omega_z = rng_z.standard_normal((n, n_add))
-    t_rng = time.perf_counter() - t0
-
-    # Detect "symmetric" mode if caller passed same handle (common in your code)
-    symmetric_mode = (op_T is op)
-
-    # Apply
-    t0 = time.perf_counter()
-
-    if symmetric_mode:
-        Y = np.asarray(op * Omega_y)
-
-        if save_only_y_if_symmetric:
-            t_apply = time.perf_counter() - t0
-
-            # I/O
-            t1 = time.perf_counter()
-            store_complex = np.iscomplexobj(Y)
-            append_samples_multipart(Omega_y.T, y_test, store_complex)
-            append_samples_multipart(Y.T,       y_sk,   store_complex)
-            t_io = time.perf_counter() - t1
-
-            m_new = existing_num_rows(y_test) or (m_old + n_add)
+        if init_samples <= m_old:
             t_total = time.perf_counter() - t_total0
             print(
-                "[sampling] symmetric: saved only y_* | "
-                f"added={n_add}, total={m_new} | "
-                f"count={t_count:.3f}s, rng={t_rng:.3f}s, apply={t_apply:.3f}s, io={t_io:.3f}s, total={t_total:.3f}s"
+                f"[sampling] already have {m_old} samples (target={init_samples}); "
+                f"nothing to do. (count={t_count:.3f}s, total={t_total:.3f}s)"
             )
             return
 
-        # Otherwise: still save z_* but avoid extra multiply by reusing Y
-        Z = Y
-        Omega_z = Omega_y
+        n_add = init_samples - m_old
+        print(f"[sampling] have {m_old}, target {init_samples} -> appending {n_add} samples")
 
-    elif common is not None and nonsym is not None and nonsymT is not None:
-        # Fast split path: common apply once on concatenated Omegas
-        Omega_big = np.concatenate([Omega_y, Omega_z], axis=1)  # (n, 2*n_add)
-        C_big = np.asarray(common * Omega_big)                  # (n, 2*n_add)
-        C_y = C_big[:, :n_add]
-        C_z = C_big[:, n_add:]
+        # RNG
+        t0 = time.perf_counter()
+        rng_y = make_rng(base_seed, stream_tag="Omega_y", m_existing=m_old)
+        rng_z = make_rng(base_seed, stream_tag="Omega_z", m_existing=m_old)
+        Omega_y = rng_y.standard_normal((n, n_add))
+        Omega_z = rng_z.standard_normal((n, n_add))
+        t_rng = time.perf_counter() - t0
 
-        N_y  = np.asarray(nonsym  * Omega_y)
-        NT_z = np.asarray(nonsymT * Omega_z)
+        # Detect "symmetric" mode if caller passed same handle (common in your code)
+        symmetric_mode = (op_T is op)
 
-        Y = C_y + N_y
-        Z = C_z + NT_z
+        # Apply
+        t0 = time.perf_counter()
 
-    else:
-        # Default path: two multiplies
-        Y = np.asarray(op * Omega_y)
-        Z = np.asarray(op_T * Omega_z)
+        if symmetric_mode:
+            Y = np.asarray(op * Omega_y)
 
-    t_apply = time.perf_counter() - t0
+            if save_only_y_if_symmetric:
+                t_apply = time.perf_counter() - t0
 
-    # I/O
-    t0 = time.perf_counter()
-    store_complex = np.iscomplexobj(Y) or np.iscomplexobj(Z)
-    append_samples_multipart(Omega_y.T,          y_test, store_complex)
-    append_samples_multipart(Y.T,               y_sk,   store_complex)
-    append_samples_multipart(np.conj(Omega_z).T, z_test, store_complex)
-    append_samples_multipart(np.conj(Z).T,       z_sk,   store_complex)
-    t_io = time.perf_counter() - t0
+                # I/O
+                t1 = time.perf_counter()
+                store_complex = np.iscomplexobj(Y)
+                append_samples_multipart(Omega_y.T, y_test, store_complex)
+                append_samples_multipart(Y.T,       y_sk,   store_complex)
+                t_io = time.perf_counter() - t1
 
-    m_new = existing_num_rows(y_test) or (m_old + n_add)
-    t_total = time.perf_counter() - t_total0
-    print(
-        "[sampling] done | "
-        f"added={n_add}, total={m_new} | "
-        f"count={t_count:.3f}s, rng={t_rng:.3f}s, apply={t_apply:.3f}s, io={t_io:.3f}s, total={t_total:.3f}s"
-    )
+                m_new = existing_num_rows(y_test) or (m_old + n_add)
+                t_total = time.perf_counter() - t_total0
+                print(
+                    "[sampling] symmetric: saved only y_* | "
+                    f"added={n_add}, total={m_new} | "
+                    f"count={t_count:.3f}s, rng={t_rng:.3f}s, apply={t_apply:.3f}s, io={t_io:.3f}s, total={t_total:.3f}s"
+                )
+                return
+
+            # Otherwise: still save z_* but avoid extra multiply by reusing Y
+            Z = Y
+            Omega_z = Omega_y
+
+        elif common is not None and nonsym is not None and nonsymT is not None:
+            # Fast split path: common apply once on concatenated Omegas
+            Omega_big = np.concatenate([Omega_y, Omega_z], axis=1)  # (n, 2*n_add)
+            C_big = np.asarray(common * Omega_big)                  # (n, 2*n_add)
+            C_y = C_big[:, :n_add]
+            C_z = C_big[:, n_add:]
+
+            N_y  = np.asarray(nonsym  * Omega_y)
+            NT_z = np.asarray(nonsymT * Omega_z)
+
+            Y = C_y + N_y
+            Z = C_z + NT_z
+
+        else:
+            # Default path: two multiplies
+            Y = np.asarray(op * Omega_y)
+            Z = np.asarray(op_T * Omega_z)
+
+        t_apply = time.perf_counter() - t0
+
+        # I/O
+        t0 = time.perf_counter()
+        store_complex = np.iscomplexobj(Y) or np.iscomplexobj(Z)
+        append_samples_multipart(Omega_y.T,          y_test, store_complex)
+        append_samples_multipart(Y.T,               y_sk,   store_complex)
+        append_samples_multipart(np.conj(Omega_z).T, z_test, store_complex)
+        append_samples_multipart(np.conj(Z).T,       z_sk,   store_complex)
+        t_io = time.perf_counter() - t0
+
+        m_new = existing_num_rows(y_test) or (m_old + n_add)
+        t_total = time.perf_counter() - t_total0
+        print(
+            "[sampling] done | "
+            f"added={n_add}, total={m_new} | "
+            f"count={t_count:.3f}s, rng={t_rng:.3f}s, apply={t_apply:.3f}s, io={t_io:.3f}s, total={t_total:.3f}s"
+        )
 
 
 # -----------------Sampling------------------------- #
@@ -537,10 +542,12 @@ class BasicStructuredOperator(BaseStructuredOperator):
             self.rhs_data_type = np.float64
 
     def mv(self, v):
-        return self.mat @ v
+        with threadpool_limits(limits=NPROC):
+            return self.mat @ v
 
     def mv_trans(self, v):
-        return self.mat.T @ v
+        with threadpool_limits(limits=NPROC):
+            return self.mat.T @ v
 
     @property
     def cond(self):
@@ -617,10 +624,12 @@ class BemppClHelmholtzSingleLayer(BaseStructuredOperator):
             raise
 
     def mv(self, v):
-        return self.mat * v
+        with threadpool_limits(limits=NPROC):
+            return self.mat * v
 
     def mv_trans(self, v):
-        return self.mat.T * v
+        with threadpool_limits(limits=NPROC):
+            return self.mat.T * v
 
     @property
     def cond(self):
@@ -671,12 +680,13 @@ class KiFMMLaplaceOperator(BaseStructuredOperator):
             raise
 
     def mv(self, v):
-        self.mat.clear()
-        charges = v.astype(self.rhs_data_type)
-        self.mat.attach_charges_unordered(charges)
-        self.mat.evaluate()
-        res = np.copy(charges) + (1/self.n_points) * self.mat.all_potentials_u.reshape(-1)
-        return res
+        with threadpool_limits(limits=NPROC):
+            self.mat.clear()
+            charges = v.astype(self.rhs_data_type)
+            self.mat.attach_charges_unordered(charges)
+            self.mat.evaluate()
+            res = np.copy(charges) + (1/self.n_points) * self.mat.all_potentials_u.reshape(-1)
+            return res
 
     def mv_trans(self, v):
         return self.mv(v)
@@ -730,12 +740,13 @@ class KiFMMHelmholtzOperator(BaseStructuredOperator):
             raise
 
     def mv(self, v):
-        self.mat.clear()
-        charges = v.astype(self.rhs_data_type)
-        self.mat.attach_charges_unordered(charges)
-        self.mat.evaluate()
-        res = np.copy(charges) + (1/self.n_points) * self.mat.all_potentials_u.reshape(-1)
-        return res
+        with threadpool_limits(limits=NPROC):
+            self.mat.clear()
+            charges = v.astype(self.rhs_data_type)
+            self.mat.attach_charges_unordered(charges)
+            self.mat.evaluate()
+            res = np.copy(charges) + (1/self.n_points) * self.mat.all_potentials_u.reshape(-1)
+            return res
 
     def mv_trans(self, v):
         return self.mv(v)
@@ -812,10 +823,12 @@ class BemppClLaplaceCombined(BaseStructuredOperator):
             raise
 
     def mv(self, v):
-        return self.mat * v
+        with threadpool_limits(limits=NPROC):
+            return self.mat * v
 
     def mv_trans(self, v):
-        return self.mat_T * v
+        with threadpool_limits(limits=NPROC):
+            return self.mat_T * v
 
     @property
     def cond(self):
@@ -863,10 +876,12 @@ class BemppClLaplaceSecond(BaseStructuredOperator):
             raise
 
     def mv(self, v):
-        return self.mat * v
+        with threadpool_limits(limits=NPROC):
+            return self.mat * v
 
     def mv_trans(self, v):
-        return self.mat_T * v
+        with threadpool_limits(limits=NPROC):
+            return self.mat_T * v
 
     @property
     def cond(self):
@@ -931,10 +946,12 @@ class BemppClLaplaceSingleLayerCP(BaseStructuredOperator):
             raise
 
     def mv(self, v):
-        return self.mat * v
+        with threadpool_limits(limits=NPROC):
+            return self.mat * v
 
     def mv_trans(self, v):
-        return self.mat_T * v
+        with threadpool_limits(limits=NPROC):
+            return self.mat_T * v
 
     @property
     def cond(self):
@@ -976,10 +993,12 @@ class BemppClLaplaceSingleLayerMM(BaseStructuredOperator):
             raise
 
     def mv(self, v):
-        return self.mat * v
+        with threadpool_limits(limits=NPROC):
+            return self.mat * v
 
     def mv_trans(self, v):
-        return self.mat.T * v
+        with threadpool_limits(limits=NPROC):
+            return self.mat.T * v
 
     @property
     def cond(self):
@@ -1028,10 +1047,12 @@ class BemppClHelmholtzSingleLayerCP(BaseStructuredOperator):
             raise
 
     def mv(self, v):
-        return self.mat * v
+        with threadpool_limits(limits=NPROC):
+            return self.mat * v
 
     def mv_trans(self, v):
-        return self.mat_T * v
+        with threadpool_limits(limits=NPROC):
+            return self.mat_T * v
 
     @property
     def cond(self):
@@ -1123,10 +1144,12 @@ class BemppClLaplaceSingleLayerP1(BaseStructuredOperator):
             raise
 
     def mv(self, v):
-        return self.mat * v
+        with threadpool_limits(limits=NPROC):
+            return self.mat * v
 
     def mv_trans(self, v):
-        return self.mat.T * v
+        with threadpool_limits(limits=NPROC):
+            return self.mat.T * v
 
     @property
     def cond(self):
@@ -1178,12 +1201,13 @@ class KiFMMLaplaceOperatorV(BaseStructuredOperator):
             raise
 
     def mv(self, v):
-        self.mat.clear()
-        charges = v.astype(self.rhs_data_type)
-        self.mat.attach_charges_unordered(charges)
-        self.mat.evaluate()
-        res = np.copy(charges) + (1/self.n_points) * self.mat.all_potentials_u.reshape(-1)
-        return res
+        with threadpool_limits(limits=NPROC):
+            self.mat.clear()
+            charges = v.astype(self.rhs_data_type)
+            self.mat.attach_charges_unordered(charges)
+            self.mat.evaluate()
+            res = np.copy(charges) + (1/self.n_points) * self.mat.all_potentials_u.reshape(-1)
+            return res
 
     def mv_trans(self, v):
         return self.mv(v)
@@ -1230,10 +1254,12 @@ class BemppClLaplaceCombinedP1(BaseStructuredOperator):
             raise
 
     def mv(self, v):
-        return self.mat * v
+        with threadpool_limits(limits=NPROC):
+            return self.mat * v
 
     def mv_trans(self, v):
-        return self.mat.T * v
+        with threadpool_limits(limits=NPROC):
+            return self.mat.T * v
 
     @property
     def cond(self):
@@ -1283,10 +1309,12 @@ class BemppClLaplaceSingleLayerCPIDP1(BaseStructuredOperator):
             raise
 
     def mv(self, v):
-        return self.mat * v
+        with threadpool_limits(limits=NPROC):
+            return self.mat * v
 
     def mv_trans(self, v):
-        return self.mat_T * v
+        with threadpool_limits(limits=NPROC):
+            return self.mat_T * v
 
     @property
     def cond(self):
@@ -1339,10 +1367,12 @@ class BemppClHelmholtzSingleLayerCPID(BaseStructuredOperator):
             raise
 
     def mv(self, v):
-        return self.mat * v
+        with threadpool_limits(limits=NPROC):
+            return self.mat * v
 
     def mv_trans(self, v):
-        return self.mat_T * v
+        with threadpool_limits(limits=NPROC):
+            return self.mat_T * v
 
     @property
     def cond(self):
@@ -1385,10 +1415,12 @@ class BemppClMaxwellEfie(BaseStructuredOperator):
             raise
 
     def mv(self, v):
-        return self.mat * v
+        with threadpool_limits(limits=NPROC):
+            return self.mat * v
 
     def mv_trans(self, v):
-        return self.mat_T * v
+        with threadpool_limits(limits=NPROC):
+            return self.mat_T * v
 
     @property
     def cond(self):
@@ -1428,10 +1460,12 @@ class BemppClHelmholtzSingleLayerP1(BaseStructuredOperator):
             raise
 
     def mv(self, v):
-        return self.mat * v
+        with threadpool_limits(limits=NPROC):
+            return self.mat * v
 
     def mv_trans(self, v):
-        return self.mat.T * v
+        with threadpool_limits(limits=NPROC):
+            return self.mat.T * v
 
     @property
     def cond(self):
@@ -1493,10 +1527,12 @@ class BemppClBurtonMiller(BaseStructuredOperator):
             raise
 
     def mv(self, v):
-        return self.mat * v
+        with threadpool_limits(limits=NPROC):
+            return self.mat * v
 
     def mv_trans(self, v):
-        return self.mat_T * v
+        with threadpool_limits(limits=NPROC):
+            return self.mat_T * v
 
     @property
     def cond(self):
@@ -1555,10 +1591,12 @@ class BemppClHelmholtzCombined(BaseStructuredOperator):
             raise
 
     def mv(self, v):
-        return self.mat * v
+        with threadpool_limits(limits=NPROC):
+            return self.mat * v
 
     def mv_trans(self, v):
-        return self.mat_T * v
+        with threadpool_limits(limits=NPROC):
+            return self.mat_T * v
 
     @property
     def cond(self):
