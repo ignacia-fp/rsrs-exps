@@ -1,6 +1,7 @@
 #ifndef STRUCTURED_OPERATOR_INTERFACE_H
 #define STRUCTURED_OPERATOR_INTERFACE_H
 
+#include <stddef.h>
 #include <Python.h>
 #include <complex.h>
 #include <numpy/arrayobject.h>
@@ -10,11 +11,11 @@ extern "C" {
 #endif
 
 typedef struct {
-  PyArrayObject* points;  // N x 3 array of geometry points
+  PyArrayObject* points;  // N x 3 array of geometry points (float64 or float32)
   PyObject* rhs_list;     // Python list of NumPy arrays (always a list)
   PyArrayObject* mat;     // operator matrix (optional)
   int n_points;           // number of points
-  int n_rhs;              // number of RHS arrays (1 or 10)
+  int n_rhs;              // number of RHS arrays
   PyObject* pyobj;        // Python object instance
 } StructuredOperator;
 
@@ -27,7 +28,7 @@ StructuredOperator* initialize_structured_operator(
     double kappa,
     const char* precision,
     int n_sources,
-    int init_samples 
+    int init_samples
 );
 
 /* Matrix-vector multiplication */
@@ -37,11 +38,11 @@ int mv_structured_operator_complex(StructuredOperator* k,
                                    const double _Complex* input,
                                    double _Complex* output, int len);
 
-// New: single-precision real
+/* Single-precision real */
 int mv_structured_operator_real32(StructuredOperator* k, const float* input,
                                   float* output, int len);
 
-// New: single-precision complex
+/* Single-precision complex (NumPy complex64 / NPY_CFLOAT) */
 int mv_structured_operator_complex32(StructuredOperator* k,
                                      const float _Complex* input,
                                      float _Complex* output, int len);
@@ -62,14 +63,6 @@ int mv_structured_operator_complex32_trans(StructuredOperator* k,
                                            const float _Complex* input,
                                            float _Complex* output, int len);
 
-// New: get all RHS (real, float32)
-const float** get_all_real_rhs_f32(StructuredOperator* k, int* n_rhs,
-                                   int* len_out);
-
-// New: get all RHS (complex, complex32)
-const float _Complex** get_all_complex_rhs_f32(StructuredOperator* k,
-                                               int* n_rhs, int* len_out);
-
 /* Retrieve geometry points */
 const double* get_points(StructuredOperator* k);
 size_t get_n_points(StructuredOperator* k);
@@ -85,6 +78,12 @@ const double** get_all_real_rhs(StructuredOperator* k, int* n_rhs,
                                 int* len_out);
 const double _Complex** get_all_complex_rhs(StructuredOperator* k, int* n_rhs,
                                             int* len_out);
+
+/* Single-precision RHS getters */
+const float** get_all_real_rhs_f32(StructuredOperator* k, int* n_rhs,
+                                   int* len_out);
+const float _Complex** get_all_complex_rhs_f32(StructuredOperator* k,
+                                               int* n_rhs, int* len_out);
 
 /* Clean up all Python/C resources */
 void finalize_structured_operator(StructuredOperator* k);

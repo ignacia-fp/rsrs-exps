@@ -9,6 +9,7 @@ use rlst::RlstScalar;
 use serde::Deserialize;
 use std::ffi::CString;
 use std::rc::Rc;
+use num::Complex;
 
 #[repr(C)]
 struct StructuredOperatorOpaque {
@@ -332,12 +333,14 @@ pub fn rhs_real(structured_operator: &StructuredOperatorInterface) -> Option<Vec
 
     for &rhs_ptr in slice.iter() {
         if rhs_ptr.is_null() {
+            unsafe { libc::free(ptr as *mut libc::c_void) };
             return None;
         }
         let rhs_slice = unsafe { std::slice::from_raw_parts(rhs_ptr, len_out as usize) };
         all_rhs.push(rhs_slice.to_vec());
     }
 
+    unsafe { libc::free(ptr as *mut libc::c_void) };
     Some(all_rhs)
 }
 
@@ -355,12 +358,14 @@ pub fn rhs_real32(structured_operator: &StructuredOperatorInterface) -> Option<V
 
     for &rhs_ptr in slice.iter() {
         if rhs_ptr.is_null() {
+            unsafe { libc::free(ptr as *mut libc::c_void) };
             return None;
         }
         let rhs_slice = unsafe { std::slice::from_raw_parts(rhs_ptr, len_out as usize) };
         all_rhs.push(rhs_slice.to_vec());
     }
 
+    unsafe { libc::free(ptr as *mut libc::c_void) };
     Some(all_rhs)
 }
 
@@ -380,12 +385,14 @@ pub fn rhs_complex(
 
     for &rhs_ptr in slice.iter() {
         if rhs_ptr.is_null() {
+            unsafe { libc::free(ptr as *mut libc::c_void) };
             return None;
         }
         let rhs_slice = unsafe { std::slice::from_raw_parts(rhs_ptr, len_out as usize) };
         all_rhs.push(rhs_slice.to_vec());
     }
 
+    unsafe { libc::free(ptr as *mut libc::c_void) };
     Some(all_rhs)
 }
 
@@ -405,12 +412,14 @@ pub fn rhs_complex32(
 
     for &rhs_ptr in slice.iter() {
         if rhs_ptr.is_null() {
+            unsafe { libc::free(ptr as *mut libc::c_void) };
             return None;
         }
         let rhs_slice = unsafe { std::slice::from_raw_parts(rhs_ptr, len_out as usize) };
         all_rhs.push(rhs_slice.to_vec());
     }
 
+    unsafe { libc::free(ptr as *mut libc::c_void) };
     Some(all_rhs)
 }
 
@@ -427,13 +436,13 @@ implement_structured_operator!(
     rhs_real
 );
 implement_structured_operator!(
-    c32,
+    Complex<f32>,
     mv_structured_operator_complex32,
     mv_structured_operator_complex32_trans,
     rhs_complex32
 );
 implement_structured_operator!(
-    c64,
+    Complex<f64>,
     mv_structured_operator_complex,
     mv_structured_operator_complex_trans,
     rhs_complex

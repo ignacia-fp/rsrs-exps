@@ -1,13 +1,16 @@
 #define NPY_NO_DEPRECATED_API NPY_1_7_API_VERSION
 #include "structured_operator_interface.h"
 
+#include <Python.h>
+#include <numpy/arrayobject.h>
+
 #include <stdio.h>
 #include <stdlib.h>
 
 // -------------------------
 // Helper for failure
 // -------------------------
-StructuredOperator* fail(StructuredOperator* k) {
+static StructuredOperator* fail(StructuredOperator* k) {
   PyErr_Print();
   free(k);
   return NULL;
@@ -44,7 +47,7 @@ StructuredOperator* create_structured_operator(PyObject* instance) {
   } else if (PyArray_Check(rhs_obj)) {
     PyObject* list = PyList_New(1);
     Py_INCREF(rhs_obj);
-    PyList_SetItem(list, 0, rhs_obj);
+    PyList_SetItem(list, 0, rhs_obj);  // steals reference to rhs_obj
     k->rhs_list = list;
     k->n_rhs = 1;
   } else {
@@ -65,12 +68,16 @@ StructuredOperator* initialize_structured_operator(
     double kappa,
     const char* precision,
     int n_sources,
-    int init_samples)   // <-- ADDED
+    int init_samples)  // <-- ADDED
 {
   if (!Py_IsInitialized()) {
     wchar_t* program_name = Py_DecodeLocale(python_executable, NULL);
+    if (!program_name) return NULL;
+
     Py_SetProgramName(program_name);
     Py_Initialize();
+    PyMem_RawFree(program_name);
+
     if (_import_array() < 0) return NULL;
   }
 
@@ -92,7 +99,6 @@ StructuredOperator* initialize_structured_operator(
   PyObject* prec_obj = PyUnicode_FromString(precision);
   PyObject* ns_obj = PyLong_FromLong(n_sources);
   PyObject* init_obj = PyLong_FromLong(init_samples);
-
 
   PyObject* args = PyTuple_Pack(
       6,
@@ -152,6 +158,12 @@ int mv_structured_operator_real(StructuredOperator* k, const double* input,
     return 0;
   }
 
+  if (PyArray_TYPE(arr) != NPY_DOUBLE) {
+    fprintf(stderr, "Error: mv() output has wrong dtype (expected float64)\n");
+    Py_DECREF(result);
+    return 0;
+  }
+
   double* data = (double*)PyArray_DATA(arr);
   for (int i = 0; i < len; ++i) output[i] = data[i];
 
@@ -163,12 +175,15 @@ int mv_structured_operator_complex(StructuredOperator* k,
                                    const double _Complex* input,
                                    double _Complex* output, int len) {
   if (!k || !k->pyobj) return 0;
+
   npy_intp dims[1] = {len};
   PyObject* input_array =
       PyArray_SimpleNewFromData(1, dims, NPY_CDOUBLE, (void*)input);
   if (!input_array) return 0;
+
   PyObject* result = PyObject_CallMethod(k->pyobj, "mv", "O", input_array);
   Py_DECREF(input_array);
+
   if (!result) {
     PyErr_Print();
     return 0;
@@ -183,6 +198,13 @@ int mv_structured_operator_complex(StructuredOperator* k,
   PyArrayObject* arr = (PyArrayObject*)result;
   if (PyArray_NDIM(arr) != 1 || PyArray_DIM(arr, 0) != len) {
     fprintf(stderr, "Error: mv() output has incorrect shape\n");
+    Py_DECREF(result);
+    return 0;
+  }
+
+  if (PyArray_TYPE(arr) != NPY_CDOUBLE) {
+    fprintf(stderr,
+            "Error: mv() output has wrong dtype (expected complex128)\n");
     Py_DECREF(result);
     return 0;
   }
@@ -323,6 +345,12 @@ int mv_structured_operator_real_trans(StructuredOperator* k,
     return 0;
   }
 
+  if (PyArray_TYPE(arr) != NPY_DOUBLE) {
+    fprintf(stderr, "mv_trans() output wrong dtype (expected float64)\n");
+    Py_DECREF(result);
+    return 0;
+  }
+
   double* data = (double*)PyArray_DATA(arr);
   for (int i = 0; i < len; ++i) output[i] = data[i];
 
@@ -349,12 +377,20 @@ int mv_structured_operator_complex_trans(StructuredOperator* k,
     return 0;
   }
   if (!PyArray_Check(result)) {
+    fprintf(stderr, "mv_trans() did not return numpy array\n");
     Py_DECREF(result);
     return 0;
   }
 
   PyArrayObject* arr = (PyArrayObject*)result;
-  if (PyArray_DIM(arr, 0) != len) {
+  if (PyArray_NDIM(arr) != 1 || PyArray_DIM(arr, 0) != len) {
+    fprintf(stderr, "mv_trans() output wrong length\n");
+    Py_DECREF(result);
+    return 0;
+  }
+
+  if (PyArray_TYPE(arr) != NPY_CDOUBLE) {
+    fprintf(stderr, "mv_trans() output wrong dtype (expected complex128)\n");
     Py_DECREF(result);
     return 0;
   }
@@ -373,16 +409,36 @@ int mv_structured_operator_real32_trans(StructuredOperator* k,
   npy_intp dims[1] = {len};
   PyObject* input_array =
       PyArray_SimpleNewFromData(1, dims, NPY_FLOAT32, (void*)input);
+  if (!input_array) return 0;
 
   PyObject* result =
       PyObject_CallMethod(k->pyobj, "mv_trans", "O", input_array);
   Py_DECREF(input_array);
-  if (!result) return 0;
-
-  if (!PyArray_Check(result) || PyArray_DIM((PyArrayObject*)result, 0) != len)
+  if (!result) {
+    PyErr_Print();
     return 0;
+  }
 
-  float* data = (float*)PyArray_DATA((PyArrayObject*)result);
+  if (!PyArray_Check(result)) {
+    fprintf(stderr, "mv_trans() did not return numpy array\n");
+    Py_DECREF(result);
+    return 0;
+  }
+
+  PyArrayObject* arr = (PyArrayObject*)result;
+  if (PyArray_NDIM(arr) != 1 || PyArray_DIM(arr, 0) != len) {
+    fprintf(stderr, "mv_trans() output wrong length\n");
+    Py_DECREF(result);
+    return 0;
+  }
+
+  if (PyArray_TYPE(arr) != NPY_FLOAT32) {
+    fprintf(stderr, "mv_trans() output wrong dtype (expected float32)\n");
+    Py_DECREF(result);
+    return 0;
+  }
+
+  float* data = (float*)PyArray_DATA(arr);
   for (int i = 0; i < len; ++i) output[i] = data[i];
 
   Py_DECREF(result);
@@ -397,16 +453,36 @@ int mv_structured_operator_complex32_trans(StructuredOperator* k,
   npy_intp dims[1] = {len};
   PyObject* input_array =
       PyArray_SimpleNewFromData(1, dims, NPY_CFLOAT, (void*)input);
+  if (!input_array) return 0;
 
   PyObject* result =
       PyObject_CallMethod(k->pyobj, "mv_trans", "O", input_array);
   Py_DECREF(input_array);
-  if (!result) return 0;
-
-  if (!PyArray_Check(result) || PyArray_DIM((PyArrayObject*)result, 0) != len)
+  if (!result) {
+    PyErr_Print();
     return 0;
+  }
 
-  float _Complex* data = (float _Complex*)PyArray_DATA((PyArrayObject*)result);
+  if (!PyArray_Check(result)) {
+    fprintf(stderr, "mv_trans() did not return numpy array\n");
+    Py_DECREF(result);
+    return 0;
+  }
+
+  PyArrayObject* arr = (PyArrayObject*)result;
+  if (PyArray_NDIM(arr) != 1 || PyArray_DIM(arr, 0) != len) {
+    fprintf(stderr, "mv_trans() output wrong length\n");
+    Py_DECREF(result);
+    return 0;
+  }
+
+  if (PyArray_TYPE(arr) != NPY_CFLOAT) {
+    fprintf(stderr, "mv_trans() output wrong dtype (expected complex64)\n");
+    Py_DECREF(result);
+    return 0;
+  }
+
+  float _Complex* data = (float _Complex*)PyArray_DATA(arr);
   for (int i = 0; i < len; ++i) output[i] = data[i];
 
   Py_DECREF(result);
@@ -418,8 +494,18 @@ int mv_structured_operator_complex32_trans(StructuredOperator* k,
 // -------------------------
 const double* get_points(StructuredOperator* k) {
   if (!k || !k->points) return NULL;
-  if (PyArray_NDIM(k->points) != 2 || PyArray_DIM(k->points, 1) != 3)
+  if (PyArray_NDIM(k->points) != 2 || PyArray_DIM(k->points, 1) != 3) return NULL;
+
+  if (PyArray_TYPE(k->points) != NPY_DOUBLE) {
+    fprintf(stderr, "Error: points is not float64\n");
     return NULL;
+  }
+
+  if (!PyArray_ISCARRAY(k->points)) {
+    fprintf(stderr, "Error: points is not contiguous/aligned\n");
+    return NULL;
+  }
+
   return (const double*)PyArray_DATA(k->points);
 }
 
@@ -449,13 +535,36 @@ const double** get_all_real_rhs(StructuredOperator* k, int* n_rhs,
   if (!ptrs) return NULL;
 
   for (int i = 0; i < k->n_rhs; ++i) {
-    PyObject* arr = PyList_GetItem(k->rhs_list, i);
+    PyObject* arr = PyList_GetItem(k->rhs_list, i);  // borrowed ref
     if (!PyArray_Check(arr)) {
+      fprintf(stderr, "Error: RHS[%d] is not a numpy array\n", i);
       free(ptrs);
       return NULL;
     }
-    ptrs[i] = (const double*)PyArray_DATA((PyArrayObject*)arr);
+
+    PyArrayObject* a = (PyArrayObject*)arr;
+
+    if (PyArray_NDIM(a) != 1 || PyArray_DIM(a, 0) != k->n_points) {
+      fprintf(stderr, "Error: RHS[%d] has wrong shape\n", i);
+      free(ptrs);
+      return NULL;
+    }
+
+    if (PyArray_TYPE(a) != NPY_DOUBLE) {
+      fprintf(stderr, "Error: RHS[%d] is not float64\n", i);
+      free(ptrs);
+      return NULL;
+    }
+
+    if (!PyArray_ISCARRAY(a)) {
+      fprintf(stderr, "Error: RHS[%d] is not contiguous/aligned\n", i);
+      free(ptrs);
+      return NULL;
+    }
+
+    ptrs[i] = (const double*)PyArray_DATA(a);
   }
+
   return ptrs;
 }
 
@@ -470,13 +579,36 @@ const double _Complex** get_all_complex_rhs(StructuredOperator* k, int* n_rhs,
   if (!ptrs) return NULL;
 
   for (int i = 0; i < k->n_rhs; ++i) {
-    PyObject* arr = PyList_GetItem(k->rhs_list, i);
+    PyObject* arr = PyList_GetItem(k->rhs_list, i);  // borrowed ref
     if (!PyArray_Check(arr)) {
+      fprintf(stderr, "Error: RHS[%d] is not a numpy array\n", i);
       free(ptrs);
       return NULL;
     }
-    ptrs[i] = (const double _Complex*)PyArray_DATA((PyArrayObject*)arr);
+
+    PyArrayObject* a = (PyArrayObject*)arr;
+
+    if (PyArray_NDIM(a) != 1 || PyArray_DIM(a, 0) != k->n_points) {
+      fprintf(stderr, "Error: RHS[%d] has wrong shape\n", i);
+      free(ptrs);
+      return NULL;
+    }
+
+    if (PyArray_TYPE(a) != NPY_CDOUBLE) {
+      fprintf(stderr, "Error: complex RHS[%d] is not complex128\n", i);
+      free(ptrs);
+      return NULL;
+    }
+
+    if (!PyArray_ISCARRAY(a)) {
+      fprintf(stderr, "Error: RHS[%d] is not contiguous/aligned\n", i);
+      free(ptrs);
+      return NULL;
+    }
+
+    ptrs[i] = (const double _Complex*)PyArray_DATA(a);
   }
+
   return ptrs;
 }
 
@@ -491,19 +623,35 @@ const float** get_all_real_rhs_f32(StructuredOperator* k, int* n_rhs,
   if (!ptrs) return NULL;
 
   for (int i = 0; i < k->n_rhs; ++i) {
-    PyObject* arr = PyList_GetItem(k->rhs_list, i);
+    PyObject* arr = PyList_GetItem(k->rhs_list, i);  // borrowed ref
     if (!PyArray_Check(arr)) {
+      fprintf(stderr, "Error: RHS[%d] is not a numpy array\n", i);
       free(ptrs);
       return NULL;
     }
+
     PyArrayObject* a = (PyArrayObject*)arr;
+    if (PyArray_NDIM(a) != 1 || PyArray_DIM(a, 0) != k->n_points) {
+      fprintf(stderr, "Error: RHS[%d] has wrong shape\n", i);
+      free(ptrs);
+      return NULL;
+    }
+
     if (PyArray_TYPE(a) != NPY_FLOAT32) {
       fprintf(stderr, "Error: RHS[%d] is not float32\n", i);
       free(ptrs);
       return NULL;
     }
+
+    if (!PyArray_ISCARRAY(a)) {
+      fprintf(stderr, "Error: RHS[%d] is not contiguous/aligned\n", i);
+      free(ptrs);
+      return NULL;
+    }
+
     ptrs[i] = (const float*)PyArray_DATA(a);
   }
+
   return ptrs;
 }
 
@@ -519,19 +667,35 @@ const float _Complex** get_all_complex_rhs_f32(StructuredOperator* k,
   if (!ptrs) return NULL;
 
   for (int i = 0; i < k->n_rhs; ++i) {
-    PyObject* arr = PyList_GetItem(k->rhs_list, i);
+    PyObject* arr = PyList_GetItem(k->rhs_list, i);  // borrowed ref
     if (!PyArray_Check(arr)) {
+      fprintf(stderr, "Error: RHS[%d] is not a numpy array\n", i);
       free(ptrs);
       return NULL;
     }
+
     PyArrayObject* a = (PyArrayObject*)arr;
+    if (PyArray_NDIM(a) != 1 || PyArray_DIM(a, 0) != k->n_points) {
+      fprintf(stderr, "Error: RHS[%d] has wrong shape\n", i);
+      free(ptrs);
+      return NULL;
+    }
+
     if (PyArray_TYPE(a) != NPY_CFLOAT) {
       fprintf(stderr, "Error: complex RHS[%d] is not complex64\n", i);
       free(ptrs);
       return NULL;
     }
+
+    if (!PyArray_ISCARRAY(a)) {
+      fprintf(stderr, "Error: RHS[%d] is not contiguous/aligned\n", i);
+      free(ptrs);
+      return NULL;
+    }
+
     ptrs[i] = (const float _Complex*)PyArray_DATA(a);
   }
+
   return ptrs;
 }
 

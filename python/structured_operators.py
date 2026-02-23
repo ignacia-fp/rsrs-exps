@@ -28,7 +28,7 @@ bempp_cl.api.GLOBAL_PARAMETERS.fmm.expansion_order = 3
 # bempp_cl.api.GLOBAL_PARAMETERS.quadrature.regular = 1
 # bempp_cl.api.GLOBAL_PARAMETERS.quadrature.singular = 1
 
-
+bempp_cl.api.DEFAULT_PRECISION = "single"
 # -------------------------
 # Small shared helpers (no functional change)
 # -------------------------
@@ -41,6 +41,47 @@ import numpy as np
 
 NPROC=32
 ASSEMBLER = "dense"
+
+def apply(op, X):
+    """
+    Apply operator/matrix op to X.
+
+    Supports:
+      - 1D vector (n,)
+      - 2D block (n, m)
+    Returns output with matching dimensionality.
+    """
+
+    X = np.asarray(X)
+
+    is_vector = (X.ndim == 1)
+
+    # Normalize vector to (n,1) for matmul if needed
+    if is_vector:
+        X_mat = X[:, None]
+    else:
+        X_mat = X
+
+    # NumPy dense
+    if isinstance(op, (np.ndarray, np.matrix)):
+        Y = op @ X_mat
+    # SciPy sparse or objects supporting @
+    elif hasattr(op, "__matmul__"):
+        try:
+            Y = op @ X_mat
+        except Exception:
+            Y = op * X_mat
+    else:
+        # BEM++ weak form operators
+        Y = op * X_mat
+
+    Y = np.asarray(Y)
+
+    # Return shape consistent with input
+    if is_vector:
+        return Y.ravel()
+    return Y
+
 def _maybe_generate_samples(
     op,
     op_T,
@@ -57,6 +98,7 @@ def _maybe_generate_samples(
     nonsymT=None,
     # If True and op and op_T are effectively the same, only store y_* (otherwise store both y_* and z_*)
     save_only_y_if_symmetric: bool = False,
+    transposable = False
 ):
     print(threadpool_info())
     """
@@ -70,16 +112,28 @@ def _maybe_generate_samples(
     """
 
     with threadpool_limits(limits=NPROC):
-        test_mat = np.ones((n, 1))
-        t0 = time.perf_counter()
-        op*test_mat
-        t_test = time.perf_counter() - t0
-        print(f"sampling test: {t_test:.3f}s")
-        t0 = time.perf_counter()
-        op*test_mat
-        t_test = time.perf_counter() - t0
-        print(f"sampling test 2: {t_test:.3f}s")
-        t_total0 = time.perf_counter()
+        if op is None:
+            test_mat = np.ones((n, 1))
+            t0 = time.perf_counter()
+            apply(nonsym, test_mat)
+            t_test = time.perf_counter() - t0
+            print(f"sampling test: {t_test:.3f}s")
+            t0 = time.perf_counter()
+            apply(nonsym, test_mat)
+            t_test = time.perf_counter() - t0
+            print(f"sampling test 2: {t_test:.3f}s")
+            t_total0 = time.perf_counter()
+        else: 
+            test_mat = np.ones((n, 1))
+            t0 = time.perf_counter()
+            apply(op, test_mat)
+            t_test = time.perf_counter() - t0
+            print(f"sampling test: {t_test:.3f}s")
+            t0 = time.perf_counter()
+            apply(op, test_mat)
+            t_test = time.perf_counter() - t0
+            print(f"sampling test 2: {t_test:.3f}s")
+            t_total0 = time.perf_counter()
 
         y_test = f"{prefix_y}_test_file"
         y_sk   = f"{prefix_y}_sketch_file"
@@ -107,7 +161,15 @@ def _maybe_generate_samples(
         rng_y = make_rng(base_seed, stream_tag="Omega_y", m_existing=m_old)
         rng_z = make_rng(base_seed, stream_tag="Omega_z", m_existing=m_old)
        
-        symmetric_mode = (op_T is op)
+        
+        if op is None:
+            symmetric_mode = False
+        else:
+            symmetric_mode = (op_T is op)
+        
+        if transposable:
+            symmetric_mode = False
+
         if precision == "single":
             rdtype = np.float32
         else:
@@ -118,53 +180,57 @@ def _maybe_generate_samples(
             Omega_z = rng_z.standard_normal((n, n_add), dtype=rdtype)
         t_rng = time.perf_counter() - t0
 
-
-        # Apply
         t0 = time.perf_counter()
 
-        if symmetric_mode:
-            Y = np.asarray(op * Omega_y)
-
-            if save_only_y_if_symmetric:
-                t_apply = time.perf_counter() - t0
-
-                # I/O
-                t1 = time.perf_counter()
-                store_complex = np.iscomplexobj(Y)
-                append_samples_multipart(Omega_y.T, y_test, store_complex)
-                append_samples_multipart(Y.T,       y_sk,   store_complex)
-                t_io = time.perf_counter() - t1
-
-                m_new = existing_num_rows(y_test) or (m_old + n_add)
-                t_total = time.perf_counter() - t_total0
-                print(
-                    "[sampling] symmetric: saved only y_* | "
-                    f"added={n_add}, total={m_new} | "
-                    f"count={t_count:.3f}s, rng={t_rng:.3f}s, apply={t_apply:.3f}s, io={t_io:.3f}s, total={t_total:.3f}s"
-                )
-                return
-
-            # Otherwise: still save z_* but avoid extra multiply by reusing Y
-            Z = Y
-            Omega_z = Omega_y
-
-        elif common is not None and nonsym is not None and nonsymT is not None:
-            # Fast split path: common apply once on concatenated Omegas
-            Omega_big = np.concatenate([Omega_y, Omega_z], axis=1)  # (n, 2*n_add)
-            C_big = np.asarray(common * Omega_big)                  # (n, 2*n_add)
-            C_y = C_big[:, :n_add]
-            C_z = C_big[:, n_add:]
-
-            N_y  = np.asarray(nonsym  * Omega_y)
-            NT_z = np.asarray(nonsymT * Omega_z)
-
-            Y = C_y + N_y
-            Z = C_z + NT_z
-
+        # Apply
+        if transposable:
+            Y = np.asarray(apply(op, Omega_y))
+            Z = np.asarray(apply(op.T, Omega_z))
+        
         else:
-            # Default path: two multiplies
-            Y = np.asarray(op * Omega_y)
-            Z = np.asarray(op_T * Omega_z)
+            if symmetric_mode:
+                Y = np.asarray(apply(op, Omega_y))
+
+                if save_only_y_if_symmetric:
+                    t_apply = time.perf_counter() - t0
+
+                    # I/O
+                    t1 = time.perf_counter()
+                    store_complex = np.iscomplexobj(Y)
+                    append_samples_multipart(Omega_y.T, y_test, store_complex)
+                    append_samples_multipart(Y.T,       y_sk,   store_complex)
+                    t_io = time.perf_counter() - t1
+
+                    m_new = existing_num_rows(y_test) or (m_old + n_add)
+                    t_total = time.perf_counter() - t_total0
+                    print(
+                        "[sampling] symmetric: saved only y_* | "
+                        f"added={n_add}, total={m_new} | "
+                        f"count={t_count:.3f}s, rng={t_rng:.3f}s, apply={t_apply:.3f}s, io={t_io:.3f}s, total={t_total:.3f}s"
+                    )
+                    return
+
+                # Otherwise: still save z_* but avoid extra multiply by reusing Y
+                Z = Y
+                Omega_z = Omega_y
+
+            elif common is not None and nonsym is not None and nonsymT is not None:
+                # Fast split path: common apply once on concatenated Omegas
+                Omega_big = np.concatenate([Omega_y, Omega_z], axis=1)  # (n, 2*n_add)
+                C_big = np.asarray(apply(common, Omega_big))                  # (n, 2*n_add)
+                C_y = C_big[:, :n_add]
+                C_z = C_big[:, n_add:]
+
+                N_y  = np.asarray(apply(nonsym, Omega_y))
+                NT_z = np.asarray(apply(nonsymT, Omega_z))
+
+                Y = C_y + N_y
+                Z = C_z + NT_z
+
+            else:
+                # Default path: two multiplies
+                Y = np.asarray(apply(op, Omega_y))
+                Z = np.asarray(apply(op_T, Omega_z))
 
         t_apply = time.perf_counter() - t0
 
@@ -456,8 +522,8 @@ def generate_and_append_test_and_sketches(
     Omega_z = rng_z.standard_normal((n, n_add))
 
     # Sketches
-    Y = np.asarray(op * Omega_y)
-    Z = np.asarray(op_T * Omega_z)
+    Y = np.asarray(apply(op, Omega_y))
+    Z = np.asarray(apply(op_T, Omega_z))
 
     # IMPORTANT: real operators should be stored as real-on-disk (no imag dataset)
     # complex operators should be stored as complex-on-disk (real+imag datasets)
@@ -1577,7 +1643,7 @@ class BemppClHelmholtzCombined(BaseStructuredOperator):
             self.domain = bempp_cl.api.function_space(self.grid, "DP", 0)
             self.dual_to_range = self.domain
             self.range = bempp_cl.api.function_space(self.grid, "DP", 0)
-            with threadpool_limits(limits=NPROC):
+            '''with threadpool_limits(limits=NPROC):
                 identity = bempp_cl.api.operators.boundary.sparse.identity(
                     self.domain, self.range, self.dual_to_range
                 ).weak_form()
@@ -1589,24 +1655,79 @@ class BemppClHelmholtzCombined(BaseStructuredOperator):
                 ).weak_form()
                 dlt = bempp_cl.api.operators.boundary.helmholtz.adjoint_double_layer(
                     self.domain, self.range, self.dual_to_range, kappa, assembler=ASSEMBLER
-                ).weak_form()
-            self.mat = 0.5 * identity + dl - 1j * kappa * sl
-            self.mat_T = 0.5 * identity + dlt - 1j * kappa * sl
-            self.rhs_data_type = self.mat.dtype
-            self.n_points = self.mat.shape[0]
-            common  = 0.5*identity - 1j*kappa*sl
-            nonsym  = dl
-            nonsymT = dlt
-            _maybe_generate_samples(
-                self.mat, 
-                self.mat_T, 
-                self.precision, 
-                self.n_points, 
-                self.init_samples,
-                common=common,
-                nonsym=nonsym,
-                nonsymT=nonsymT
-            )
+                ).weak_form()'''
+
+            with threadpool_limits(limits=NPROC):
+                r_dtype = np.float32 if self.precision == "single" else np.float64
+                c_dtype = np.complex64 if self.precision == "single" else np.complex128
+
+                half = r_dtype(0.5)
+                j = c_dtype(1j)
+                k = r_dtype(kappa)
+                jk = c_dtype(j * c_dtype(k))  # typed scalar, avoids complex128 promotion
+
+                # --- Build common = 0.5*I - i*k*SL without keeping I and SL afterwards ---
+
+                # I (real dense) -> start common as complex dense
+                I = (bempp_cl.api.operators.boundary.sparse.identity(
+                        self.domain, self.range, self.dual_to_range
+                    ).weak_form()
+                    .to_dense()
+                    .astype(r_dtype, copy=False)
+                )
+                common = (half * I).astype(c_dtype, copy=False)
+                del I
+
+                # SL (complex dense) -> common -= jk * SL, then delete SL
+                SL = (bempp_cl.api.operators.boundary.helmholtz.single_layer(
+                        self.domain, self.range, self.dual_to_range, kappa, assembler=ASSEMBLER
+                    ).weak_form()
+                    .to_dense()
+                    .astype(c_dtype, copy=False)
+                )
+                common -= jk * SL
+                del SL
+
+                # --- Build nonsymmetric pieces (must keep them) ---
+                nonsym = (bempp_cl.api.operators.boundary.helmholtz.double_layer(
+                        self.domain, self.range, self.dual_to_range, kappa, assembler=ASSEMBLER
+                    ).weak_form()
+                    .to_dense()
+                    .astype(c_dtype, copy=False)
+                )
+
+
+                '''nonsymT = (bempp_cl.api.operators.boundary.helmholtz.adjoint_double_layer(
+                        self.domain, self.range, self.dual_to_range, kappa, assembler=ASSEMBLER
+                    ).weak_form()
+                    .to_dense()
+                    .astype(c_dtype, copy=False)
+                )'''
+
+                self.mat  = nonsym + common
+
+                del nonsym
+                del common
+
+                _maybe_generate_samples(
+                    self.mat, 
+                    None, 
+                    self.precision, 
+                    self.n_points, 
+                    self.init_samples,
+                    transposable=True
+                    #common=common,
+                    #nonsym=nonsym,
+                    #nonsymT=nonsymT
+                )
+                # --- Build mat/mat_T from required pieces ---
+                # mat   = common + nonsym
+                # mat_T = common + nonsymT
+                #del nonsym
+
+                #self.mat_T = nonsymT + common
+                #del nonsym
+                #del common
             self.rhs = self.get_rhs(n_sources=self.n_sources)
         except Exception as e:
             print("Error initializing BemppClHelmholtzCombined:", e)
@@ -1614,11 +1735,11 @@ class BemppClHelmholtzCombined(BaseStructuredOperator):
 
     def mv(self, v):
         with threadpool_limits(limits=NPROC):
-            return self.mat * v
+            return apply(self.mat, v)
 
     def mv_trans(self, v):
         with threadpool_limits(limits=NPROC):
-            return self.mat_T * v
+            return apply(self.mat.T, v)
 
     @property
     def cond(self):
