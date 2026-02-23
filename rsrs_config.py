@@ -94,6 +94,7 @@ class RSRSBenchmarkConfig:
         symmetric: bool = True,
         flush_factors: bool = False,
         store_far: bool = False,
+        initial_num_samples = 0,
     ):
         
         """
@@ -377,6 +378,7 @@ class RSRSBenchmarkConfig:
         self.symmetric = symmetric
         self.flush_factors = flush_factors
         self.store_far = store_far
+        self.initial_num_samples = initial_num_samples
 
         if self.dim_arg_types[self.dim_arg_type_index] == "RefinementLevelAndDepth":
             if self.ref_level is None or self.depth is None:
@@ -447,7 +449,7 @@ class RSRSBenchmarkConfig:
             "oversampling": self.oversampling_near,  ## Oversampling for each individual block
             "oversampling_diag_blocks": self.oversampling_diag,  ## Oversampling used when extracting diagonal blocks when RSRS finishes
             "min_num_samples": self.min_num_samples,
-            "initial_num_samples": 20,  ## Initial num samples: useful only when sampling is done in parallel way (not active yet)
+            "initial_num_samples": self.initial_num_samples,  ## Initial num samples: useful only when sampling is done in parallel way (not active yet)
             "shift": stab(self.op_shift),
             "null_method": self.null_methods[self.null_method_index],
             "qr_method": qr_method(self.rrqr_keys[self.rrqr_index], value=self.f),

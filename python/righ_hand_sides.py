@@ -187,10 +187,10 @@ def right_hand_side(operator, problem_type, n_sources=1):
     # ---------------------------------------------------------------------
     elif operator.operator_type.startswith("BemppClHelmholtzSingleLayer"):
         kappa = operator.kappa
-        identity = bempp_cl.api.operators.boundary.sparse.identity(
+        '''identity = bempp_cl.api.operators.boundary.sparse.identity(
             operator.domain, operator.range, operator.dual_to_range)
         dlp = bempp_cl.api.operators.boundary.helmholtz.adjoint_double_layer(
-            operator.domain, operator.range, operator.domain, kappa)
+            operator.domain, operator.range, operator.domain, kappa)'''
         if problem_type == 'Dirichlet':
             rhs_list = []
             directions = generate_directions(n_sources)
@@ -198,7 +198,8 @@ def right_hand_side(operator, problem_type, n_sources=1):
             for d in directions:
                 d_data = h_dirichlet_data(d, kappa)
                 gfun = bempp_cl.api.GridFunction(operator.domain, fun=d_data)
-                rhs = (dlp - 0.5 * identity) * gfun
+                #rhs = (dlp - 0.5 * identity) * gfun
+                rhs = gfun
                 if operator.form == 'weak':
                     rhs_list.append(rhs.projections(operator.dual_to_range))
                 else:  # strong form

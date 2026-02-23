@@ -39,11 +39,12 @@ def _set_bempp_precision(precision: str) -> None:
 import time
 import numpy as np
 
-NPROC=10
-
+NPROC=32
+ASSEMBLER = "dense"
 def _maybe_generate_samples(
     op,
     op_T,
+    precision,
     n: int,
     init_samples: int,
     *,
@@ -68,7 +69,16 @@ def _maybe_generate_samples(
     and we compute common*[Omega_y Omega_z] in one multiply.
     """
 
-    with threadpool_limits(limits=NPROC): 
+    with threadpool_limits(limits=NPROC):
+        test_mat = np.ones((n, 1))
+        t0 = time.perf_counter()
+        op*test_mat
+        t_test = time.perf_counter() - t0
+        print(f"sampling test: {t_test:.3f}s")
+        t0 = time.perf_counter()
+        op*test_mat
+        t_test = time.perf_counter() - t0
+        print(f"sampling test 2: {t_test:.3f}s")
         t_total0 = time.perf_counter()
 
         y_test = f"{prefix_y}_test_file"
@@ -96,12 +106,18 @@ def _maybe_generate_samples(
         t0 = time.perf_counter()
         rng_y = make_rng(base_seed, stream_tag="Omega_y", m_existing=m_old)
         rng_z = make_rng(base_seed, stream_tag="Omega_z", m_existing=m_old)
-        Omega_y = rng_y.standard_normal((n, n_add))
-        Omega_z = rng_z.standard_normal((n, n_add))
+       
+        symmetric_mode = (op_T is op)
+        if precision == "single":
+            rdtype = np.float32
+        else:
+            rdtype = np.float64
+        Omega_y = rng_y.standard_normal((n, n_add), dtype=rdtype)
+        
+        if not symmetric_mode:
+            Omega_z = rng_z.standard_normal((n, n_add), dtype=rdtype)
         t_rng = time.perf_counter() - t0
 
-        # Detect "symmetric" mode if caller passed same handle (common in your code)
-        symmetric_mode = (op_T is op)
 
         # Apply
         t0 = time.perf_counter()
@@ -614,9 +630,10 @@ class BemppClHelmholtzSingleLayer(BaseStructuredOperator):
             self.domain = bempp_cl.api.function_space(self.grid, "DP", 0)
             self.dual_to_range = self.domain
             self.range = self.domain
-            self.mat = bempp_cl.api.operators.boundary.helmholtz.single_layer(
-                self.domain, self.range, self.dual_to_range, kappa).weak_form()
-            _maybe_generate_samples(self.mat, self.mat, self.n_points, self.init_samples)
+            with threadpool_limits(limits=NPROC):
+                self.mat = bempp_cl.api.operators.boundary.helmholtz.single_layer(
+                    self.domain, self.range, self.dual_to_range, kappa, assembler=ASSEMBLER).weak_form()
+            _maybe_generate_samples(self.mat, self.mat, self.precision, self.n_points, self.init_samples)
             self.rhs_data_type = self.mat.dtype
             self.rhs = self.get_rhs(n_sources=self.n_sources)
         except Exception as e:
@@ -1560,18 +1577,19 @@ class BemppClHelmholtzCombined(BaseStructuredOperator):
             self.domain = bempp_cl.api.function_space(self.grid, "DP", 0)
             self.dual_to_range = self.domain
             self.range = bempp_cl.api.function_space(self.grid, "DP", 0)
-            identity = bempp_cl.api.operators.boundary.sparse.identity(
-                self.domain, self.range, self.dual_to_range
-            ).weak_form()
-            sl = bempp_cl.api.operators.boundary.helmholtz.single_layer(
-                self.domain, self.range, self.dual_to_range, kappa, assembler="fmm"
-            ).weak_form()
-            dl = bempp_cl.api.operators.boundary.helmholtz.double_layer(
-                self.domain, self.range, self.dual_to_range, kappa, assembler="fmm"
-            ).weak_form()
-            dlt = bempp_cl.api.operators.boundary.helmholtz.adjoint_double_layer(
-                self.domain, self.range, self.dual_to_range, kappa, assembler="fmm"
-            ).weak_form()
+            with threadpool_limits(limits=NPROC):
+                identity = bempp_cl.api.operators.boundary.sparse.identity(
+                    self.domain, self.range, self.dual_to_range
+                ).weak_form()
+                sl = bempp_cl.api.operators.boundary.helmholtz.single_layer(
+                    self.domain, self.range, self.dual_to_range, kappa, assembler=ASSEMBLER
+                ).weak_form()
+                dl = bempp_cl.api.operators.boundary.helmholtz.double_layer(
+                    self.domain, self.range, self.dual_to_range, kappa, assembler=ASSEMBLER
+                ).weak_form()
+                dlt = bempp_cl.api.operators.boundary.helmholtz.adjoint_double_layer(
+                    self.domain, self.range, self.dual_to_range, kappa, assembler=ASSEMBLER
+                ).weak_form()
             self.mat = 0.5 * identity + dl - 1j * kappa * sl
             self.mat_T = 0.5 * identity + dlt - 1j * kappa * sl
             self.rhs_data_type = self.mat.dtype
@@ -1580,7 +1598,11 @@ class BemppClHelmholtzCombined(BaseStructuredOperator):
             nonsym  = dl
             nonsymT = dlt
             _maybe_generate_samples(
-                self.mat, self.mat_T, self.n_points, self.init_samples,
+                self.mat, 
+                self.mat_T, 
+                self.precision, 
+                self.n_points, 
+                self.init_samples,
                 common=common,
                 nonsym=nonsym,
                 nonsymT=nonsymT
