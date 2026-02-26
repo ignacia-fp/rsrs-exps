@@ -1886,19 +1886,34 @@ class RSRSBenchmarkConfig:
         plane_points=200,
         plane_extent_rel=0.0,
         add_incident=False,
+        # view
         elev=25,
         azim=-60,
+        # appearance
         plane_alpha=1.0,
         cmap_name="viridis",
         transparent_bg=False,
         hide_axes=True,
-        box_limits=None,            # tuple (bmin, bmax)
+        # framing: force identical bounds for compositing
+        box_limits=None,            # tuple (bmin, bmax) from save_clipped_mesh_piece_renders
         figsize=(10, 7),
+        # save
         save_plot=True,
         out_name="field_slice_3d.png",
         dpi=300,
-        show_colorbar=True,
+        show_colorbar=True,         # set False when compositing to avoid layout shifts
     ):
+        """
+        Field-only 3D slice plot with smooth coloring and without the visible quad-grid
+        artifacts from mplot3d.plot_surface. This version:
+        - evaluates the field on a structured n x n grid on the chosen plane
+        - builds a structured triangulation (no Delaunay)
+        - renders the plane via Poly3DCollection with per-triangle RGBA facecolors
+            (avoids plot_trisurf facecolors API issues)
+        - keeps the 3D camera (elev/azim), so inclination matches geometry renders
+
+        This is the most reliable "good looking" option within Matplotlib's mplot3d.
+        """
         import os
         import numpy as np
         import matplotlib.pyplot as plt
@@ -1908,6 +1923,7 @@ class RSRSBenchmarkConfig:
         import matplotlib.cm as cm
         import matplotlib.colors as colors
         import bempp_cl.api
+        from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
         plane = plane.lower()
         if plane not in ("xy", "xz", "yz"):
@@ -1924,15 +1940,16 @@ class RSRSBenchmarkConfig:
         if not grid_path.exists():
             raise FileNotFoundError(f"Expected mesh at {grid_path}, but it doesn't exist.")
 
-        # ---------- load mesh + bounds ----------
+        # ---------- load mesh bounds ----------
         m = meshio.read(str(grid_path))
         faces = next(c.data for c in m.cells if c.type == "triangle")
         verts = m.points.astype(float)
 
-        # keep process=False for consistent bounds with your other code
+        # process=False for consistent bounds with your cutter
         tm = trimesh.Trimesh(vertices=verts, faces=faces, process=False)
         bmin, bmax = tm.bounds
 
+        # override bounds if caller gives canonical bounds
         if box_limits is not None:
             bmin = np.asarray(box_limits[0], dtype=float)
             bmax = np.asarray(box_limits[1], dtype=float)
@@ -1998,7 +2015,7 @@ class RSRSBenchmarkConfig:
         else:
             raise ValueError(f"Unsupported operator type for slicing plot: {op}")
 
-        # ---------- build structured grid on the plane ----------
+        # ---------- sample points on the plane ----------
         n = int(plane_points)
 
         if plane == "xy":
@@ -2025,14 +2042,15 @@ class RSRSBenchmarkConfig:
         # ---------- evaluate field ----------
         sol_fun = bempp_cl.api.GridFunction(space, projections=sols[0], dual_space=dual_space)
         val = make_potential(pts) * sol_fun
+
         if op != "BemppClMaxwellEfie":
             val = np.asarray(val).reshape(-1)
 
         S = np.asarray(scalar_from_eval(val, pts)).reshape((n, n))
         s_vert = S.ravel()
 
-        # ---------- build *structured* triangles (no Delaunay) ----------
-        # Vertex indexing: idx = j*n + i for i in [0..n-1], j in [0..n-1]
+        # ---------- structured triangulation (no Delaunay) ----------
+        # idx = j*n + i
         ii, jj = np.meshgrid(np.arange(n - 1), np.arange(n - 1), indexing="xy")
         v00 = (jj * n + ii).ravel()
         v10 = (jj * n + (ii + 1)).ravel()
@@ -2043,20 +2061,28 @@ class RSRSBenchmarkConfig:
         tri2 = np.stack([v00, v11, v01], axis=1)
         triangles = np.vstack([tri1, tri2])  # (2*(n-1)^2, 3)
 
-        # per-triangle scalar for coloring (mean of vertex values)
+        # per-triangle scalar (mean of its vertices)
         s_tri = s_vert[triangles].mean(axis=1)
 
-        vmin = float(np.nanmin(s_tri))
-        vmax = float(np.nanmax(s_tri))
-        if not np.isfinite(vmin) or not np.isfinite(vmax) or vmax <= vmin:
+        finite = np.isfinite(s_tri)
+        if not np.any(finite):
             vmin, vmax = 0.0, 1.0
+        else:
+            vmin = float(np.nanmin(s_tri[finite]))
+            vmax = float(np.nanmax(s_tri[finite]))
+            if vmax <= vmin:
+                vmax = vmin + 1.0
 
         norm = colors.Normalize(vmin=vmin, vmax=vmax)
         cmap = cm.get_cmap(cmap_name)
+
         facecolors = cmap(norm(s_tri))
         facecolors[:, 3] = plane_alpha  # enforce alpha
 
-        # ---------- render (3D) ----------
+        # ---------- build 3D triangles and render ----------
+        V = np.column_stack([X.ravel(), Y.ravel(), Z.ravel()])  # (n^2, 3)
+        tris = V[triangles]                                    # (ntri, 3, 3)
+
         fig = plt.figure(figsize=figsize, dpi=dpi)
         ax = fig.add_axes([0.0, 0.0, 1.0, 1.0], projection="3d")
         ax.view_init(elev=elev, azim=azim)
@@ -2066,23 +2092,28 @@ class RSRSBenchmarkConfig:
             fig.patch.set_alpha(0.0)
             ax.set_facecolor((1, 1, 1, 0))
 
-        surf = ax.plot_trisurf(
-            X.ravel(), Y.ravel(), Z.ravel(),
-            triangles=triangles,
+        coll = Poly3DCollection(
+            tris,
             facecolors=facecolors,
-            linewidth=0.0,
-            edgecolor="none",
-            antialiased=False,   # helps avoid seam lines
-            shade=False,
+            edgecolors="none",
+            linewidths=0.0,
         )
+        # seams usually look better with AA disabled for collections
+        try:
+            coll.set_antialiased(False)
+        except Exception:
+            pass
 
+        ax.add_collection3d(coll)
+
+        # colorbar (layout-stable)
         if show_colorbar:
             mappable = cm.ScalarMappable(norm=norm, cmap=cmap)
             mappable.set_array([])
             cax = fig.add_axes([0.90, 0.18, 0.03, 0.64])
             fig.colorbar(mappable, cax=cax)
 
-        # framing (match your mesh renders)
+        # framing (match your cutter)
         ax.set_xlim(bmin[0], bmax[0])
         ax.set_ylim(bmin[1], bmax[1])
         ax.set_zlim(bmin[2], bmax[2])
