@@ -1881,8 +1881,8 @@ class RSRSBenchmarkConfig:
     def plot_field_slices_3d(
         self,
         tol=1e-2,
-        plane="xz",
-        plane_value=None,
+        plane="xz",                 # "xy", "xz", "yz"
+        plane_value=None,           # z for "xy", y for "xz", x for "yz"
         plane_points=200,
         plane_extent_rel=0.0,
         add_incident=False,
@@ -1892,7 +1892,7 @@ class RSRSBenchmarkConfig:
         cmap_name="viridis",
         transparent_bg=False,
         hide_axes=True,
-        box_limits=None,
+        box_limits=None,            # tuple (bmin, bmax)
         figsize=(10, 7),
         save_plot=True,
         out_name="field_slice_3d.png",
@@ -1904,15 +1904,16 @@ class RSRSBenchmarkConfig:
         import matplotlib.pyplot as plt
         from pathlib import Path
         import meshio
+        import trimesh
         import matplotlib.cm as cm
         import matplotlib.colors as colors
         import bempp_cl.api
-        from matplotlib.tri import Triangulation
 
         plane = plane.lower()
         if plane not in ("xy", "xz", "yz"):
             raise ValueError("plane must be one of: 'xy', 'xz', 'yz'")
 
+        # ---------- locate grid + load solutions ----------
         sols = self.load_sols(tol)
 
         folder = self.generate_folder_name()
@@ -1923,11 +1924,15 @@ class RSRSBenchmarkConfig:
         if not grid_path.exists():
             raise FileNotFoundError(f"Expected mesh at {grid_path}, but it doesn't exist.")
 
+        # ---------- load mesh + bounds ----------
         m = meshio.read(str(grid_path))
+        faces = next(c.data for c in m.cells if c.type == "triangle")
         verts = m.points.astype(float)
 
-        bmin = verts.min(axis=0)
-        bmax = verts.max(axis=0)
+        # keep process=False for consistent bounds with your other code
+        tm = trimesh.Trimesh(vertices=verts, faces=faces, process=False)
+        bmin, bmax = tm.bounds
+
         if box_limits is not None:
             bmin = np.asarray(box_limits[0], dtype=float)
             bmax = np.asarray(box_limits[1], dtype=float)
@@ -1939,14 +1944,16 @@ class RSRSBenchmarkConfig:
         ymin, ymax = bmin[1] - ext, bmax[1] + ext
         zmin, zmax = bmin[2] - ext, bmax[2] + ext
 
+        # default plane position
         if plane_value is None:
             if plane == "xy":
-                plane_value = 0.5 * (bmin[2] + bmax[2])
+                plane_value = 0.5 * (bmin[2] + bmax[2])  # z mid
             elif plane == "xz":
-                plane_value = 0.5 * (bmin[1] + bmax[1])
-            else:
-                plane_value = 0.5 * (bmin[0] + bmax[0])
+                plane_value = 0.5 * (bmin[1] + bmax[1])  # y mid
+            else:  # "yz"
+                plane_value = 0.5 * (bmin[0] + bmax[0])  # x mid
 
+        # ---------- bempp setup ----------
         grid = bempp_cl.api.import_grid(str(grid_path))
         op = self.structured_operator_types[self.operator_type_index]
 
@@ -1991,20 +1998,15 @@ class RSRSBenchmarkConfig:
         else:
             raise ValueError(f"Unsupported operator type for slicing plot: {op}")
 
+        # ---------- build structured grid on the plane ----------
         n = int(plane_points)
 
-        # Build grid + triangulation coordinates
         if plane == "xy":
             xs = np.linspace(xmin, xmax, n)
             ys = np.linspace(ymin, ymax, n)
             X, Y = np.meshgrid(xs, ys, indexing="xy")
             Z = plane_value * np.ones_like(X)
             pts = np.vstack([X.ravel(), Y.ravel(), Z.ravel()])
-            tri = Triangulation(X.ravel(), Y.ravel())
-
-            x3 = X.ravel()
-            y3 = Y.ravel()
-            z3 = Z.ravel()
 
         elif plane == "xz":
             xs = np.linspace(xmin, xmax, n)
@@ -2012,11 +2014,6 @@ class RSRSBenchmarkConfig:
             X, Z = np.meshgrid(xs, zs, indexing="xy")
             Y = plane_value * np.ones_like(X)
             pts = np.vstack([X.ravel(), Y.ravel(), Z.ravel()])
-            tri = Triangulation(X.ravel(), Z.ravel())
-
-            x3 = X.ravel()
-            y3 = Y.ravel()
-            z3 = Z.ravel()
 
         else:  # "yz"
             ys = np.linspace(ymin, ymax, n)
@@ -2024,32 +2021,42 @@ class RSRSBenchmarkConfig:
             Y, Z = np.meshgrid(ys, zs, indexing="xy")
             X = plane_value * np.ones_like(Y)
             pts = np.vstack([X.ravel(), Y.ravel(), Z.ravel()])
-            tri = Triangulation(Y.ravel(), Z.ravel())
 
-            x3 = X.ravel()
-            y3 = Y.ravel()
-            z3 = Z.ravel()
-
-        # Evaluate
+        # ---------- evaluate field ----------
         sol_fun = bempp_cl.api.GridFunction(space, projections=sols[0], dual_space=dual_space)
         val = make_potential(pts) * sol_fun
         if op != "BemppClMaxwellEfie":
             val = np.asarray(val).reshape(-1)
 
-        s = np.asarray(scalar_from_eval(val, pts)).reshape(-1)
+        S = np.asarray(scalar_from_eval(val, pts)).reshape((n, n))
+        s_vert = S.ravel()
 
-        finite = np.isfinite(s)
-        if not np.any(finite):
+        # ---------- build *structured* triangles (no Delaunay) ----------
+        # Vertex indexing: idx = j*n + i for i in [0..n-1], j in [0..n-1]
+        ii, jj = np.meshgrid(np.arange(n - 1), np.arange(n - 1), indexing="xy")
+        v00 = (jj * n + ii).ravel()
+        v10 = (jj * n + (ii + 1)).ravel()
+        v01 = ((jj + 1) * n + ii).ravel()
+        v11 = ((jj + 1) * n + (ii + 1)).ravel()
+
+        tri1 = np.stack([v00, v10, v11], axis=1)
+        tri2 = np.stack([v00, v11, v01], axis=1)
+        triangles = np.vstack([tri1, tri2])  # (2*(n-1)^2, 3)
+
+        # per-triangle scalar for coloring (mean of vertex values)
+        s_tri = s_vert[triangles].mean(axis=1)
+
+        vmin = float(np.nanmin(s_tri))
+        vmax = float(np.nanmax(s_tri))
+        if not np.isfinite(vmin) or not np.isfinite(vmax) or vmax <= vmin:
             vmin, vmax = 0.0, 1.0
-        else:
-            vmin = float(np.nanmin(s[finite]))
-            vmax = float(np.nanmax(s[finite]))
-            if vmax <= vmin:
-                vmax = vmin + 1.0
 
         norm = colors.Normalize(vmin=vmin, vmax=vmax)
         cmap = cm.get_cmap(cmap_name)
+        facecolors = cmap(norm(s_tri))
+        facecolors[:, 3] = plane_alpha  # enforce alpha
 
+        # ---------- render (3D) ----------
         fig = plt.figure(figsize=figsize, dpi=dpi)
         ax = fig.add_axes([0.0, 0.0, 1.0, 1.0], projection="3d")
         ax.view_init(elev=elev, azim=azim)
@@ -2059,18 +2066,15 @@ class RSRSBenchmarkConfig:
             fig.patch.set_alpha(0.0)
             ax.set_facecolor((1, 1, 1, 0))
 
-        # Triangulated surface (no quad seams)
         surf = ax.plot_trisurf(
-            x3, y3, z3,
-            triangles=tri.triangles,
-            cmap=cmap,
-            norm=norm,
+            X.ravel(), Y.ravel(), Z.ravel(),
+            triangles=triangles,
+            facecolors=facecolors,
             linewidth=0.0,
-            antialiased=True,
+            edgecolor="none",
+            antialiased=False,   # helps avoid seam lines
             shade=False,
         )
-        surf.set_array(s)
-        surf.set_alpha(plane_alpha)
 
         if show_colorbar:
             mappable = cm.ScalarMappable(norm=norm, cmap=cmap)
@@ -2078,7 +2082,7 @@ class RSRSBenchmarkConfig:
             cax = fig.add_axes([0.90, 0.18, 0.03, 0.64])
             fig.colorbar(mappable, cax=cax)
 
-        # Framing (match your mesh renders)
+        # framing (match your mesh renders)
         ax.set_xlim(bmin[0], bmax[0])
         ax.set_ylim(bmin[1], bmax[1])
         ax.set_zlim(bmin[2], bmax[2])
@@ -2098,7 +2102,7 @@ class RSRSBenchmarkConfig:
         else:
             plt.show()
             return None
-            
+
     def save_clipped_mesh_piece_renders(
         self,
         plane_y=None,                 # ZX plane: y=plane_y
