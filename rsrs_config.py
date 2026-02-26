@@ -1881,8 +1881,8 @@ class RSRSBenchmarkConfig:
     def plot_field_slices_3d(
         self,
         tol=1e-2,
-        plane="xz",                 # "xy", "xz", "yz"
-        plane_value=None,           # z for "xy", y for "xz", x for "yz"
+        plane="xz",
+        plane_value=None,
         plane_points=200,
         plane_extent_rel=0.0,
         add_incident=False,
@@ -1890,41 +1890,29 @@ class RSRSBenchmarkConfig:
         azim=-60,
         plane_alpha=1.0,
         cmap_name="viridis",
-        mode="both",                # "fields", "geometry", "both"
         transparent_bg=False,
         hide_axes=True,
-        # geometry styling
-        mesh_color=(0.78, 0.78, 0.78),
-        mesh_alpha=1.0,
-        mesh_edgecolor="none",
-        # show ONLY geometry cut by the plane (thin slab)
-        overlay_cut_mesh=True,
-        cut_delta_rel=0.008,        # thickness relative to bbox diagonal
-        # ---- NEW: force identical framing for compositing ----
-        box_limits=None,            # tuple (bmin, bmax) from save_clipped_mesh_piece_renders
-        figsize=(10, 7),            # IMPORTANT: match geometry renderer
-        # save
+        box_limits=None,
+        figsize=(10, 7),
         save_plot=True,
         out_name="field_slice_3d.png",
         dpi=300,
-        show_colorbar=True,         # set False when compositing to avoid layout shifts
+        show_colorbar=True,
     ):
         import os
         import numpy as np
         import matplotlib.pyplot as plt
         from pathlib import Path
         import meshio
-        import trimesh
-        from mpl_toolkits.mplot3d.art3d import Poly3DCollection
         import matplotlib.cm as cm
         import matplotlib.colors as colors
         import bempp_cl.api
+        from matplotlib.tri import Triangulation
 
         plane = plane.lower()
         if plane not in ("xy", "xz", "yz"):
             raise ValueError("plane must be one of: 'xy', 'xz', 'yz'")
 
-        # ---------- locate grid + load solutions ----------
         sols = self.load_sols(tol)
 
         folder = self.generate_folder_name()
@@ -1932,17 +1920,14 @@ class RSRSBenchmarkConfig:
         grid_path = Path(os.getcwd()) / "results" / folder / subfolder / "grid.msh"
         if not grid_path.exists():
             self.relocate_grid()
+        if not grid_path.exists():
+            raise FileNotFoundError(f"Expected mesh at {grid_path}, but it doesn't exist.")
 
-        # ---------- load mesh ----------
         m = meshio.read(str(grid_path))
-        faces = next(c.data for c in m.cells if c.type == "triangle")
         verts = m.points.astype(float)
 
-        # IMPORTANT: keep process=False for consistent bounds with cutter
-        tm = trimesh.Trimesh(vertices=verts, faces=faces, process=False)
-
-        bmin, bmax = tm.bounds
-        # ---- override bounds if caller gives canonical bounds ----
+        bmin = verts.min(axis=0)
+        bmax = verts.max(axis=0)
         if box_limits is not None:
             bmin = np.asarray(box_limits[0], dtype=float)
             bmax = np.asarray(box_limits[1], dtype=float)
@@ -1954,81 +1939,117 @@ class RSRSBenchmarkConfig:
         ymin, ymax = bmin[1] - ext, bmax[1] + ext
         zmin, zmax = bmin[2] - ext, bmax[2] + ext
 
-        # default plane position
         if plane_value is None:
             if plane == "xy":
-                plane_value = 0.5 * (bmin[2] + bmax[2])  # z mid
+                plane_value = 0.5 * (bmin[2] + bmax[2])
             elif plane == "xz":
-                plane_value = 0.5 * (bmin[1] + bmax[1])  # y mid
-            else:  # "yz"
-                plane_value = 0.5 * (bmin[0] + bmax[0])  # x mid
-
-        # ---------- bempp setup (only needed if fields present) ----------
-        grid = None
-        space = None
-        dual_space = None
-        make_potential = None
-        scalar_from_eval = None
-
-        if mode in ("fields", "both"):
-            grid = bempp_cl.api.import_grid(str(grid_path))
-            op = self.structured_operator_types[self.operator_type_index]
-
-            if op == "BemppClLaplaceSingleLayer":
-                space = bempp_cl.api.function_space(grid, "DP", 0)
-                dual_space = space
-
-                def make_potential(points):
-                    return bempp_cl.api.operators.potential.laplace.single_layer(space, points)
-
-                def scalar_from_eval(val, points):
-                    return np.abs(val)
-
-            elif op in ("BemppClHelmholtzSingleLayer", "BemppClHelmholtzCombined", "BemppClBurtonMiller"):
-                space = bempp_cl.api.function_space(grid, "DP", 0)
-                dual_space = space
-
-                def make_potential(points):
-                    return bempp_cl.api.operators.potential.helmholtz.single_layer(space, points, self.kappa)
-
-                def scalar_from_eval(val, points):
-                    if op in ("BemppClHelmholtzCombined", "BemppClBurtonMiller"):
-                        total = np.exp(1j * self.kappa * points[0]) - val
-                        return np.abs(total)
-                    return np.abs(val)
-
-            elif op == "BemppClMaxwellEfie":
-                space = bempp_cl.api.function_space(grid, "RWG", 0)
-                dual_space = space
-
-                def make_potential(points):
-                    return bempp_cl.api.operators.potential.maxwell.electric_field(space, points, self.kappa)
-
-                def incident_E(points):
-                    return np.array([0.0 * points[0], 0.0 * points[0], np.exp(1j * self.kappa * points[0])])
-
-                def scalar_from_eval(val, points):
-                    E = val
-                    if add_incident:
-                        E = E + incident_E(points)
-                    return np.real(np.sum(E * np.conj(E), axis=0))
+                plane_value = 0.5 * (bmin[1] + bmax[1])
             else:
-                raise ValueError(f"Unsupported operator type for slicing plot: {op}")
+                plane_value = 0.5 * (bmin[0] + bmax[0])
 
-        # ---------- helper: pick faces near the plane (slab) ----------
-        def faces_in_slab(verts, faces, plane, plane_value, delta):
-            V = verts
-            F = faces
-            if plane == "xy":
-                d = np.abs(V[:, 2] - plane_value)
-            elif plane == "xz":
-                d = np.abs(V[:, 1] - plane_value)
-            else:  # "yz"
-                d = np.abs(V[:, 0] - plane_value)
-            keep = np.any(d[F] < delta, axis=1)
-            return F[keep]
+        grid = bempp_cl.api.import_grid(str(grid_path))
+        op = self.structured_operator_types[self.operator_type_index]
 
-        # ---------- create figure: FULL CANVAS (align with cutter) ----------
+        if op == "BemppClLaplaceSingleLayer":
+            space = bempp_cl.api.function_space(grid, "DP", 0)
+            dual_space = space
+
+            def make_potential(points):
+                return bempp_cl.api.operators.potential.laplace.single_layer(space, points)
+
+            def scalar_from_eval(val, points):
+                return np.abs(val)
+
+        elif op in ("BemppClHelmholtzSingleLayer", "BemppClHelmholtzCombined", "BemppClBurtonMiller"):
+            space = bempp_cl.api.function_space(grid, "DP", 0)
+            dual_space = space
+
+            def make_potential(points):
+                return bempp_cl.api.operators.potential.helmholtz.single_layer(space, points, self.kappa)
+
+            def scalar_from_eval(val, points):
+                if op in ("BemppClHelmholtzCombined", "BemppClBurtonMiller"):
+                    total = np.exp(1j * self.kappa * points[0]) - val
+                    return np.abs(total)
+                return np.abs(val)
+
+        elif op == "BemppClMaxwellEfie":
+            space = bempp_cl.api.function_space(grid, "RWG", 0)
+            dual_space = space
+
+            def make_potential(points):
+                return bempp_cl.api.operators.potential.maxwell.electric_field(space, points, self.kappa)
+
+            def incident_E(points):
+                return np.array([0.0 * points[0], 0.0 * points[0], np.exp(1j * self.kappa * points[0])])
+
+            def scalar_from_eval(val, points):
+                E = val
+                if add_incident:
+                    E = E + incident_E(points)
+                return np.real(np.sum(E * np.conj(E), axis=0))
+        else:
+            raise ValueError(f"Unsupported operator type for slicing plot: {op}")
+
+        n = int(plane_points)
+
+        # Build grid + triangulation coordinates
+        if plane == "xy":
+            xs = np.linspace(xmin, xmax, n)
+            ys = np.linspace(ymin, ymax, n)
+            X, Y = np.meshgrid(xs, ys, indexing="xy")
+            Z = plane_value * np.ones_like(X)
+            pts = np.vstack([X.ravel(), Y.ravel(), Z.ravel()])
+            tri = Triangulation(X.ravel(), Y.ravel())
+
+            x3 = X.ravel()
+            y3 = Y.ravel()
+            z3 = Z.ravel()
+
+        elif plane == "xz":
+            xs = np.linspace(xmin, xmax, n)
+            zs = np.linspace(zmin, zmax, n)
+            X, Z = np.meshgrid(xs, zs, indexing="xy")
+            Y = plane_value * np.ones_like(X)
+            pts = np.vstack([X.ravel(), Y.ravel(), Z.ravel()])
+            tri = Triangulation(X.ravel(), Z.ravel())
+
+            x3 = X.ravel()
+            y3 = Y.ravel()
+            z3 = Z.ravel()
+
+        else:  # "yz"
+            ys = np.linspace(ymin, ymax, n)
+            zs = np.linspace(zmin, zmax, n)
+            Y, Z = np.meshgrid(ys, zs, indexing="xy")
+            X = plane_value * np.ones_like(Y)
+            pts = np.vstack([X.ravel(), Y.ravel(), Z.ravel()])
+            tri = Triangulation(Y.ravel(), Z.ravel())
+
+            x3 = X.ravel()
+            y3 = Y.ravel()
+            z3 = Z.ravel()
+
+        # Evaluate
+        sol_fun = bempp_cl.api.GridFunction(space, projections=sols[0], dual_space=dual_space)
+        val = make_potential(pts) * sol_fun
+        if op != "BemppClMaxwellEfie":
+            val = np.asarray(val).reshape(-1)
+
+        s = np.asarray(scalar_from_eval(val, pts)).reshape(-1)
+
+        finite = np.isfinite(s)
+        if not np.any(finite):
+            vmin, vmax = 0.0, 1.0
+        else:
+            vmin = float(np.nanmin(s[finite]))
+            vmax = float(np.nanmax(s[finite]))
+            if vmax <= vmin:
+                vmax = vmin + 1.0
+
+        norm = colors.Normalize(vmin=vmin, vmax=vmax)
+        cmap = cm.get_cmap(cmap_name)
+
         fig = plt.figure(figsize=figsize, dpi=dpi)
         ax = fig.add_axes([0.0, 0.0, 1.0, 1.0], projection="3d")
         ax.view_init(elev=elev, azim=azim)
@@ -2038,87 +2059,26 @@ class RSRSBenchmarkConfig:
             fig.patch.set_alpha(0.0)
             ax.set_facecolor((1, 1, 1, 0))
 
-        # ---------- plot fields on ONE chosen plane ----------
-        if mode in ("fields", "both"):
-            n = int(plane_points)
+        # Triangulated surface (no quad seams)
+        surf = ax.plot_trisurf(
+            x3, y3, z3,
+            triangles=tri.triangles,
+            cmap=cmap,
+            norm=norm,
+            linewidth=0.0,
+            antialiased=True,
+            shade=False,
+        )
+        surf.set_array(s)
+        surf.set_alpha(plane_alpha)
 
-            if plane == "xy":
-                xs = np.linspace(xmin, xmax, n)
-                ys = np.linspace(ymin, ymax, n)
-                X, Y = np.meshgrid(xs, ys, indexing="xy")
-                Z = plane_value * np.ones_like(X)
-                pts = np.vstack([X.ravel(), Y.ravel(), Z.ravel()])
+        if show_colorbar:
+            mappable = cm.ScalarMappable(norm=norm, cmap=cmap)
+            mappable.set_array([])
+            cax = fig.add_axes([0.90, 0.18, 0.03, 0.64])
+            fig.colorbar(mappable, cax=cax)
 
-            elif plane == "xz":
-                xs = np.linspace(xmin, xmax, n)
-                zs = np.linspace(zmin, zmax, n)
-                X, Z = np.meshgrid(xs, zs, indexing="xy")
-                Y = plane_value * np.ones_like(X)
-                pts = np.vstack([X.ravel(), Y.ravel(), Z.ravel()])
-
-            else:  # "yz"
-                ys = np.linspace(ymin, ymax, n)
-                zs = np.linspace(zmin, zmax, n)
-                Y, Z = np.meshgrid(ys, zs, indexing="xy")
-                X = plane_value * np.ones_like(Y)
-                pts = np.vstack([X.ravel(), Y.ravel(), Z.ravel()])
-
-            sol_fun = bempp_cl.api.GridFunction(space, projections=sols[0], dual_space=dual_space)
-            val = make_potential(pts) * sol_fun
-
-            if op != "BemppClMaxwellEfie":
-                val = np.asarray(val).reshape(-1)
-
-            S = scalar_from_eval(val, pts).reshape((n, n))
-
-            vmin = float(np.nanmin(S))
-            vmax = float(np.nanmax(S))
-            if vmax <= vmin:
-                vmax = vmin + 1.0
-
-            norm = colors.Normalize(vmin=vmin, vmax=vmax)
-            cmap = cm.get_cmap(cmap_name)
-            face = cmap(norm(S))
-            face[..., 3] = plane_alpha
-
-            ax.plot_surface(
-                X, Y, Z,
-                facecolors=face,
-                linewidth=0,
-                edgecolor="none",
-                antialiased=True,
-                shade=False,
-            )
-            
-
-            # NOTE: colorbar changes layout; disable when compositing
-            if show_colorbar:
-                mappable = cm.ScalarMappable(norm=norm, cmap=cmap)
-                mappable.set_array([])
-                cax = fig.add_axes([0.90, 0.18, 0.03, 0.64])  # [left, bottom, width, height]
-                fig.colorbar(mappable, cax=cax)
-
-        # ---------- plot geometry (either full or cut-only slab) ----------
-        if mode in ("geometry", "both"):
-            if overlay_cut_mesh:
-                delta = cut_delta_rel * bbox_diag
-                f_use = faces_in_slab(verts, faces, plane, plane_value, delta)
-            else:
-                f_use = faces
-
-            geom = Poly3DCollection(
-                verts[f_use],
-                facecolor=mesh_color,
-                edgecolor=mesh_edgecolor,
-                alpha=mesh_alpha,
-            )
-            ax.add_collection3d(geom)
-            try:
-                geom.set_zsort("max")
-            except Exception:
-                pass
-
-        # ---------- framing (MUST match cutter) ----------
+        # Framing (match your mesh renders)
         ax.set_xlim(bmin[0], bmax[0])
         ax.set_ylim(bmin[1], bmax[1])
         ax.set_zlim(bmin[2], bmax[2])
@@ -2129,13 +2089,16 @@ class RSRSBenchmarkConfig:
         else:
             ax.set_xlabel("x"); ax.set_ylabel("y"); ax.set_zlabel("z")
 
-        # IMPORTANT: no tight_layout (it changes canvas)
         if save_plot:
             out = Path(os.getcwd()) / "results" / folder / subfolder / out_name
             out.parent.mkdir(parents=True, exist_ok=True)
             fig.savefig(out, dpi=dpi, transparent=transparent_bg)  # no bbox_inches="tight"
-        plt.show()
-
+            plt.close(fig)
+            return out
+        else:
+            plt.show()
+            return None
+            
     def save_clipped_mesh_piece_renders(
         self,
         plane_y=None,                 # ZX plane: y=plane_y
