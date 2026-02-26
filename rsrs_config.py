@@ -8,6 +8,10 @@ import json
 from pathlib import Path
 import matplotlib.pyplot as plt
 import os
+import meshio
+import trimesh
+from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+from scipy.spatial import cKDTree
 
 pi = np.pi
 
@@ -599,15 +603,15 @@ class RSRSBenchmarkConfig:
 
         if dim_key == "RefinementLevelAndDepth":
             if self.ref_level > 1:
-                return f"{geom}_{op}_ref_level_{self.ref_level}_depth_{self.depth}_od_{self.max_tree_depth}"
+                return f"{geom}_{op}_ref_level_{self.ref_level}_depth_{self.depth}_od_{self.max_tree_depth}_num_threads_{self.num_threads}"
             else:
-                return f"{geom}_{op}_mesh_width_{rust_float_format(self.h)}_od_{self.max_tree_depth}"
+                return f"{geom}_{op}_mesh_width_{rust_float_format(self.h)}_od_{self.max_tree_depth}_num_threads_{self.num_threads}"
         elif dim_key == "Meshwidth":
-            return f"{geom}_{op}_mesh_width_{rust_float_format(self.h)}_od_{self.max_tree_depth}"
+            return f"{geom}_{op}_mesh_width_{rust_float_format(self.h)}_od_{self.max_tree_depth}_num_threads_{self.num_threads}"
         elif dim_key == "Kappa":
-            return f"{geom}_{op}_mesh_width_{rust_float_format(self.h)}_od_{self.max_tree_depth}_{self.kappa:.2f}"
+            return f"{geom}_{op}_mesh_width_{rust_float_format(self.h)}_od_{self.max_tree_depth}_{self.kappa:.2f}_num_threads_{self.num_threads}"
         elif dim_key == "KappaAndMeshwidth":
-            return f"{geom}_{op}_mesh_width_{rust_float_format(self.h)}_od_{self.max_tree_depth}_{self.kappa:.2f}"
+            return f"{geom}_{op}_mesh_width_{rust_float_format(self.h)}_od_{self.max_tree_depth}_{self.kappa:.2f}_num_threads_{self.num_threads}"
         else:
             raise ValueError("Invalid dim_arg_type")
 
@@ -1588,28 +1592,33 @@ class RSRSBenchmarkConfig:
         else:
             # yz plane
             points = np.vstack((np.zeros(plot_grid[0].size) + c,plot_grid[0].ravel(), plot_grid[1].ravel()))
+
         if self.structured_operator_types[self.operator_type_index] == "BemppClLaplaceSingleLayer":
             space = bempp_cl.api.function_space(grid, "DP", 0)
             dual_space = space
             slp_pot = bempp_cl.api.operators.potential.laplace.single_layer(space, points)
-        elif self.structured_operator_types[self.operator_type_index] == "BemppClHelmholtzSingleLayer":
+
+        elif self.structured_operator_types[self.operator_type_index] == "BemppClHelmholtzSingleLayer" or self.structured_operator_types[self.operator_type_index] == "BemppClHelmholtzCombined":
             space = bempp_cl.api.function_space(grid, "DP", 0)
             dual_space = space
             slp_pot = bempp_cl.api.operators.potential.helmholtz.single_layer(space, points, self.kappa)
+
         elif self.structured_operator_types[self.operator_type_index] == "BemppClMaxwellEfie":
             space = bempp_cl.api.function_space(grid, "RWG", 0)
             dual_space = space
             slp_pot = bempp_cl.api.operators.potential.maxwell.electric_field(space, points, self.kappa)
+
         elif self.structured_operator_types[self.operator_type_index] == "BemppClBurtonMiller":
             space = bempp_cl.api.function_space(grid, "DP", 0)
             dual_space = space
             slp_pot = bempp_cl.api.operators.potential.helmholtz.single_layer(space, points, self.kappa)
+        
         for i, sol in enumerate(sols):
             sol_fun = bempp_cl.api.GridFunction(space, projections=sol, dual_space=dual_space)
             far_field = slp_pot * sol_fun
             if self.structured_operator_types[self.operator_type_index] == "BemppClMaxwellEfie":
                 scattered_field = np.real(np.sum(far_field * far_field.conj(), axis=0))
-            elif self.structured_operator_types[self.operator_type_index] == "BemppClBurtonMiller":
+            elif self.structured_operator_types[self.operator_type_index] == "BemppClBurtonMiller" or self.structured_operator_types[self.operator_type_index] == "BemppClHelmholtzCombined":
                 scattered_field = np.real(np.exp(1j * self.kappa * points[plane]) - far_field)
             else:
                 scattered_field = far_field
@@ -1647,7 +1656,7 @@ class RSRSBenchmarkConfig:
             space = bempp_cl.api.function_space(grid, "DP", 0)
             dual_space = space
             slp_pot = bempp_cl.api.operators.potential.laplace.single_layer(space, unit_points)
-        elif self.structured_operator_types[self.operator_type_index] == "BemppClHelmholtzSingleLayer":
+        elif self.structured_operator_types[self.operator_type_index] == "BemppClHelmholtzSingleLayer" or self.structured_operator_types[self.operator_type_index] == "BemppClHelmholtzCombined":
             space = bempp_cl.api.function_space(grid, "DP", 0)
             dual_space = space
             slp_pot = bempp_cl.api.operators.potential.helmholtz.single_layer(space, unit_points, self.kappa)
@@ -1684,3 +1693,702 @@ class RSRSBenchmarkConfig:
         sol_path = Path(os.getcwd()) / "results" / folder / subfolder / f"rcs_{plane}.png"
         plt.savefig(sol_path)
 
+    def plot_mesh_with_cross_planes(
+        self,
+        tol=1e-2,
+        x0=None,
+        y0=None,
+        plane_res=60,
+        mesh_alpha=0.25,
+        plane_alpha=0.12,
+        draw_plane_footprints=True,
+        footprint_mode="contour",   # "contour" (clean) or "scatter" (simple)
+        footprint_eps_rel=0.0015,   # relative to bbox size
+        footprint_grid=400,         # resolution used to compute footprints
+        extend_planes_rel=0.30,     # extend planes beyond bbox (0.0 = bbox only)
+        save_plot=True,
+        elev=25,
+        azim=-60,
+    ):
+        """
+        Plot the 3D mesh plus two perpendicular planes (x=x0 and y=y0),
+        optionally with "intersection" footprints on the planes.
+
+        - Loads grid.msh from results/<folder>/<subfolder>/grid.msh (like get_far_field).
+        - Uses meshio to read triangles.
+        - Uses matplotlib mplot3d for rendering.
+        - Footprints do NOT require rtree (uses KDTree to vertices).
+        - footprint_mode="contour" avoids the "<Figure ... with 0 Axes>" issue by using a temp figure.
+
+        Parameters
+        ----------
+        x0, y0 : float or None
+            Plane locations. If None, use bbox center.
+        plane_res : int
+            Resolution of plotted planes (visual only).
+        footprint_grid : int
+            Resolution of the (2D) grid used to compute the footprint distance field.
+        footprint_eps_rel : float
+            Thickness level for footprint, relative to bbox diagonal.
+        extend_planes_rel : float
+            Extend planes by this fraction of bbox diagonal in each direction.
+        """
+
+        # ---------- locate mesh like your other methods ----------
+        folder = self.generate_folder_name()
+        subfolder = self.generate_sub_folder_name()
+        grid_path = Path(os.getcwd()) / "results" / folder / subfolder / "grid.msh"
+        if not grid_path.exists():
+            self.relocate_grid()
+
+        # ---------- load mesh ----------
+        m = meshio.read(str(grid_path))
+        faces = next(c.data for c in m.cells if c.type == "triangle")
+        verts = m.points
+        tm = trimesh.Trimesh(vertices=verts, faces=faces, process=True)
+
+        bmin, bmax = tm.bounds
+        bbox_diag = np.linalg.norm(bmax - bmin)
+
+        # Default plane locations: bbox center
+        if x0 is None:
+            x0 = 0.5 * (bmin[0] + bmax[0])
+        if y0 is None:
+            y0 = 0.5 * (bmin[1] + bmax[1])
+
+        # Extend planes beyond bbox for "sheet" look
+        ext = extend_planes_rel * bbox_diag
+        xmin, xmax = bmin[0] - ext, bmax[0] + ext
+        ymin, ymax = bmin[1] - ext, bmax[1] + ext
+        zmin, zmax = bmin[2] - ext, bmax[2] + ext
+
+        # ---------- figure ----------
+        fig = plt.figure(figsize=(9, 7))
+        ax = fig.add_subplot(111, projection="3d")
+        ax.view_init(elev=elev, azim=azim)
+
+        # ---------- mesh ----------
+        tris = verts[faces]
+        mesh = Poly3DCollection(tris, alpha=mesh_alpha, edgecolor="none")
+        ax.add_collection3d(mesh)
+
+        # ---------- planes ----------
+        # YZ plane (x = x0)
+        ys = np.linspace(ymin, ymax, plane_res)
+        zs = np.linspace(zmin, zmax, plane_res)
+        Y, Z = np.meshgrid(ys, zs, indexing="xy")
+        X = x0 * np.ones_like(Y)
+        ax.plot_surface(X, Y, Z, alpha=plane_alpha, linewidth=0, antialiased=True)
+
+        # XZ plane (y = y0)
+        xs = np.linspace(xmin, xmax, plane_res)
+        zs2 = np.linspace(zmin, zmax, plane_res)
+        X2, Z2 = np.meshgrid(xs, zs2, indexing="xy")
+        Y2 = y0 * np.ones_like(X2)
+        ax.plot_surface(X2, Y2, Z2, alpha=plane_alpha, linewidth=0, antialiased=True)
+
+        # ---------- footprints (approx, no rtree) ----------
+        if draw_plane_footprints:
+            tree = cKDTree(tm.vertices)
+            eps = footprint_eps_rel * bbox_diag
+
+            if footprint_mode not in ("contour", "scatter"):
+                raise ValueError("footprint_mode must be 'contour' or 'scatter'")
+
+            # ---- YZ plane footprint at x=x0 ----
+            Ny = Nz = int(footprint_grid)
+            yv = np.linspace(bmin[1], bmax[1], Ny)
+            zv = np.linspace(bmin[2], bmax[2], Nz)
+            YY, ZZ = np.meshgrid(yv, zv, indexing="xy")
+            XX = x0 * np.ones_like(YY)
+
+            pts = np.column_stack([XX.ravel(), YY.ravel(), ZZ.ravel()])
+            dist, _ = tree.query(pts, k=1)
+            D = dist.reshape((Nz, Ny))  # matches (z,y) grid from meshgrid
+
+            if footprint_mode == "scatter":
+                mask = dist < eps
+                ax.scatter(
+                    pts[mask, 0], pts[mask, 1], pts[mask, 2],
+                    s=0.25, alpha=0.7
+                )
+            else:
+                # contour on a temporary 2D figure so notebook doesn't show "<Figure ... 0 Axes>"
+                _tmpfig = plt.figure()
+                _tmpax = _tmpfig.add_subplot(111)
+                cs = _tmpax.contour(YY, ZZ, D, levels=[eps])
+                for segs in cs.allsegs[0]:
+                    # segs columns: [y, z]
+                    ax.plot(
+                        x0 * np.ones(len(segs)),
+                        segs[:, 0],
+                        segs[:, 1],
+                        linewidth=2.0
+                    )
+                plt.close(_tmpfig)
+
+            # ---- XZ plane footprint at y=y0 ----
+            Nx = Nz = int(footprint_grid)
+            xv = np.linspace(bmin[0], bmax[0], Nx)
+            zv = np.linspace(bmin[2], bmax[2], Nz)
+            XX, ZZ = np.meshgrid(xv, zv, indexing="xy")
+            YY = y0 * np.ones_like(XX)
+
+            pts2 = np.column_stack([XX.ravel(), YY.ravel(), ZZ.ravel()])
+            dist2, _ = tree.query(pts2, k=1)
+            D2 = dist2.reshape((Nz, Nx))
+
+            if footprint_mode == "scatter":
+                mask2 = dist2 < eps
+                ax.scatter(
+                    pts2[mask2, 0], pts2[mask2, 1], pts2[mask2, 2],
+                    s=0.25, alpha=0.7
+                )
+            else:
+                _tmpfig = plt.figure()
+                _tmpax = _tmpfig.add_subplot(111)
+                cs2 = _tmpax.contour(XX, ZZ, D2, levels=[eps])
+                for segs in cs2.allsegs[0]:
+                    # segs columns: [x, z]
+                    ax.plot(
+                        segs[:, 0],
+                        y0 * np.ones(len(segs)),
+                        segs[:, 1],
+                        linewidth=2.0
+                    )
+                plt.close(_tmpfig)
+
+        # ---------- axes ----------
+        # Keep limits at bbox (not extended) so the object is nicely framed
+        ax.set_xlim(bmin[0], bmax[0])
+        ax.set_ylim(bmin[1], bmax[1])
+        ax.set_zlim(bmin[2], bmax[2])
+        ax.set_box_aspect(bmax - bmin)
+
+        ax.set_xlabel("x")
+        ax.set_ylabel("y")
+        ax.set_zlabel("z")
+        ax.grid(False)
+
+        plt.tight_layout()
+
+        if save_plot:
+            out = Path(os.getcwd()) / "results" / folder / subfolder / f"mesh_cross_planes.png"
+            plt.savefig(out, dpi=300)
+
+        plt.show()
+
+    def plot_field_slices_3d(
+        self,
+        tol=1e-2,
+        plane="xz",                 # "xy", "xz", "yz"
+        plane_value=None,           # z for "xy", y for "xz", x for "yz"
+        plane_points=200,
+        plane_extent_rel=0.0,
+        add_incident=False,
+        elev=25,
+        azim=-60,
+        plane_alpha=1.0,
+        cmap_name="viridis",
+        mode="both",                # "fields", "geometry", "both"
+        transparent_bg=False,
+        hide_axes=True,
+        # geometry styling
+        mesh_color=(0.78, 0.78, 0.78),
+        mesh_alpha=1.0,
+        mesh_edgecolor="none",
+        # show ONLY geometry cut by the plane (thin slab)
+        overlay_cut_mesh=True,
+        cut_delta_rel=0.008,        # thickness relative to bbox diagonal
+        # ---- NEW: force identical framing for compositing ----
+        box_limits=None,            # tuple (bmin, bmax) from save_clipped_mesh_piece_renders
+        figsize=(10, 7),            # IMPORTANT: match geometry renderer
+        # save
+        save_plot=True,
+        out_name="field_slice_3d.png",
+        dpi=300,
+        show_colorbar=True,         # set False when compositing to avoid layout shifts
+    ):
+        import os
+        import numpy as np
+        import matplotlib.pyplot as plt
+        from pathlib import Path
+        import meshio
+        import trimesh
+        from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+        import matplotlib.cm as cm
+        import matplotlib.colors as colors
+        import bempp_cl.api
+
+        plane = plane.lower()
+        if plane not in ("xy", "xz", "yz"):
+            raise ValueError("plane must be one of: 'xy', 'xz', 'yz'")
+
+        # ---------- locate grid + load solutions ----------
+        sols = self.load_sols(tol)
+
+        folder = self.generate_folder_name()
+        subfolder = self.generate_sub_folder_name()
+        grid_path = Path(os.getcwd()) / "results" / folder / subfolder / "grid.msh"
+        if not grid_path.exists():
+            self.relocate_grid()
+
+        # ---------- load mesh ----------
+        m = meshio.read(str(grid_path))
+        faces = next(c.data for c in m.cells if c.type == "triangle")
+        verts = m.points.astype(float)
+
+        # IMPORTANT: keep process=False for consistent bounds with cutter
+        tm = trimesh.Trimesh(vertices=verts, faces=faces, process=False)
+
+        bmin, bmax = tm.bounds
+        # ---- override bounds if caller gives canonical bounds ----
+        if box_limits is not None:
+            bmin = np.asarray(box_limits[0], dtype=float)
+            bmax = np.asarray(box_limits[1], dtype=float)
+
+        bbox_diag = float(np.linalg.norm(bmax - bmin))
+        ext = plane_extent_rel * bbox_diag
+
+        xmin, xmax = bmin[0] - ext, bmax[0] + ext
+        ymin, ymax = bmin[1] - ext, bmax[1] + ext
+        zmin, zmax = bmin[2] - ext, bmax[2] + ext
+
+        # default plane position
+        if plane_value is None:
+            if plane == "xy":
+                plane_value = 0.5 * (bmin[2] + bmax[2])  # z mid
+            elif plane == "xz":
+                plane_value = 0.5 * (bmin[1] + bmax[1])  # y mid
+            else:  # "yz"
+                plane_value = 0.5 * (bmin[0] + bmax[0])  # x mid
+
+        # ---------- bempp setup (only needed if fields present) ----------
+        grid = None
+        space = None
+        dual_space = None
+        make_potential = None
+        scalar_from_eval = None
+
+        if mode in ("fields", "both"):
+            grid = bempp_cl.api.import_grid(str(grid_path))
+            op = self.structured_operator_types[self.operator_type_index]
+
+            if op == "BemppClLaplaceSingleLayer":
+                space = bempp_cl.api.function_space(grid, "DP", 0)
+                dual_space = space
+
+                def make_potential(points):
+                    return bempp_cl.api.operators.potential.laplace.single_layer(space, points)
+
+                def scalar_from_eval(val, points):
+                    return np.abs(val)
+
+            elif op in ("BemppClHelmholtzSingleLayer", "BemppClHelmholtzCombined", "BemppClBurtonMiller"):
+                space = bempp_cl.api.function_space(grid, "DP", 0)
+                dual_space = space
+
+                def make_potential(points):
+                    return bempp_cl.api.operators.potential.helmholtz.single_layer(space, points, self.kappa)
+
+                def scalar_from_eval(val, points):
+                    if op in ("BemppClHelmholtzCombined", "BemppClBurtonMiller"):
+                        total = np.exp(1j * self.kappa * points[0]) - val
+                        return np.abs(total)
+                    return np.abs(val)
+
+            elif op == "BemppClMaxwellEfie":
+                space = bempp_cl.api.function_space(grid, "RWG", 0)
+                dual_space = space
+
+                def make_potential(points):
+                    return bempp_cl.api.operators.potential.maxwell.electric_field(space, points, self.kappa)
+
+                def incident_E(points):
+                    return np.array([0.0 * points[0], 0.0 * points[0], np.exp(1j * self.kappa * points[0])])
+
+                def scalar_from_eval(val, points):
+                    E = val
+                    if add_incident:
+                        E = E + incident_E(points)
+                    return np.real(np.sum(E * np.conj(E), axis=0))
+            else:
+                raise ValueError(f"Unsupported operator type for slicing plot: {op}")
+
+        # ---------- helper: pick faces near the plane (slab) ----------
+        def faces_in_slab(verts, faces, plane, plane_value, delta):
+            V = verts
+            F = faces
+            if plane == "xy":
+                d = np.abs(V[:, 2] - plane_value)
+            elif plane == "xz":
+                d = np.abs(V[:, 1] - plane_value)
+            else:  # "yz"
+                d = np.abs(V[:, 0] - plane_value)
+            keep = np.any(d[F] < delta, axis=1)
+            return F[keep]
+
+        # ---------- create figure: FULL CANVAS (align with cutter) ----------
+        fig = plt.figure(figsize=figsize, dpi=dpi)
+        ax = fig.add_axes([0.0, 0.0, 1.0, 1.0], projection="3d")
+        ax.view_init(elev=elev, azim=azim)
+        ax.grid(False)
+
+        if transparent_bg:
+            fig.patch.set_alpha(0.0)
+            ax.set_facecolor((1, 1, 1, 0))
+
+        # ---------- plot fields on ONE chosen plane ----------
+        if mode in ("fields", "both"):
+            n = int(plane_points)
+
+            if plane == "xy":
+                xs = np.linspace(xmin, xmax, n)
+                ys = np.linspace(ymin, ymax, n)
+                X, Y = np.meshgrid(xs, ys, indexing="xy")
+                Z = plane_value * np.ones_like(X)
+                pts = np.vstack([X.ravel(), Y.ravel(), Z.ravel()])
+
+            elif plane == "xz":
+                xs = np.linspace(xmin, xmax, n)
+                zs = np.linspace(zmin, zmax, n)
+                X, Z = np.meshgrid(xs, zs, indexing="xy")
+                Y = plane_value * np.ones_like(X)
+                pts = np.vstack([X.ravel(), Y.ravel(), Z.ravel()])
+
+            else:  # "yz"
+                ys = np.linspace(ymin, ymax, n)
+                zs = np.linspace(zmin, zmax, n)
+                Y, Z = np.meshgrid(ys, zs, indexing="xy")
+                X = plane_value * np.ones_like(Y)
+                pts = np.vstack([X.ravel(), Y.ravel(), Z.ravel()])
+
+            sol_fun = bempp_cl.api.GridFunction(space, projections=sols[0], dual_space=dual_space)
+            val = make_potential(pts) * sol_fun
+
+            if op != "BemppClMaxwellEfie":
+                val = np.asarray(val).reshape(-1)
+
+            S = scalar_from_eval(val, pts).reshape((n, n))
+
+            vmin = float(np.nanmin(S))
+            vmax = float(np.nanmax(S))
+            if vmax <= vmin:
+                vmax = vmin + 1.0
+
+            norm = colors.Normalize(vmin=vmin, vmax=vmax)
+            cmap = cm.get_cmap(cmap_name)
+            face = cmap(norm(S))
+            face[..., 3] = plane_alpha
+
+            ax.plot_surface(
+                X, Y, Z,
+                facecolors=face,
+                linewidth=0,
+                edgecolor="none",
+                antialiased=True,
+                shade=False,
+            )
+            
+
+            # NOTE: colorbar changes layout; disable when compositing
+            if show_colorbar:
+                mappable = cm.ScalarMappable(norm=norm, cmap=cmap)
+                mappable.set_array([])
+                cax = fig.add_axes([0.90, 0.18, 0.03, 0.64])  # [left, bottom, width, height]
+                fig.colorbar(mappable, cax=cax)
+
+        # ---------- plot geometry (either full or cut-only slab) ----------
+        if mode in ("geometry", "both"):
+            if overlay_cut_mesh:
+                delta = cut_delta_rel * bbox_diag
+                f_use = faces_in_slab(verts, faces, plane, plane_value, delta)
+            else:
+                f_use = faces
+
+            geom = Poly3DCollection(
+                verts[f_use],
+                facecolor=mesh_color,
+                edgecolor=mesh_edgecolor,
+                alpha=mesh_alpha,
+            )
+            ax.add_collection3d(geom)
+            try:
+                geom.set_zsort("max")
+            except Exception:
+                pass
+
+        # ---------- framing (MUST match cutter) ----------
+        ax.set_xlim(bmin[0], bmax[0])
+        ax.set_ylim(bmin[1], bmax[1])
+        ax.set_zlim(bmin[2], bmax[2])
+        ax.set_box_aspect(bmax - bmin)
+
+        if hide_axes:
+            ax.set_axis_off()
+        else:
+            ax.set_xlabel("x"); ax.set_ylabel("y"); ax.set_zlabel("z")
+
+        # IMPORTANT: no tight_layout (it changes canvas)
+        if save_plot:
+            out = Path(os.getcwd()) / "results" / folder / subfolder / out_name
+            out.parent.mkdir(parents=True, exist_ok=True)
+            fig.savefig(out, dpi=dpi, transparent=transparent_bg)  # no bbox_inches="tight"
+        plt.show()
+
+    def save_clipped_mesh_piece_renders(
+        self,
+        plane_y=None,                 # ZX plane: y=plane_y
+        plane_z=None,                 # XY plane: z=plane_z
+        out_dir_name="clipped_mesh_renders",
+        # rendering (match your field render view!)
+        elev=25,
+        azim=-60,
+        facecolor=(0.75, 0.75, 0.75),
+        edgecolor="none",
+        mesh_alpha=1.0,
+        dpi=300,
+        transparent=True,
+        figsize=(10, 7),              # IMPORTANT: match plot_field_slices_3d
+        # clipping options
+        cap=False,                    # keep False for open surface meshes
+        only_watertight=False,        # your mesh is not watertight
+        min_faces=50,                 # discard tiny fragments
+        verbose=True,
+        padd = 0.0,
+    ):
+        """
+        True mesh cutting: clip the surface mesh by planes
+        - y = plane_y (ZX)
+        - z = plane_z (XY)
+        then split into connected components and render each as a 3D PNG (transparent).
+
+        This produces real clipped triangle geometry (triangles are split at plane intersections),
+        not a plane-projected footprint.
+
+        Output:
+        results/<folder>/<subfolder>/<out_dir_name>/piece_00.png, piece_01.png, ...
+
+        Notes for compositing/alignment:
+        - fixed figsize & dpi
+        - no tight_layout
+        - no bbox_inches="tight"
+        - axes occupy full canvas via add_axes([0,0,1,1])
+        """
+        import os
+        import numpy as np
+        import meshio
+        import trimesh
+        import matplotlib.pyplot as plt
+        from pathlib import Path
+        from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+
+        # -------- mesh path exactly like plot_field_slices_3d --------
+        folder = self.generate_folder_name()
+        subfolder = self.generate_sub_folder_name()
+        grid_path = Path(os.getcwd()) / "results" / folder / subfolder / "grid.msh"
+        if not grid_path.exists():
+            self.relocate_grid()
+        if not grid_path.exists():
+            raise FileNotFoundError(f"Expected mesh at {grid_path}, but it doesn't exist.")
+
+        # -------- load triangles --------
+        m = meshio.read(str(grid_path))
+        faces = next(c.data for c in m.cells if c.type == "triangle")
+        verts = m.points.astype(float)
+
+        # bbox + defaults for planes
+        bmin = verts.min(axis=0) - padd
+        bmax = verts.max(axis=0) + padd
+        if plane_y is None:
+            plane_y = 0.5 * (bmin[1] + bmax[1])
+        if plane_z is None:
+            plane_z = 0.5 * (bmin[2] + bmax[2])
+
+        # build trimesh
+        tm = trimesh.Trimesh(vertices=verts, faces=faces, process=False)
+
+        # -------- helpers: clip mesh by plane keeping one side --------
+        # trimesh slice_mesh_plane keeps points where (x - origin)·normal >= 0
+        def clip_keep_ge(mesh, coord, value):
+            # keep coord >= value
+            origin = np.zeros(3)
+            origin[coord] = value
+            normal = np.zeros(3)
+            normal[coord] = 1.0
+            return trimesh.intersections.slice_mesh_plane(
+                mesh, plane_normal=normal, plane_origin=origin, cap=cap
+            )
+
+        def clip_keep_le(mesh, coord, value):
+            # keep coord <= value  -> normal = -e_coord
+            origin = np.zeros(3)
+            origin[coord] = value
+            normal = np.zeros(3)
+            normal[coord] = -1.0
+            return trimesh.intersections.slice_mesh_plane(
+                mesh, plane_normal=normal, plane_origin=origin, cap=cap
+            )
+
+        # coord indices: x=0, y=1, z=2
+        y_idx, z_idx = 1, 2
+
+        # -------- clip into 4 quadrants in (y,z) --------
+        pieces = []
+
+        # (y <= plane_y, z <= plane_z)
+        m00 = clip_keep_le(tm, y_idx, plane_y)
+        m00 = clip_keep_le(m00, z_idx, plane_z)
+        pieces.append(m00)
+
+        # (y <= plane_y, z >= plane_z)
+        m01 = clip_keep_le(tm, y_idx, plane_y)
+        m01 = clip_keep_ge(m01, z_idx, plane_z)
+        pieces.append(m01)
+
+        # (y >= plane_y, z <= plane_z)
+        m10 = clip_keep_ge(tm, y_idx, plane_y)
+        m10 = clip_keep_le(m10, z_idx, plane_z)
+        pieces.append(m10)
+
+        # (y >= plane_y, z >= plane_z)
+        m11 = clip_keep_ge(tm, y_idx, plane_y)
+        m11 = clip_keep_ge(m11, z_idx, plane_z)
+        pieces.append(m11)
+
+        # split each quadrant into connected components
+        comps = []
+        for p in pieces:
+            if p is None or len(p.faces) == 0:
+                continue
+            for c in p.split(only_watertight=only_watertight):
+                if len(c.faces) >= min_faces:
+                    comps.append(c)
+
+        if verbose:
+            print(f"plane_y={plane_y:.6g}, plane_z={plane_z:.6g}")
+            print(f"Total kept components: {len(comps)} (min_faces={min_faces})")
+
+        # -------- render each component as 3D png --------
+        out_base = Path(os.getcwd()) / "results" / folder / subfolder / out_dir_name
+        out_base.mkdir(parents=True, exist_ok=True)
+
+        # fixed global framing so overlays match your field render
+        bminp, bmaxp = bmin, bmax
+
+        def render_component(comp_mesh, out_path):
+            V = comp_mesh.vertices
+            F = comp_mesh.faces
+            tris = V[F]  # (K,3,3)
+
+            fig = plt.figure(figsize=figsize, dpi=dpi)
+            ax = fig.add_axes([0.0, 0.0, 1.0, 1.0], projection="3d")  # full canvas
+            ax.view_init(elev=elev, azim=azim)
+            ax.grid(False)
+
+            if transparent:
+                fig.patch.set_alpha(0.0)
+                ax.set_facecolor((1, 1, 1, 0))
+
+            coll = Poly3DCollection(tris, facecolor=facecolor, edgecolor=edgecolor, alpha=mesh_alpha)
+            try:
+                coll.set_zsort("max")
+            except Exception:
+                pass
+            ax.add_collection3d(coll)
+
+            ax.set_xlim(bminp[0], bmaxp[0])
+            ax.set_ylim(bminp[1], bmaxp[1])
+            ax.set_zlim(bminp[2], bmaxp[2])
+            ax.set_box_aspect(bmaxp - bminp)
+            ax.set_axis_off()
+
+            # IMPORTANT: no bbox_inches="tight"
+            fig.savefig(out_path, dpi=dpi, transparent=transparent)
+            plt.close(fig)
+
+        saved = []
+        for i, c in enumerate(comps):
+            p = out_base / f"piece_{i:02d}.png"
+            render_component(c, p)
+            saved.append(p)
+
+        if verbose:
+            print(f"Saved {len(saved)} PNGs to {out_base}")
+
+        box_limits = (bminp.copy(), bmaxp.copy())
+        return saved, box_limits
+
+    def composite_images(
+        self,
+        background_relpath: str,
+        overlay_relpath: str,
+        out_relpath: str = "composited.png",
+        overlay_offset_px: tuple[int, int] = (0, 0),
+        verbose: bool = True,
+    ):
+        """
+        Strict pixel-aligned alpha compositing.
+        Both images must have identical pixel size.
+
+        Paths are relative to:
+            results/<folder>/<subfolder>/
+
+        Parameters
+        ----------
+        background_relpath : str
+        overlay_relpath : str
+        out_relpath : str
+        overlay_offset_px : (dx, dy)
+            Pixel shift of overlay (default 0,0)
+        """
+
+        import os
+        from pathlib import Path
+        from PIL import Image
+
+        folder = self.generate_folder_name()
+        subfolder = self.generate_sub_folder_name()
+        base = Path(os.getcwd()) / "results" / folder / subfolder
+
+        bg_path = base / background_relpath
+        fg_path = base / overlay_relpath
+        out_path = base / out_relpath
+
+        if not bg_path.exists():
+            raise FileNotFoundError(f"Background image not found: {bg_path}")
+        if not fg_path.exists():
+            raise FileNotFoundError(f"Overlay image not found: {fg_path}")
+
+        bg = Image.open(bg_path).convert("RGBA")
+        fg = Image.open(fg_path).convert("RGBA")
+
+        if verbose:
+            print("Background size:", bg.size)
+            print("Overlay size:   ", fg.size)
+
+        # STRICT size check (important)
+        if bg.size != fg.size:
+            raise ValueError(
+                "Image sizes differ. "
+                "Do NOT resize for scientific overlays.\n"
+                f"Background: {bg.size}, Overlay: {fg.size}\n"
+                "Fix your savefig settings instead."
+            )
+
+        # Optional offset (rarely needed)
+        dx, dy = overlay_offset_px
+        if (dx, dy) != (0, 0):
+            shifted = Image.new("RGBA", bg.size, (0, 0, 0, 0))
+            shifted.paste(fg, (dx, dy), fg)
+            fg = shifted
+
+        out = Image.alpha_composite(bg, fg)
+
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out.save(out_path)
+
+        if verbose:
+            print("Saved:", out_path)
+
+        return out_path
