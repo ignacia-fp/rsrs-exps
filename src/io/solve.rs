@@ -48,7 +48,7 @@ where
                 println!("res: {}, {:?}", residuals.len(), res);
             })
             .set_tol(tol)
-            .set_restart(100)
+            .set_restart(500)
             .set_max_iter(500);
 
         let (sol, _res) = gmres.run();
@@ -116,7 +116,7 @@ where
             })
             .set_tol(tol)
             .set_max_iter(500)
-            .set_restart(20)
+            .set_restart(500)
             .set_preconditioner(rsrs_operator.r());
 
         let (sol, _res) = gmres.run();

@@ -331,7 +331,7 @@ macro_rules! implement_test_framework {
                         dim_arg.0.into(),
                         dim_arg.1.into(),
                         self.test_params.scenario_params.n_sources,
-                        self.test_params.rsrs_params.sketching.initial_num_samples as i32
+                        self.test_params.rsrs_params.sketching.initial_num_samples as i32,
                     );
 
                     let structured_operator: StructuredOperatorInterface =
@@ -379,7 +379,7 @@ macro_rules! implement_test_framework {
                         let max_leaf_points = if id_tol < 1.0 {
                             50
                         } else {
-                            (6.0 * id_tol).to_usize().unwrap()
+                            (2.0 * id_tol).to_usize().unwrap()
                         };
                         let tree: Octree<'_, SimpleCommunicator> = Octree::new(
                             &points,
@@ -679,7 +679,7 @@ macro_rules! implement_distributed_test_framework {
                         let max_leaf_points = if id_tol < 1.0 {
                             50
                         } else {
-                            (6.0 * id_tol).to_usize().unwrap()
+                            (2.0 * id_tol).to_usize().unwrap()
                         };
 
                         let tree: Octree<'_, SimpleCommunicator> =

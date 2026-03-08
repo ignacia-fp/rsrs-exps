@@ -194,7 +194,7 @@ pub fn save_time_stats<Item: RlstScalar + MatrixInverse + MatrixPseudoInverse + 
     stats_path.push_str(".json");
 
     let stats = TimeStatsOutput {
-        tot_num_samples: rsrs_data.y_data.num_samples,
+        tot_num_samples: rsrs_data.active_samples,
         total_elapsed_time: rsrs_data.stats.total_elapsed_time,
         total_elapsed_time_wo_sampling: rsrs_data.stats.total_elapsed_time_wo_sampling,
         dim: rsrs_data.stats.dim,
