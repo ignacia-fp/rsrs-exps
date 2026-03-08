@@ -1619,7 +1619,7 @@ class RSRSBenchmarkConfig:
             if self.structured_operator_types[self.operator_type_index] == "BemppClMaxwellEfie":
                 scattered_field = np.real(np.sum(far_field * far_field.conj(), axis=0))
             elif self.structured_operator_types[self.operator_type_index] == "BemppClBurtonMiller" or self.structured_operator_types[self.operator_type_index] == "BemppClHelmholtzCombined":
-                scattered_field = np.real(np.exp(1j * self.kappa * points[plane]) - far_field)
+                scattered_field = np.real(far_field)
             else:
                 scattered_field = far_field
             scattered_field = scattered_field.reshape((n_grid_points, n_grid_points))
@@ -1885,7 +1885,6 @@ class RSRSBenchmarkConfig:
         plane_value=None,           # z for "xy", y for "xz", x for "yz"
         plane_points=200,
         plane_extent_rel=0.0,
-        add_incident=False,
         # view
         elev=25,
         azim=-60,
@@ -1894,25 +1893,45 @@ class RSRSBenchmarkConfig:
         cmap_name="viridis",
         transparent_bg=False,
         hide_axes=True,
-        # framing: force identical bounds for compositing
-        box_limits=None,            # tuple (bmin, bmax) from save_clipped_mesh_piece_renders
+        # framing
+        box_limits=None,            # tuple (bmin, bmax)
         figsize=(10, 7),
         # save
         save_plot=True,
-        out_name="field_slice_3d.png",
+        out_name_prefix="field_slice_3d",
         dpi=300,
-        show_colorbar=True,         # set False when compositing to avoid layout shifts
+        show_colorbar=True,
+        # behavior
+        plot_sum=True,
+        shared_color_scale=True,
+        # incident handling (now consistent with your RHS generation)
+        include_incident=False,     # default: scattered-only
+        rhs_kind="auto",            # "auto" | "plane_wave" | "monopole" | "none"
+        rhs_count=None,             # number of incident fields; default = len(sols)
+        rhs_index=None,             # if set, ONLY add incident for that index (else per-solution)
+        rhs_padding=1.2,            # used for monopole sources (Laplace-like)
+        polarization=(-1.0, 0.0, 0.0),  # Maxwell plane-wave polarization
+        # contrast controls
+        contrast="linear",          # "linear" | "power" | "log"
+        gamma=0.7,                  # used when contrast="power"
+        clip_percentiles=(1.0, 99.5),  # used for contrast modes; None disables clipping
+        # layout: make the field bigger when colorbar exists
+        reserve_colorbar_space=True,
+        colorbar_width=0.03,
+        colorbar_pad=0.02,
     ):
         """
-        Field-only 3D slice plot with smooth coloring and without the visible quad-grid
-        artifacts from mplot3d.plot_surface. This version:
-        - evaluates the field on a structured n x n grid on the chosen plane
-        - builds a structured triangulation (no Delaunay)
-        - renders the plane via Poly3DCollection with per-triangle RGBA facecolors
-            (avoids plot_trisurf facecolors API issues)
-        - keeps the 3D camera (elev/azim), so inclination matches geometry renders
+        Render 3D colored plane slices for:
+        - each solution in self.load_sols(tol)
+        - (optionally) the coherent sum of all solutions
 
-        This is the most reliable "good looking" option within Matplotlib's mplot3d.
+        Can optionally add the *incident* field consistently with your RHS generation:
+        - Laplace-like: monopole sources outside bounding sphere
+        - Helmholtz/Maxwell: plane waves with directions from generate_directions
+
+        Returns
+        -------
+        list[pathlib.Path] (full paths) of saved images (empty list if save_plot=False)
         """
         import os
         import numpy as np
@@ -1925,12 +1944,53 @@ class RSRSBenchmarkConfig:
         import bempp_cl.api
         from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
+        # ---- local copies of your RHS helpers (so this method is self-contained) ----
+        def generate_directions(n_dirs):
+            if n_dirs <= 1:
+                return np.array([[1.0, 0.0, 0.0]], dtype=float)
+            indices = np.arange(0, n_dirs, dtype=float) + 0.5
+            phi = np.arccos(1 - 2 * indices / n_dirs)
+            theta = np.pi * (1 + 5**0.5) * indices
+            x = np.cos(theta) * np.sin(phi)
+            y = np.sin(theta) * np.sin(phi)
+            z = np.cos(phi)
+            dirs = np.stack((x, y, z), axis=1)
+            dirs /= np.linalg.norm(dirs, axis=1)[:, None]
+            return dirs
+
+        def generate_sources(grid, n_sources, padding=1.2):
+            vertices = np.array(grid.vertices)      # (3, Nv)
+            center = np.mean(vertices, axis=1)      # (3,)
+            max_radius = np.max(np.linalg.norm(vertices.T - center, axis=1))
+            radius = padding * max_radius
+            if n_sources <= 1:
+                return np.array([center + np.array([radius, 0.0, 0.0])], dtype=float)
+
+            indices = np.arange(0, n_sources, dtype=float) + 0.5
+            phi = np.arccos(1 - 2 * indices / n_sources)
+            theta = np.pi * (1 + 5**0.5) * indices
+            x = np.cos(theta) * np.sin(phi)
+            y = np.sin(theta) * np.sin(phi)
+            z = np.cos(phi)
+            directions = np.stack((x, y, z), axis=1)
+            sources = center[None, :] + radius * directions
+            return sources
+
+        # ---- input checks ----
         plane = plane.lower()
         if plane not in ("xy", "xz", "yz"):
             raise ValueError("plane must be one of: 'xy', 'xz', 'yz'")
 
-        # ---------- locate grid + load solutions ----------
+        if rhs_kind not in ("auto", "plane_wave", "monopole", "none"):
+            raise ValueError("rhs_kind must be one of: 'auto', 'plane_wave', 'monopole', 'none'")
+
+        if contrast not in ("linear", "power", "log"):
+            raise ValueError("contrast must be one of: 'linear', 'power', 'log'")
+
+        # ---- locate grid + load solutions ----
         sols = self.load_sols(tol)
+        if len(sols) == 0:
+            raise ValueError("No solutions loaded.")
 
         folder = self.generate_folder_name()
         subfolder = self.generate_sub_folder_name()
@@ -1940,16 +2000,14 @@ class RSRSBenchmarkConfig:
         if not grid_path.exists():
             raise FileNotFoundError(f"Expected mesh at {grid_path}, but it doesn't exist.")
 
-        # ---------- load mesh bounds ----------
+        # ---- mesh bounds ----
         m = meshio.read(str(grid_path))
         faces = next(c.data for c in m.cells if c.type == "triangle")
         verts = m.points.astype(float)
 
-        # process=False for consistent bounds with your cutter
         tm = trimesh.Trimesh(vertices=verts, faces=faces, process=False)
         bmin, bmax = tm.bounds
 
-        # override bounds if caller gives canonical bounds
         if box_limits is not None:
             bmin = np.asarray(box_limits[0], dtype=float)
             bmax = np.asarray(box_limits[1], dtype=float)
@@ -1961,16 +2019,15 @@ class RSRSBenchmarkConfig:
         ymin, ymax = bmin[1] - ext, bmax[1] + ext
         zmin, zmax = bmin[2] - ext, bmax[2] + ext
 
-        # default plane position
         if plane_value is None:
             if plane == "xy":
-                plane_value = 0.5 * (bmin[2] + bmax[2])  # z mid
+                plane_value = 0.5 * (bmin[2] + bmax[2])
             elif plane == "xz":
-                plane_value = 0.5 * (bmin[1] + bmax[1])  # y mid
-            else:  # "yz"
-                plane_value = 0.5 * (bmin[0] + bmax[0])  # x mid
+                plane_value = 0.5 * (bmin[1] + bmax[1])
+            else:
+                plane_value = 0.5 * (bmin[0] + bmax[0])
 
-        # ---------- bempp setup ----------
+        # ---- bempp setup ----
         grid = bempp_cl.api.import_grid(str(grid_path))
         op = self.structured_operator_types[self.operator_type_index]
 
@@ -1981,8 +2038,7 @@ class RSRSBenchmarkConfig:
             def make_potential(points):
                 return bempp_cl.api.operators.potential.laplace.single_layer(space, points)
 
-            def scalar_from_eval(val, points):
-                return np.abs(val)
+            is_vector_field = False
 
         elif op in ("BemppClHelmholtzSingleLayer", "BemppClHelmholtzCombined", "BemppClBurtonMiller"):
             space = bempp_cl.api.function_space(grid, "DP", 0)
@@ -1991,11 +2047,7 @@ class RSRSBenchmarkConfig:
             def make_potential(points):
                 return bempp_cl.api.operators.potential.helmholtz.single_layer(space, points, self.kappa)
 
-            def scalar_from_eval(val, points):
-                if op in ("BemppClHelmholtzCombined", "BemppClBurtonMiller"):
-                    total = np.exp(1j * self.kappa * points[0]) - val
-                    return np.abs(total)
-                return np.abs(val)
+            is_vector_field = False
 
         elif op == "BemppClMaxwellEfie":
             space = bempp_cl.api.function_space(grid, "RWG", 0)
@@ -2004,18 +2056,12 @@ class RSRSBenchmarkConfig:
             def make_potential(points):
                 return bempp_cl.api.operators.potential.maxwell.electric_field(space, points, self.kappa)
 
-            def incident_E(points):
-                return np.array([0.0 * points[0], 0.0 * points[0], np.exp(1j * self.kappa * points[0])])
+            is_vector_field = True
 
-            def scalar_from_eval(val, points):
-                E = val
-                if add_incident:
-                    E = E + incident_E(points)
-                return np.real(np.sum(E * np.conj(E), axis=0))
         else:
             raise ValueError(f"Unsupported operator type for slicing plot: {op}")
 
-        # ---------- sample points on the plane ----------
+        # ---- sample points on the plane ----
         n = int(plane_points)
 
         if plane == "xy":
@@ -2024,14 +2070,12 @@ class RSRSBenchmarkConfig:
             X, Y = np.meshgrid(xs, ys, indexing="xy")
             Z = plane_value * np.ones_like(X)
             pts = np.vstack([X.ravel(), Y.ravel(), Z.ravel()])
-
         elif plane == "xz":
             xs = np.linspace(xmin, xmax, n)
             zs = np.linspace(zmin, zmax, n)
             X, Z = np.meshgrid(xs, zs, indexing="xy")
             Y = plane_value * np.ones_like(X)
             pts = np.vstack([X.ravel(), Y.ravel(), Z.ravel()])
-
         else:  # "yz"
             ys = np.linspace(ymin, ymax, n)
             zs = np.linspace(zmin, zmax, n)
@@ -2039,101 +2083,237 @@ class RSRSBenchmarkConfig:
             X = plane_value * np.ones_like(Y)
             pts = np.vstack([X.ravel(), Y.ravel(), Z.ravel()])
 
-        # ---------- evaluate field ----------
-        sol_fun = bempp_cl.api.GridFunction(space, projections=sols[0], dual_space=dual_space)
-        val = make_potential(pts) * sol_fun
-
-        if op != "BemppClMaxwellEfie":
-            val = np.asarray(val).reshape(-1)
-
-        S = np.asarray(scalar_from_eval(val, pts)).reshape((n, n))
-        s_vert = S.ravel()
-
-        # ---------- structured triangulation (no Delaunay) ----------
-        # idx = j*n + i
+        # ---- structured triangulation of the plane (no Delaunay) ----
         ii, jj = np.meshgrid(np.arange(n - 1), np.arange(n - 1), indexing="xy")
         v00 = (jj * n + ii).ravel()
         v10 = (jj * n + (ii + 1)).ravel()
         v01 = ((jj + 1) * n + ii).ravel()
         v11 = ((jj + 1) * n + (ii + 1)).ravel()
-
         tri1 = np.stack([v00, v10, v11], axis=1)
         tri2 = np.stack([v00, v11, v01], axis=1)
-        triangles = np.vstack([tri1, tri2])  # (2*(n-1)^2, 3)
+        triangles = np.vstack([tri1, tri2])
 
-        # per-triangle scalar (mean of its vertices)
-        s_tri = s_vert[triangles].mean(axis=1)
+        Vplane = np.column_stack([X.ravel(), Y.ravel(), Z.ravel()])
+        tris_xyz = Vplane[triangles]
 
-        finite = np.isfinite(s_tri)
-        if not np.any(finite):
-            vmin, vmax = 0.0, 1.0
+        # ---- decide incident model consistent with your RHS ----
+        if not include_incident or rhs_kind == "none":
+            use_incident = False
+            inc_mode = "none"
         else:
-            vmin = float(np.nanmin(s_tri[finite]))
-            vmax = float(np.nanmax(s_tri[finite]))
+            use_incident = True
+            if rhs_kind == "auto":
+                # Laplace-like -> monopoles, others -> plane waves
+                inc_mode = "monopole" if ("Laplace" in op) else "plane_wave"
+            else:
+                inc_mode = rhs_kind
+
+        # how many incident fields we generate (usually equals #RHS == #sols)
+        if rhs_count is None:
+            rhs_count = len(sols)
+
+        d_list = None
+        s_list = None
+        pol = np.asarray(polarization, dtype=float)
+
+        if use_incident and inc_mode == "plane_wave":
+            if not hasattr(self, "kappa") or self.kappa is None:
+                raise ValueError("Plane-wave incident requested, but self.kappa is None.")
+            d_list = generate_directions(rhs_count)  # (rhs_count, 3)
+        if use_incident and inc_mode == "monopole":
+            s_list = generate_sources(grid, rhs_count, padding=rhs_padding)  # (rhs_count, 3)
+
+        def incident_at_points(i: int):
+            """Return incident evaluated at pts for solution i."""
+            if not use_incident:
+                return None
+            if (rhs_index is not None) and (i != int(rhs_index)):
+                return None
+
+            if inc_mode == "plane_wave":
+                d = d_list[i % rhs_count]
+                phase = np.exp(1j * self.kappa * (d @ pts))  # (N,)
+                if is_vector_field:
+                    return pol[:, None] * phase[None, :]      # (3,N)
+                return phase                                 # (N,)
+
+            if inc_mode == "monopole":
+                s = s_list[i % rhs_count]
+                r = np.linalg.norm(pts.T - s[None, :], axis=1)  # (N,)
+                return 1.0 / (4.0 * np.pi * r)                  # (N,)
+            return None
+
+        # ---- evaluate all solutions and (optionally) sum ----
+        pot = make_potential(pts)
+
+        vals_plot = []  # each entry: (N,) or (3,N)
+        val_sum = None
+
+        for i, sol in enumerate(sols):
+            sol_fun = bempp_cl.api.GridFunction(space, projections=sol, dual_space=dual_space)
+            val_sc = pot * sol_fun
+            val_sc = np.asarray(val_sc)
+
+            # add incident (in FIELD space) if requested
+            inc = incident_at_points(i)
+            if inc is not None:
+                val_i = val_sc + inc
+            else:
+                val_i = val_sc
+
+            # ensure shapes are consistent
+            if not is_vector_field:
+                val_i = val_i.reshape(-1)  # (N,)
+            vals_plot.append(val_i)
+
+            if plot_sum:
+                val_sum = val_i if (val_sum is None) else (val_sum + val_i)
+
+        def scalar_from_val(val):
+            """Convert field to scalar per point for coloring."""
+            if is_vector_field:
+                # intensity |E|^2
+                return np.real(np.sum(val * np.conj(val), axis=0)).reshape((n, n))
+            else:
+                # magnitude
+                return np.abs(val).reshape((n, n))
+
+        S_list = [scalar_from_val(v) for v in vals_plot]
+        S_sum = scalar_from_val(val_sum) if plot_sum else None
+
+        # ---- shared normalization (optional) ----
+        global_norm = None
+        if shared_color_scale:
+            chunks = [S.ravel() for S in S_list]
+            if plot_sum:
+                chunks.append(S_sum.ravel())
+            all_scalars = np.concatenate(chunks)
+            finite = np.isfinite(all_scalars)
+            if np.any(finite):
+                vmin_g = float(np.nanmin(all_scalars[finite]))
+                vmax_g = float(np.nanmax(all_scalars[finite]))
+                if vmax_g <= vmin_g:
+                    vmax_g = vmin_g + 1.0
+            else:
+                vmin_g, vmax_g = 0.0, 1.0
+
+            # if using log/power, we still apply contrast/clip *per image* below unless you want strict global
+            global_norm = colors.Normalize(vmin=vmin_g, vmax=vmax_g)
+
+        cmap = cm.get_cmap(cmap_name)
+
+        def make_local_norm(s_tri):
+            """Create a norm based on chosen contrast mode + clipping."""
+            s = np.asarray(s_tri, dtype=float)
+            s = s[np.isfinite(s)]
+            if s.size == 0:
+                return colors.Normalize(vmin=0.0, vmax=1.0)
+
+            if clip_percentiles is not None:
+                p0, p1 = clip_percentiles
+                vmin = float(np.nanpercentile(s, p0))
+                vmax = float(np.nanpercentile(s, p1))
+            else:
+                vmin = float(np.nanmin(s))
+                vmax = float(np.nanmax(s))
+
             if vmax <= vmin:
                 vmax = vmin + 1.0
 
-        norm = colors.Normalize(vmin=vmin, vmax=vmax)
-        cmap = cm.get_cmap(cmap_name)
+            if contrast == "linear":
+                return colors.Normalize(vmin=vmin, vmax=vmax)
 
-        facecolors = cmap(norm(s_tri))
-        facecolors[:, 3] = plane_alpha  # enforce alpha
+            if contrast == "power":
+                return colors.PowerNorm(gamma=float(gamma), vmin=vmin, vmax=vmax)
 
-        # ---------- build 3D triangles and render ----------
-        V = np.column_stack([X.ravel(), Y.ravel(), Z.ravel()])  # (n^2, 3)
-        tris = V[triangles]                                    # (ntri, 3, 3)
+            # contrast == "log"
+            eps = 1e-12 * vmax if vmax > 0 else 1e-12
+            vmin = max(vmin, eps)
+            return colors.LogNorm(vmin=vmin, vmax=vmax)
 
-        fig = plt.figure(figsize=figsize, dpi=dpi)
-        ax = fig.add_axes([0.0, 0.0, 1.0, 1.0], projection="3d")
-        ax.view_init(elev=elev, azim=azim)
-        ax.grid(False)
+        def render_one(S, out_path):
+            # per-triangle scalar (mean of its vertices)
+            s_vert = S.ravel()
+            s_tri = s_vert[triangles].mean(axis=1)
 
-        if transparent_bg:
-            fig.patch.set_alpha(0.0)
-            ax.set_facecolor((1, 1, 1, 0))
+            # choose norm:
+            # - if shared_color_scale and linear, you can use global_norm
+            # - but for contrast="power"/"log" you generally want local norm (better exterior contrast)
+            if shared_color_scale and contrast == "linear" and global_norm is not None:
+                local_norm = global_norm
+            else:
+                local_norm = make_local_norm(s_tri)
 
-        coll = Poly3DCollection(
-            tris,
-            facecolors=facecolors,
-            edgecolors="none",
-            linewidths=0.0,
-        )
-        # seams usually look better with AA disabled for collections
-        try:
-            coll.set_antialiased(False)
-        except Exception:
-            pass
+            facecolors = cmap(local_norm(s_tri))
+            facecolors[:, 3] = plane_alpha
 
-        ax.add_collection3d(coll)
+            fig = plt.figure(figsize=figsize, dpi=dpi)
 
-        # colorbar (layout-stable)
-        if show_colorbar:
-            mappable = cm.ScalarMappable(norm=norm, cmap=cmap)
-            mappable.set_array([])
-            cax = fig.add_axes([0.90, 0.18, 0.03, 0.64])
-            fig.colorbar(mappable, cax=cax)
+            if reserve_colorbar_space and show_colorbar:
+                left = 0.02
+                bottom = 0.02
+                height = 0.96
+                width = 1.0 - left - colorbar_pad - colorbar_width - 0.02
+                ax = fig.add_axes([left, bottom, width, height], projection="3d")
+            else:
+                ax = fig.add_axes([0.0, 0.0, 1.0, 1.0], projection="3d")
 
-        # framing (match your cutter)
-        ax.set_xlim(bmin[0], bmax[0])
-        ax.set_ylim(bmin[1], bmax[1])
-        ax.set_zlim(bmin[2], bmax[2])
-        ax.set_box_aspect(bmax - bmin)
+            ax.view_init(elev=elev, azim=azim)
+            ax.grid(False)
 
-        if hide_axes:
-            ax.set_axis_off()
-        else:
-            ax.set_xlabel("x"); ax.set_ylabel("y"); ax.set_zlabel("z")
+            if transparent_bg:
+                fig.patch.set_alpha(0.0)
+                ax.set_facecolor((1, 1, 1, 0))
 
-        if save_plot:
-            out = Path(os.getcwd()) / "results" / folder / subfolder / out_name
-            out.parent.mkdir(parents=True, exist_ok=True)
-            fig.savefig(out, dpi=dpi, transparent=transparent_bg)  # no bbox_inches="tight"
+            coll = Poly3DCollection(tris_xyz, facecolors=facecolors, edgecolors="none", linewidths=0.0)
+            try:
+                coll.set_antialiased(False)
+            except Exception:
+                pass
+            ax.add_collection3d(coll)
+
+            if show_colorbar:
+                mappable = cm.ScalarMappable(norm=local_norm, cmap=cmap)
+                mappable.set_array([])
+                if reserve_colorbar_space:
+                    cax_left = 1.0 - colorbar_width - 0.02
+                    cax = fig.add_axes([cax_left, 0.18, colorbar_width, 0.64])
+                else:
+                    cax = fig.add_axes([0.90, 0.18, 0.03, 0.64])
+                fig.colorbar(mappable, cax=cax)
+
+            ax.set_xlim(bmin[0], bmax[0])
+            ax.set_ylim(bmin[1], bmax[1])
+            ax.set_zlim(bmin[2], bmax[2])
+            ax.set_box_aspect(bmax - bmin)
+
+            if hide_axes:
+                ax.set_axis_off()
+            else:
+                ax.set_xlabel("x"); ax.set_ylabel("y"); ax.set_zlabel("z")
+
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            fig.savefig(out_path, dpi=dpi, transparent=transparent_bg)
             plt.close(fig)
-            return out
-        else:
-            plt.show()
-            return None
 
+        if not save_plot:
+            return []
+
+        base = Path(os.getcwd()) / "results" / folder / subfolder
+        outs = []
+
+        for i, S in enumerate(S_list):
+            out_i = base / f"{out_name_prefix}_{plane}_{i:02d}.png"
+            render_one(S, out_i)
+            outs.append(out_i)
+
+        if plot_sum:
+            out_s = base / f"{out_name_prefix}_{plane}_sum.png"
+            render_one(S_sum, out_s)
+            outs.append(out_s)
+
+        return outs
+    
     def save_clipped_mesh_piece_renders(
         self,
         plane_y=None,                 # ZX plane: y=plane_y
@@ -2361,6 +2541,14 @@ class RSRSBenchmarkConfig:
         bg = Image.open(bg_path).convert("RGBA")
         fg = Image.open(fg_path).convert("RGBA")
 
+        # --- force overlay (mesh) to be opaque wherever it exists ---
+        r, g, b, a = fg.split()
+
+        # convert any non-zero alpha to fully opaque
+        a = a.point(lambda p: 255 if p > 0 else 0)
+
+        fg = Image.merge("RGBA", (r, g, b, a))
+
         if verbose:
             print("Background size:", bg.size)
             print("Overlay size:   ", fg.size)
@@ -2390,3 +2578,101 @@ class RSRSBenchmarkConfig:
             print("Saved:", out_path)
 
         return out_path
+
+    def plot_gmres_residuals_first_rhs(self, log_scale=True, save_plot=False, fontsize=16):
+        """
+        Plot GMRES residuals comparing ONLY the first RHS (index 0).
+
+        - Plots NO-PRECONDITIONER curve only once (since it's identical across tolerances).
+        - Plots RSRS preconditioned curves for each tolerance.
+        - Legend labels: "No preconditioner" and "RSRS prec (k=<tol>)"
+        - Title: "GMRES residuals"
+        """
+        import numpy as np
+        import matplotlib.pyplot as plt
+        from pathlib import Path
+        import os
+
+        all_stats = self.load_all_stats(kind="error")
+        if not all_stats:
+            print("No data found.")
+            return
+
+        all_stats.sort(key=lambda d: float(d["tolerance"]))
+
+        plt.figure(figsize=(10, 6))
+
+        plotted_no_prec = False
+
+        for stat in all_stats:
+            tol = float(stat["tolerance"])
+            solves = stat.get("solves", {})
+
+            no_prec_list = solves.get("no_prec", [])
+            prec_list = solves.get("prec", [])
+
+            # need at least one RHS
+            if not isinstance(prec_list, list) or len(prec_list) == 0:
+                continue
+            if not isinstance(no_prec_list, list) or len(no_prec_list) == 0:
+                # if no_prec missing, still plot prec
+                no_prec_list = None
+
+            # first RHS residual vectors
+            prec_res = prec_list[0]
+            if not isinstance(prec_res, list) or len(prec_res) == 0:
+                continue
+
+            if (not plotted_no_prec) and (no_prec_list is not None):
+                no_prec_res = no_prec_list[0]
+                if isinstance(no_prec_res, list) and len(no_prec_res) > 0:
+                    if log_scale:
+                        plt.semilogy(no_prec_res, lw=2.5, label="No preconditioner")
+                    else:
+                        plt.plot(no_prec_res, lw=2.5, label="No preconditioner")
+                    plotted_no_prec = True
+
+            label_p = f"RSRS prec (k={tol})"
+            if log_scale:
+                plt.semilogy(prec_res, lw=2.0, alpha=0.9, label=label_p)
+            else:
+                plt.plot(prec_res, lw=2.0, alpha=0.9, label=label_p)
+
+        plt.xlabel("Iteration", fontsize=fontsize)
+        plt.ylabel("Residual", fontsize=fontsize)
+        plt.title("GMRES residuals", fontsize=fontsize + 2)
+
+        plt.grid(True, which="both" if log_scale else "major", ls="--", alpha=0.5)
+
+        plt.xticks(fontsize=fontsize - 2)
+        plt.yticks(fontsize=fontsize - 2)
+
+        plt.legend(fontsize=fontsize - 4, ncol=1, loc="best", frameon=True)
+        plt.tight_layout()
+
+        if save_plot:
+            folder = self.generate_folder_name()
+            subfolder = self.generate_sub_folder_name()
+            path = Path(os.getcwd()) / "results" / folder / subfolder / "gmres_residuals_first_rhs.png"
+            plt.savefig(path, dpi=300)
+
+        plt.show()
+
+    def get_existing_slice_paths(self, out_name_prefix="field_only_z", plane="xz"):
+        folder = self.generate_folder_name()
+        subfolder = self.generate_sub_folder_name()
+        base = Path(os.getcwd()) / "results" / folder / subfolder
+
+        # Grab all images for this prefix+plane
+        paths = list(base.glob(f"{out_name_prefix}_{plane}_*.png"))
+
+        # Sort so _00, _01, ..., _sum comes last
+        def key(p: Path):
+            m = re.search(rf"{re.escape(out_name_prefix)}_{plane}_(\d+)\.png$", p.name)
+            if m:
+                return (0, int(m.group(1)))
+            if p.name.endswith("_sum.png"):
+                return (1, 10**9)
+            return (2, p.name)
+
+        return sorted(paths, key=key)

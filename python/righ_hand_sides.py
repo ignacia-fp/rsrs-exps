@@ -108,20 +108,11 @@ def h_combined_data(d, kappa):
 
 def h_bm_data(d, k, normalise=True):
     d = np.asarray(d, dtype=np.float64)
-    if d.shape != (3,):
-        raise ValueError("d must be a 3-vector.")
-    if normalise:
-        nd = np.linalg.norm(d)
-        if nd == 0:
-            raise ValueError("d must be non-zero.")
-        d = d / nd
 
     @bempp_cl.api.complex_callable
     def bm_rhs(x, n, domain_index, result):
-        # phase = exp(i k d·x)
-        phase = np.exp(1j * k * (d[0]*x[0] + d[1]*x[1] + d[2]*x[2]))
-        ndotd = n[0]*d[0] + n[1]*d[1] + n[2]*d[2]
-        result[0] = phase * (1.0 - ndotd)
+        phase = np.exp(1j * k * np.dot(d, x))
+        result[0] = phase * (1.0 - np.dot(n, d))
 
     return bm_rhs
 
@@ -264,7 +255,7 @@ def right_hand_side(operator, problem_type, n_sources=1):
             directions = generate_directions(n_sources)
 
             for d in directions:
-                d_data = h_dirichlet_data(d, kappa)
+                d_data = h_combined_data(d, kappa)
                 gfun = bempp_cl.api.GridFunction(operator.domain, fun=d_data)
                 rhs_list.append(_gridfun_to_vec(gfun))
 
