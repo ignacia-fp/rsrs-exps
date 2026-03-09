@@ -33,7 +33,7 @@ paste = "1"
 ndgrid = { git = "https://github.com/ignacia-fp/ndgrid-for-rsrs.git", features = [
     "serde",
 ] }
-bempp-rsrs = { git = "https://github.com/bempp/rsrs.git", branch = "new_rsrs_factors" }
+bempp-rsrs = { git = "https://github.com/bempp/rsrs.git", branch = "enable_symm" }
 bempp = { git = "https://github.com/ignacia-fp/bempp-rs-for-rsrs.git", features = [
     "enable_tracing",
 ] }

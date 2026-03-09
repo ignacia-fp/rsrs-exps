@@ -1,6 +1,7 @@
 use crate::io::structured_operators_types::StructuredOperatorType;
 use crate::test_prep::Precision;
 use bempp_octree::Point;
+use num::Complex;
 use rlst::dense::linalg::lu::MatrixLu;
 use rlst::dense::tools::RandScalar;
 use rlst::operator::ConcreteElementContainer;
@@ -9,7 +10,6 @@ use rlst::RlstScalar;
 use serde::Deserialize;
 use std::ffi::CString;
 use std::rc::Rc;
-use num::Complex;
 
 #[repr(C)]
 struct StructuredOperatorOpaque {
@@ -29,6 +29,7 @@ extern "C" {
         precision: *const std::ffi::c_char,
         n_sources: std::ffi::c_int,
         init_samples: std::ffi::c_int,
+        assembler: *const std::ffi::c_char,
     ) -> *mut StructuredOperatorOpaque;
 
     fn finalize_structured_operator(structured_operator: *mut StructuredOperatorOpaque);
@@ -152,6 +153,12 @@ pub enum GeometryType {
     Square,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub enum Assembler {
+    Dense,
+    FMM,
+}
+
 pub struct StructuredOperatorParams {
     pub structured_operator_type: StructuredOperatorType,
     precision: Precision,
@@ -160,6 +167,7 @@ pub struct StructuredOperatorParams {
     kappa: f64,
     n_sources: i32,
     init_samples: i32,
+    assembler: Assembler,
 }
 impl StructuredOperatorParams {
     pub fn new(
@@ -170,6 +178,7 @@ impl StructuredOperatorParams {
         kappa: f64,
         n_sources: i32,
         init_samples: i32,
+        assembler: Assembler,
     ) -> Self {
         Self {
             structured_operator_type,
@@ -179,6 +188,7 @@ impl StructuredOperatorParams {
             kappa,
             n_sources,
             init_samples,
+            assembler,
         }
     }
 }
@@ -251,6 +261,12 @@ macro_rules! implement_structured_operator {
                 })
                 .unwrap();
 
+                let assembler = std::ffi::CString::new(match params.assembler {
+                    Assembler::Dense => "dense",
+                    Assembler::FMM => "fmm",
+                })
+                .unwrap();
+
                 let raw = unsafe {
                     let (python_executable, _python_home) = detect_python_env();
                     let python_exe_c = CString::new(python_executable).unwrap();
@@ -263,6 +279,7 @@ macro_rules! implement_structured_operator {
                         precision_str.as_ptr(),
                         params.n_sources as libc::c_int,
                         params.init_samples as libc::c_int,
+                        assembler.as_ptr(),
                     )
                 };
 

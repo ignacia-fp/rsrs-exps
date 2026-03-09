@@ -1,10 +1,10 @@
 #ifndef STRUCTURED_OPERATOR_INTERFACE_H
 #define STRUCTURED_OPERATOR_INTERFACE_H
 
-#include <stddef.h>
 #include <Python.h>
 #include <complex.h>
 #include <numpy/arrayobject.h>
+#include <stddef.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -21,15 +21,9 @@ typedef struct {
 
 /* Initialize Python and construct the operator */
 StructuredOperator* initialize_structured_operator(
-    const char* python_executable,
-    const char* class_name,
-    double arg1,
-    const char* geometry_type,
-    double kappa,
-    const char* precision,
-    int n_sources,
-    int init_samples
-);
+    const char* python_executable, const char* class_name, double arg1,
+    const char* geometry_type, double kappa, const char* precision,
+    int n_sources, int init_samples, const char* assembler);
 
 /* Matrix-vector multiplication */
 int mv_structured_operator_real(StructuredOperator* k, const double* input,

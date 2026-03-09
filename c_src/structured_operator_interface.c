@@ -3,7 +3,6 @@
 
 #include <Python.h>
 #include <numpy/arrayobject.h>
-
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -61,15 +60,9 @@ StructuredOperator* create_structured_operator(PyObject* instance) {
 // Initialize operator
 // -------------------------
 StructuredOperator* initialize_structured_operator(
-    const char* python_executable,
-    const char* class_name,
-    double arg1,
-    const char* geometry_type,
-    double kappa,
-    const char* precision,
-    int n_sources,
-    int init_samples)  // <-- ADDED
-{
+    const char* python_executable, const char* class_name, double arg1,
+    const char* geometry_type, double kappa, const char* precision,
+    int n_sources, int init_samples, const char* assembler) {
   if (!Py_IsInitialized()) {
     wchar_t* program_name = Py_DecodeLocale(python_executable, NULL);
     if (!program_name) return NULL;
@@ -90,24 +83,18 @@ StructuredOperator* initialize_structured_operator(
   Py_DECREF(module);
   if (!cls) return NULL;
 
-  PyObject* arg1_obj = ((int)arg1 == arg1)
-                           ? PyLong_FromLong((long)arg1)
-                           : PyFloat_FromDouble(arg1);
+  PyObject* arg1_obj = ((int)arg1 == arg1) ? PyLong_FromLong((long)arg1)
+                                           : PyFloat_FromDouble(arg1);
 
   PyObject* kappa_obj = PyFloat_FromDouble(kappa);
   PyObject* geom_obj = PyUnicode_FromString(geometry_type);
   PyObject* prec_obj = PyUnicode_FromString(precision);
   PyObject* ns_obj = PyLong_FromLong(n_sources);
   PyObject* init_obj = PyLong_FromLong(init_samples);
+  PyObject* assembler_obj = PyUnicode_FromString(assembler);
 
-  PyObject* args = PyTuple_Pack(
-      6,
-      arg1_obj,
-      kappa_obj,
-      geom_obj,
-      prec_obj,
-      ns_obj,
-      init_obj);
+  PyObject* args = PyTuple_Pack(7, arg1_obj, kappa_obj, geom_obj, prec_obj,
+                                ns_obj, init_obj, assembler_obj);
 
   Py_DECREF(arg1_obj);
   Py_DECREF(kappa_obj);
@@ -115,6 +102,7 @@ StructuredOperator* initialize_structured_operator(
   Py_DECREF(prec_obj);
   Py_DECREF(ns_obj);
   Py_DECREF(init_obj);
+  Py_DECREF(assembler_obj);
 
   PyObject* instance = PyObject_CallObject(cls, args);
   Py_DECREF(args);
@@ -494,7 +482,8 @@ int mv_structured_operator_complex32_trans(StructuredOperator* k,
 // -------------------------
 const double* get_points(StructuredOperator* k) {
   if (!k || !k->points) return NULL;
-  if (PyArray_NDIM(k->points) != 2 || PyArray_DIM(k->points, 1) != 3) return NULL;
+  if (PyArray_NDIM(k->points) != 2 || PyArray_DIM(k->points, 1) != 3)
+    return NULL;
 
   if (PyArray_TYPE(k->points) != NPY_DOUBLE) {
     fprintf(stderr, "Error: points is not float64\n");

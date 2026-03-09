@@ -3,15 +3,11 @@ import numpy as np
 import subprocess
 from typing import List, Dict, Union
 import re
-import pandas as pd
 import json
 from pathlib import Path
 import matplotlib.pyplot as plt
 import os
-import meshio
-import trimesh
-from mpl_toolkits.mplot3d.art3d import Poly3DCollection
-from scipy.spatial import cKDTree
+import importlib
 
 pi = np.pi
 
@@ -95,10 +91,11 @@ class RSRSBenchmarkConfig:
         save_samples: bool = True,
         num_threads: int = 32,
         min_num_samples: int = 0,
-        symmetric: bool = True,
+        symmetry: int = 0,
         flush_factors: bool = False,
         store_far: bool = False,
         initial_num_samples = 0,
+        assembler = 0
     ):
         
         """
@@ -262,6 +259,17 @@ class RSRSBenchmarkConfig:
             The number of distinct sources to consider during the computation.
             Default is 1.
 
+        assembler: int, optional
+            Type of assembler
+            0: Dense
+            1: FMM
+
+        symmetry: int, optional
+            Type of symmetry
+            0: NoSymm
+            1: Symmetric
+            2: Hermitian
+
         Raises
         ------
         ValueError
@@ -338,6 +346,10 @@ class RSRSBenchmarkConfig:
         
         self.rrqr_keys = ["RRQR", "SRRQR"]
 
+        self.assembler_types = ["Dense", "FMM"]
+
+        self.symmetry_type = ["NoSymm", "Symmetric", "Hermitian"]
+
         # Store index-based options
         self.operator_type_index = operator_type
         self.precision_index = precision
@@ -354,6 +366,8 @@ class RSRSBenchmarkConfig:
         self.op_shift = op_shift
         self.fact_type = fact_type
         self.min_num_samples = min_num_samples
+        self.assembler_index = assembler
+        self.symmetry_index = symmetry
 
         # Store other parameters
         self.h = h ## Characteristic meshwidth
@@ -379,7 +393,6 @@ class RSRSBenchmarkConfig:
         self.n_sources = n_sources
         self.save_samples = save_samples
         self.num_threads = num_threads
-        self.symmetric = symmetric
         self.flush_factors = flush_factors
         self.store_far = store_far
         self.initial_num_samples = initial_num_samples
@@ -437,6 +450,7 @@ class RSRSBenchmarkConfig:
             "geometry_type": self.geometry_types[self.geometry],
             "max_tree_depth": self.max_tree_depth,
             "n_sources": self.n_sources,
+            "assembler": self.assembler_types[self.assembler_index]
         }
 
     def output_args(self) -> Dict:
@@ -467,7 +481,7 @@ class RSRSBenchmarkConfig:
             "tol_diag_ext": self.tol_ext_diag,  ## Tolerance used to compute pseudo inverses when extracting diagonal blocks.
             "min_rank": self.min_rank,  ## Minimum size of the box. If the box is smaller, it will be saved for the next level.
             "min_level": self.min_level, ## Level at which the algorithm stops
-            "symmetric": self.symmetric,  ## Indicates if we should run RSRS for symmetric matrices (half the time and memory)
+            "symmetry": self.symmetry_type[self.symmetry_index],  ## Indicates if we should run RSRS for symmetry matrices (half the time and memory)
             "rank_picking": self.rank_pickings[self.rank_picking_index],
             "fact_type": self.fact_types[self.fact_type],
             "save_samples": self.save_samples,
@@ -632,7 +646,7 @@ class RSRSBenchmarkConfig:
                 f"_initsam_{args['initial_num_samples']}"
                 f"_mrnk_{args['min_rank']}"
                 f"_mlvl_{args['min_level']}"
-                f"_herm_{camel_to_snake(str(args['symmetric']))}"
+                f"_herm_{camel_to_snake(str(args['symmetry']))}"
                 f"_rpick_{args['rank_picking']}"
                 f"_next_{args['near_block_extraction_method']}"
                 f"_tolextn_{args['tol_ext_near']:.0e}"
@@ -650,7 +664,7 @@ class RSRSBenchmarkConfig:
                 f"_stabilised_{sci_no_padding(self.op_shift)}"
                 f"_mrnk_{args['min_rank']}"
                 f"_mlvl_{args['min_level']}"
-                f"_herm_{camel_to_snake(str(args['symmetric']))}"
+                f"_herm_{camel_to_snake(str(args['symmetry']))}"
                 f"_rpick_{args['rank_picking']}"
                 f"_next_{args['near_block_extraction_method']}"
                 f"_tolextn_{args['tol_ext_near']:.0e}"
@@ -781,52 +795,6 @@ class RSRSBenchmarkConfig:
             plt.show()
         else:
             return [tolerances, y_values]
-
-
-    def plot_gmres_residuals(self, log_scale=True, save_plot=False):
-        all_stats = self.load_all_stats()
-        if not all_stats:
-            print("No data found.")
-            return
-
-        all_stats.sort(key=lambda d: float(d["tolerance"]))
-
-        no_prec_residuals = all_stats[0].get("iterations", {}).get("no_prec", [])
-        if not no_prec_residuals:
-            print("No residuals found for no_prec.")
-            return
-
-        plt.figure(figsize=(8, 5))
-        if log_scale:
-            plt.semilogy(no_prec_residuals, label="No Preconditioner", linewidth=2, color="black")
-        else:
-            plt.plot(no_prec_residuals, label="No Preconditioner", linewidth=2, color="black")
-
-        for stat in all_stats:
-            tol = stat["tolerance"]
-            iterations = stat.get("iterations", {})
-            for key, residuals in iterations.items():
-                if key == "no_prec" or not isinstance(residuals, list):
-                    continue
-                label = f"{key} (tol={tol})"
-                if log_scale:
-                    plt.semilogy(residuals, label=label, alpha=0.7)
-                else:
-                    plt.plot(residuals, label=label, alpha=0.7)
-
-        plt.xlabel("Iteration")
-        plt.ylabel("Residual")
-        plt.title("Residuals: No Preconditioner vs Preconditioners")
-        plt.legend(fontsize="small", loc="upper right", ncol=2)
-        plt.grid(True, which="both" if log_scale else "major", ls="--", alpha=0.5)
-        plt.tight_layout()
-        if save_plot:
-            folder = self.generate_folder_name()
-            subfolder = self.generate_sub_folder_name()
-            path = Path(os.getcwd()) / "results" / folder / subfolder / "gmres_residuals.png"
-            plt.savefig(path, dpi=300)
-        plt.show()
-
 
     def plot_residual_convergence(self, log_scale=True, plot=True, save_plot=False):
         """
@@ -1294,7 +1262,6 @@ class RSRSBenchmarkConfig:
                 plt.savefig(path, dpi=300)
             plt.show()
 
-
     def plot_condition_numbers_scatter(self, save_plot=False):
         stats = self.load_all_stats("condition_number")
         stats.sort(key=lambda d: float(d["tolerance"]))
@@ -1692,191 +1659,6 @@ class RSRSBenchmarkConfig:
 
         sol_path = Path(os.getcwd()) / "results" / folder / subfolder / f"rcs_{plane}.png"
         plt.savefig(sol_path)
-
-    def plot_mesh_with_cross_planes(
-        self,
-        tol=1e-2,
-        x0=None,
-        y0=None,
-        plane_res=60,
-        mesh_alpha=0.25,
-        plane_alpha=0.12,
-        draw_plane_footprints=True,
-        footprint_mode="contour",   # "contour" (clean) or "scatter" (simple)
-        footprint_eps_rel=0.0015,   # relative to bbox size
-        footprint_grid=400,         # resolution used to compute footprints
-        extend_planes_rel=0.30,     # extend planes beyond bbox (0.0 = bbox only)
-        save_plot=True,
-        elev=25,
-        azim=-60,
-    ):
-        """
-        Plot the 3D mesh plus two perpendicular planes (x=x0 and y=y0),
-        optionally with "intersection" footprints on the planes.
-
-        - Loads grid.msh from results/<folder>/<subfolder>/grid.msh (like get_far_field).
-        - Uses meshio to read triangles.
-        - Uses matplotlib mplot3d for rendering.
-        - Footprints do NOT require rtree (uses KDTree to vertices).
-        - footprint_mode="contour" avoids the "<Figure ... with 0 Axes>" issue by using a temp figure.
-
-        Parameters
-        ----------
-        x0, y0 : float or None
-            Plane locations. If None, use bbox center.
-        plane_res : int
-            Resolution of plotted planes (visual only).
-        footprint_grid : int
-            Resolution of the (2D) grid used to compute the footprint distance field.
-        footprint_eps_rel : float
-            Thickness level for footprint, relative to bbox diagonal.
-        extend_planes_rel : float
-            Extend planes by this fraction of bbox diagonal in each direction.
-        """
-
-        # ---------- locate mesh like your other methods ----------
-        folder = self.generate_folder_name()
-        subfolder = self.generate_sub_folder_name()
-        grid_path = Path(os.getcwd()) / "results" / folder / subfolder / "grid.msh"
-        if not grid_path.exists():
-            self.relocate_grid()
-
-        # ---------- load mesh ----------
-        m = meshio.read(str(grid_path))
-        faces = next(c.data for c in m.cells if c.type == "triangle")
-        verts = m.points
-        tm = trimesh.Trimesh(vertices=verts, faces=faces, process=True)
-
-        bmin, bmax = tm.bounds
-        bbox_diag = np.linalg.norm(bmax - bmin)
-
-        # Default plane locations: bbox center
-        if x0 is None:
-            x0 = 0.5 * (bmin[0] + bmax[0])
-        if y0 is None:
-            y0 = 0.5 * (bmin[1] + bmax[1])
-
-        # Extend planes beyond bbox for "sheet" look
-        ext = extend_planes_rel * bbox_diag
-        xmin, xmax = bmin[0] - ext, bmax[0] + ext
-        ymin, ymax = bmin[1] - ext, bmax[1] + ext
-        zmin, zmax = bmin[2] - ext, bmax[2] + ext
-
-        # ---------- figure ----------
-        fig = plt.figure(figsize=(9, 7))
-        ax = fig.add_subplot(111, projection="3d")
-        ax.view_init(elev=elev, azim=azim)
-
-        # ---------- mesh ----------
-        tris = verts[faces]
-        mesh = Poly3DCollection(tris, alpha=mesh_alpha, edgecolor="none")
-        ax.add_collection3d(mesh)
-
-        # ---------- planes ----------
-        # YZ plane (x = x0)
-        ys = np.linspace(ymin, ymax, plane_res)
-        zs = np.linspace(zmin, zmax, plane_res)
-        Y, Z = np.meshgrid(ys, zs, indexing="xy")
-        X = x0 * np.ones_like(Y)
-        ax.plot_surface(X, Y, Z, alpha=plane_alpha, linewidth=0, antialiased=True)
-
-        # XZ plane (y = y0)
-        xs = np.linspace(xmin, xmax, plane_res)
-        zs2 = np.linspace(zmin, zmax, plane_res)
-        X2, Z2 = np.meshgrid(xs, zs2, indexing="xy")
-        Y2 = y0 * np.ones_like(X2)
-        ax.plot_surface(X2, Y2, Z2, alpha=plane_alpha, linewidth=0, antialiased=True)
-
-        # ---------- footprints (approx, no rtree) ----------
-        if draw_plane_footprints:
-            tree = cKDTree(tm.vertices)
-            eps = footprint_eps_rel * bbox_diag
-
-            if footprint_mode not in ("contour", "scatter"):
-                raise ValueError("footprint_mode must be 'contour' or 'scatter'")
-
-            # ---- YZ plane footprint at x=x0 ----
-            Ny = Nz = int(footprint_grid)
-            yv = np.linspace(bmin[1], bmax[1], Ny)
-            zv = np.linspace(bmin[2], bmax[2], Nz)
-            YY, ZZ = np.meshgrid(yv, zv, indexing="xy")
-            XX = x0 * np.ones_like(YY)
-
-            pts = np.column_stack([XX.ravel(), YY.ravel(), ZZ.ravel()])
-            dist, _ = tree.query(pts, k=1)
-            D = dist.reshape((Nz, Ny))  # matches (z,y) grid from meshgrid
-
-            if footprint_mode == "scatter":
-                mask = dist < eps
-                ax.scatter(
-                    pts[mask, 0], pts[mask, 1], pts[mask, 2],
-                    s=0.25, alpha=0.7
-                )
-            else:
-                # contour on a temporary 2D figure so notebook doesn't show "<Figure ... 0 Axes>"
-                _tmpfig = plt.figure()
-                _tmpax = _tmpfig.add_subplot(111)
-                cs = _tmpax.contour(YY, ZZ, D, levels=[eps])
-                for segs in cs.allsegs[0]:
-                    # segs columns: [y, z]
-                    ax.plot(
-                        x0 * np.ones(len(segs)),
-                        segs[:, 0],
-                        segs[:, 1],
-                        linewidth=2.0
-                    )
-                plt.close(_tmpfig)
-
-            # ---- XZ plane footprint at y=y0 ----
-            Nx = Nz = int(footprint_grid)
-            xv = np.linspace(bmin[0], bmax[0], Nx)
-            zv = np.linspace(bmin[2], bmax[2], Nz)
-            XX, ZZ = np.meshgrid(xv, zv, indexing="xy")
-            YY = y0 * np.ones_like(XX)
-
-            pts2 = np.column_stack([XX.ravel(), YY.ravel(), ZZ.ravel()])
-            dist2, _ = tree.query(pts2, k=1)
-            D2 = dist2.reshape((Nz, Nx))
-
-            if footprint_mode == "scatter":
-                mask2 = dist2 < eps
-                ax.scatter(
-                    pts2[mask2, 0], pts2[mask2, 1], pts2[mask2, 2],
-                    s=0.25, alpha=0.7
-                )
-            else:
-                _tmpfig = plt.figure()
-                _tmpax = _tmpfig.add_subplot(111)
-                cs2 = _tmpax.contour(XX, ZZ, D2, levels=[eps])
-                for segs in cs2.allsegs[0]:
-                    # segs columns: [x, z]
-                    ax.plot(
-                        segs[:, 0],
-                        y0 * np.ones(len(segs)),
-                        segs[:, 1],
-                        linewidth=2.0
-                    )
-                plt.close(_tmpfig)
-
-        # ---------- axes ----------
-        # Keep limits at bbox (not extended) so the object is nicely framed
-        ax.set_xlim(bmin[0], bmax[0])
-        ax.set_ylim(bmin[1], bmax[1])
-        ax.set_zlim(bmin[2], bmax[2])
-        ax.set_box_aspect(bmax - bmin)
-
-        ax.set_xlabel("x")
-        ax.set_ylabel("y")
-        ax.set_zlabel("z")
-        ax.grid(False)
-
-        plt.tight_layout()
-
-        if save_plot:
-            out = Path(os.getcwd()) / "results" / folder / subfolder / f"mesh_cross_planes.png"
-            plt.savefig(out, dpi=300)
-
-        plt.show()
 
     def plot_field_slices_3d(
         self,
@@ -2579,7 +2361,7 @@ class RSRSBenchmarkConfig:
 
         return out_path
 
-    def plot_gmres_residuals_first_rhs(self, log_scale=True, save_plot=False, fontsize=16):
+    def plot_gmres_residuals(self, log_scale=True, save_plot=False, fontsize=16):
         """
         Plot GMRES residuals comparing ONLY the first RHS (index 0).
 
@@ -2676,3 +2458,14 @@ class RSRSBenchmarkConfig:
             return (2, p.name)
 
         return sorted(paths, key=key)
+    
+    def sample_with_python(self, init_samples):
+        module = importlib.import_module("python.structured_operators")
+        class_name = self.structured_operator_types[self.operator_type_index]
+        OperatorClass = getattr(module, class_name)
+        kappa = self.kappa
+        dim_param = self.h
+        geometry_type = camel_to_snake(self.geometry_types[self.geometry])
+        precision = self.precision_types[self.precision_index]
+        assembler = "dense"
+        OperatorClass(dim_param, kappa, geometry_type, precision, 0, init_samples, assembler)

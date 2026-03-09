@@ -179,7 +179,7 @@ def right_hand_side(operator, problem_type, n_sources=1):
         identity = bempp_cl.api.operators.boundary.sparse.identity(
             operator.domain, operator.range, operator.dual_to_range)
         dlp = bempp_cl.api.operators.boundary.laplace.adjoint_double_layer(
-            operator.domain, operator.range, operator.domain)
+            operator.domain, operator.range, operator.domain, assembler=operator.assembler)
 
         if problem_type == 'Dirichlet':
             rhs_list = []

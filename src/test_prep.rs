@@ -1,11 +1,11 @@
 use crate::io::plot_results::time_piechart;
 use crate::io::read_and_write::{save_error_stats, save_rank_stats, save_time_stats, Solves};
 use crate::io::solve::solve_system;
-use crate::io::structured_operator::LocalFrom;
 use crate::io::structured_operator::{
     get_bempp_points, GeometryType, StructuredOperator, StructuredOperatorImpl,
     StructuredOperatorInterface, StructuredOperatorParams,
 };
+use crate::io::structured_operator::{Assembler, LocalFrom};
 use crate::io::structured_operators_types::StructuredOperatorType;
 use bempp_octree::Octree;
 use bempp_rsrs::rsrs::args::RsrsOptions;
@@ -67,6 +67,7 @@ pub struct ScenarioArgs<Item: RlstScalar> {
     geometry_type: GeometryType,
     max_tree_depth: usize,
     n_sources: i32,
+    assembler: Assembler,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -84,6 +85,7 @@ pub struct ScenarioOptions<Item: RlstScalar> {
     pub precision: Precision,
     max_tree_depth: usize,
     n_sources: i32,
+    assembler: Assembler,
 }
 
 pub struct TestParams<Item: RlstScalar> {
@@ -207,6 +209,7 @@ impl<Item: RlstScalar> ScenarioArgs<Item> {
         geometry_type: GeometryType,
         max_tree_depth: usize,
         n_sources: i32,
+        assembler: Assembler,
     ) -> Self {
         Self {
             id_tols,
@@ -214,6 +217,7 @@ impl<Item: RlstScalar> ScenarioArgs<Item> {
             geometry_type,
             max_tree_depth,
             n_sources,
+            assembler,
         }
     }
 }
@@ -228,6 +232,7 @@ impl<Item: RlstScalar> ScenarioOptions<Item> {
                 GeometryType::SphereSurface,
                 6,
                 0,
+                Assembler::Dense,
             ),
         };
 
@@ -253,6 +258,7 @@ impl<Item: RlstScalar> ScenarioOptions<Item> {
             precision: data_type.precision,
             max_tree_depth: args.max_tree_depth,
             n_sources: args.n_sources,
+            assembler: args.assembler,
         }
     }
 }
@@ -331,7 +337,8 @@ macro_rules! implement_test_framework {
                         dim_arg.0.into(),
                         dim_arg.1.into(),
                         self.test_params.scenario_params.n_sources,
-                        self.test_params.rsrs_params.sketching.initial_num_samples as i32
+                        self.test_params.rsrs_params.sketching.initial_num_samples as i32,
+                        self.test_params.scenario_params.assembler.clone(),
                     );
 
                     let structured_operator: StructuredOperatorInterface =

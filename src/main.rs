@@ -112,6 +112,7 @@ where
             ScalarType::C32 => {
                 let scenario_args = serde_json::from_str::<ScenarioArgs<c32>>(&args[2])
                     .expect("Failed to deserialize scenario args");
+                println!("{:?}", args[3]);
                 let rsrs_args = serde_json::from_str::<RsrsArgs<c32>>(&args[3])
                     .expect("Failed to deserialize rsrs args");
                 let output_options =
@@ -124,7 +125,7 @@ where
                 <TestFramework<c32> as TestFrameworkImpl<c32, ArrayVectorSpace<c32>>>::run_tests(
                     &mut test_framework,
                 );
-            },
+            }
 
             ScalarType::F64 => {
                 let scenario_args = serde_json::from_str::<ScenarioArgs<f64>>(&args[2])

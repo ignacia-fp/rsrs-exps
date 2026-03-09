@@ -1,8 +1,19 @@
 from rsrs_config import RSRSBenchmarkConfig
-import numpy as np
-print(RSRSBenchmarkConfig.__init__.__doc__)
+import os
 
-#print(RSRSBenchmarkConfig.__init__.__doc__)
+for var in [
+    "OPENBLAS_NUM_THREADS",
+    "MKL_NUM_THREADS",
+    "MKL_DOMAIN_NUM_THREADS",
+    "MKL_DYNAMIC",
+    "GOTO_NUM_THREADS",
+    "BLIS_NUM_THREADS",
+    "VECLIB_MAXIMUM_THREADS",
+    "OMP_NUM_THREADS",
+    "OMP_DYNAMIC",
+]:
+    os.environ.pop(var, None)
+
 
 ''''config = RSRSBenchmarkConfig(operator_type=19, 
         dim_arg_type=1,  
@@ -21,30 +32,10 @@ print(RSRSBenchmarkConfig.__init__.__doc__)
         f=1.0, 
         n_sources=5, 
         solve = True, 
-        symmetric=False, 
+        symmetric=0, 
         save_samples=False)'''
 
-'''config = RSRSBenchmarkConfig(operator_type=16, 
-        dim_arg_type=1,  
-        precision = 1, 
-        initial_num_samples = 7000, 
-        id_tols = [120], 
-        geometry=1, 
-        min_level=1, 
-        h=0.025,#016, 
-        depth = 2, 
-        kappa = 2.0, 
-        factors_cn = False, 
-        dense_errors =False, 
-        max_tree_depth=16, 
-        rrqr=0, 
-        f=1.0, 
-        n_sources=1, 
-        solve = True, 
-        symmetric=False, 
-        save_samples=False)'''
-
-config = RSRSBenchmarkConfig(operator_type=19,
+'''config = RSRSBenchmarkConfig(operator_type=19,
         dim_arg_type=1,
         precision = 0,
         initial_num_samples = 1000,
@@ -61,8 +52,32 @@ config = RSRSBenchmarkConfig(operator_type=19,
         f=1.0,
         n_sources=5,
         solve = True,
-        symmetric=False,
-        save_samples=False)
+        symmetry=0,
+        save_samples=False)'''
 
-#config = RSRSBenchmarkConfig(operator_type=16, dim_arg_type=1, id_tols = [100, 120], geometry=0, min_level=1, h=0.02, depth = 2, kappa = 0.1, factors_cn = False, dense_errors =False, max_tree_depth=4, rrqr=0, f=1.0, n_sources=1, solve = True, symmetric=False, save_samples=False)
+config = RSRSBenchmarkConfig(operator_type=16, 
+        dim_arg_type=1,  
+        precision = 1, 
+        initial_num_samples = 7000, 
+        id_tols = [120], 
+        geometry=1, 
+        min_level=1, 
+        h=0.025,#016, 
+        depth = 2, 
+        kappa = 2.0, 
+        factors_cn = False, 
+        dense_errors =False, 
+        max_tree_depth=16, 
+        rrqr=0, 
+        f=1.0, 
+        n_sources=1, 
+        solve = True, 
+        symmetry=0, 
+        save_samples=False,
+        assembler=0)
+
+
+config.sample_with_python(10000)
+
+#config.assembler_index = 1
 config.generate_bash_script("run_test.sh")
