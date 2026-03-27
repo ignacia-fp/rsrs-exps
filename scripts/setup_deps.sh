@@ -31,6 +31,7 @@ source .venv/bin/activate
 echo "[setup] Python: $(python --version)"
 python -m pip install -U pip >/dev/null
 python -m pip install -U uv maturin >/dev/null
+export UV_LINK_MODE=copy
 
 export PYTHON_INCLUDE_DIR="$(python -c "import sysconfig; print(sysconfig.get_paths()['include'])")"
 export PYTHON_LIB_DIR="$(python -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR') or '')")"
@@ -67,6 +68,13 @@ if [ ! -f "$DEPS_DIR/exafmm-t/.installed.ok" ]; then
   python setup.py install
   popd >/dev/null
   touch "$DEPS_DIR/exafmm-t/.installed.ok"
+fi
+
+# ---- h5py (build from source against system HDF5) ----
+if [ ! -f "$DEPS_DIR/.h5py_installed.ok" ]; then
+  echo "[setup] Installing h5py into venv from source"
+  uv pip install --no-binary=h5py h5py
+  touch "$DEPS_DIR/.h5py_installed.ok"
 fi
 
 # ---- bempp-cl (requires exafmm installed first) ----
