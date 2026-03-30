@@ -6,6 +6,9 @@ use rlst::{
     prelude::*,
 };
 
+const GMRES_RESTART: usize = 20;
+const GMRES_MAX_ITER: usize = 5000;
+
 /// Solve a system for multiple RHS vectors
 pub fn solve_system<
     'a,
@@ -48,8 +51,8 @@ where
                 println!("res: {}, {:?}", residuals.len(), res);
             })
             .set_tol(tol)
-            .set_restart(500)
-            .set_max_iter(500);
+            .set_restart(GMRES_RESTART)
+            .set_max_iter(GMRES_MAX_ITER);
 
         let (sol, _res) = gmres.run();
 
@@ -115,8 +118,8 @@ where
                 println!("res: {}, {:?}", residuals.len(), res);
             })
             .set_tol(tol)
-            .set_max_iter(500)
-            .set_restart(100)
+            .set_max_iter(GMRES_MAX_ITER)
+            .set_restart(GMRES_RESTART)
             .set_preconditioner(rsrs_operator.r());
 
         let (sol, _res) = gmres.run();

@@ -64,7 +64,7 @@ class RSRSBenchmarkConfig:
         f: float = 1.01,
         dim_arg_type: int = 2,
         geometry: int = 0,
-        solve_tol: float = 1e-5,
+        solve_tol: float = 1e-10,
         solve: bool = True,
         plot: bool = True,
         dense_errors: bool = False,
