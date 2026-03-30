@@ -136,9 +136,11 @@ def right_hand_side(operator, problem_type, n_sources=1):
         raise ValueError("operator.precision must be 'single' or 'double'")
 
     # choose target dtype for returned numpy vectors
+    scalar_type = getattr(operator, "scalar_type", None)
+    is_real_operator = scalar_type == "real" or "Laplace" in operator.operator_type
+
     if prec == "single":
-        # Laplace -> real32, everything else here -> complex64
-        target_dtype = np.float32 if "Laplace" in operator.operator_type else np.complex64
+        target_dtype = np.float32 if is_real_operator else np.complex64
     else:
         target_dtype = None  # no casting
 
@@ -157,7 +159,8 @@ def right_hand_side(operator, problem_type, n_sources=1):
     undefined_rhs = {
         'BasicStructuredOperator', 'KiFMMLaplaceOperator', 'KiFMMHelmholtzOperator',
         'KiFMMLaplaceOperatorV', 'BemppClLaplaceSingleLayerCPID',
-        'BemppClLaplaceSingleLayerCPIDP1', 'BemppClHelmholtzSingleLayerCPID'
+        'BemppClLaplaceSingleLayerCPIDP1', 'BemppClHelmholtzSingleLayerCPID',
+        'BIEGrid',
     }
 
     # ---------------------------------------------------------------------
@@ -166,7 +169,7 @@ def right_hand_side(operator, problem_type, n_sources=1):
     if operator.operator_type in undefined_rhs:
         print("Warning: undefined problem type for this operator. Returning random vector(s).")
         n = operator.n_points
-        if "Laplace" in operator.operator_type:
+        if is_real_operator:
             gen = lambda: np.random.rand(n)
         else:
             gen = lambda: np.random.rand(n) + 1j * np.random.rand(n)

@@ -22,4 +22,5 @@
     BemppClHelmholtzSingleLayerP1,
     BemppClBurtonMiller,
     BemppClHelmholtzCombined,
+    BIEGrid,
 }

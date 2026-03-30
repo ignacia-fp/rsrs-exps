@@ -77,11 +77,17 @@ StructuredOperator* initialize_structured_operator(
   PyRun_SimpleString("import sys; sys.path.append('.')");
 
   PyObject* module = PyImport_ImportModule("python.structured_operators");
-  if (!module) return NULL;
+  if (!module) {
+    PyErr_Print();
+    return NULL;
+  }
 
   PyObject* cls = PyObject_GetAttrString(module, class_name);
   Py_DECREF(module);
-  if (!cls) return NULL;
+  if (!cls) {
+    PyErr_Print();
+    return NULL;
+  }
 
   PyObject* arg1_obj = ((int)arg1 == arg1) ? PyLong_FromLong((long)arg1)
                                            : PyFloat_FromDouble(arg1);
@@ -108,7 +114,10 @@ StructuredOperator* initialize_structured_operator(
   Py_DECREF(args);
   Py_DECREF(cls);
 
-  if (!instance) return NULL;
+  if (!instance) {
+    PyErr_Print();
+    return NULL;
+  }
 
   return create_structured_operator(instance);
 }
@@ -478,7 +487,7 @@ int mv_structured_operator_complex32_trans(StructuredOperator* k,
 }
 
 // -------------------------
-// Geometry and condition
+// Geometry
 // -------------------------
 const double* get_points(StructuredOperator* k) {
   if (!k || !k->points) return NULL;
@@ -500,15 +509,6 @@ const double* get_points(StructuredOperator* k) {
 
 size_t get_n_points(StructuredOperator* k) {
   return k ? (size_t)k->n_points : 0;
-}
-
-double get_condition_number(StructuredOperator* k) {
-  if (!k || !k->pyobj) return -1.0;
-  PyObject* res = PyObject_CallMethod(k->pyobj, "cond", NULL);
-  if (!res) return -1.0;
-  double c = PyFloat_AsDouble(res);
-  Py_DECREF(res);
-  return c;
 }
 
 // -------------------------

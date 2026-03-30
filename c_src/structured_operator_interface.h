@@ -61,9 +61,6 @@ int mv_structured_operator_complex32_trans(StructuredOperator* k,
 const double* get_points(StructuredOperator* k);
 size_t get_n_points(StructuredOperator* k);
 
-/* Retrieve condition number */
-double get_condition_number(StructuredOperator* k);
-
 /* Retrieve all RHS arrays at once (real or complex)
    Returns a malloc'd array of pointers. Each inner pointer points to NumPy data
    (do not free). Caller must free the outer array.

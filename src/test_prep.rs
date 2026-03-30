@@ -12,9 +12,10 @@ use bempp_rsrs::rsrs::args::RsrsOptions;
 use bempp_rsrs::rsrs::rsrs_cycle::Rsrs;
 use bempp_rsrs::rsrs::rsrs_factors::rsrs_operator::{LocalFromSpaces, RsrsOperator};
 use bempp_rsrs::rsrs::sketch::SamplingSpace;
+use bempp_rsrs::utils::io::IOData;
 use mpi::{topology::SimpleCommunicator, traits::Communicator};
 use rlst::prelude::*;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 type Real<T> = <T as rlst::RlstScalar>::Real;
 use crate::io::errors::get_boxes_errors;
 use crate::io::read_and_write::ConditionNumberOutput;
@@ -119,6 +120,239 @@ fn move_if_exists<P: AsRef<Path>>(src: P, dst_dir: P) -> io::Result<()> {
     }
 
     Ok(())
+}
+
+fn clear_sampling_dir() -> io::Result<()> {
+    let sampling_dir = Path::new("sampling");
+    if sampling_dir.exists() {
+        fs::remove_dir_all(sampling_dir)?;
+    }
+    Ok(())
+}
+
+fn clear_sampling_seed_dir() -> io::Result<()> {
+    let sampling_seed_dir = Path::new(".sampling_seed");
+    if sampling_seed_dir.exists() {
+        fs::remove_dir_all(sampling_seed_dir)?;
+    }
+    Ok(())
+}
+
+fn copy_dir_all(src: &Path, dst: &Path) -> io::Result<()> {
+    fs::create_dir_all(dst)?;
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let file_type = entry.file_type()?;
+        let dst_path = dst.join(entry.file_name());
+        if file_type.is_dir() {
+            copy_dir_all(&entry.path(), &dst_path)?;
+        } else {
+            fs::copy(entry.path(), dst_path)?;
+        }
+    }
+    Ok(())
+}
+
+fn sampling_has_presaved_sketches() -> bool {
+    let y_pair = Path::new("sampling/y_test_file.00000.h5").exists()
+        && Path::new("sampling/y_sketch_file.00000.h5").exists();
+    let z_pair = Path::new("sampling/z_test_file.00000.h5").exists()
+        && Path::new("sampling/z_sketch_file.00000.h5").exists();
+    y_pair || z_pair
+}
+
+fn snapshot_sampling_dir() -> io::Result<()> {
+    clear_sampling_seed_dir()?;
+    let sampling_dir = Path::new("sampling");
+    if sampling_dir.exists() {
+        copy_dir_all(sampling_dir, Path::new(".sampling_seed"))?;
+    }
+    Ok(())
+}
+
+fn restore_sampling_seed_dir() -> io::Result<()> {
+    clear_sampling_dir()?;
+    let sampling_seed_dir = Path::new(".sampling_seed");
+    if sampling_seed_dir.exists() {
+        copy_dir_all(sampling_seed_dir, Path::new("sampling"))?;
+    }
+    Ok(())
+}
+
+#[derive(Serialize)]
+struct SketchPairCheckOutput {
+    total_samples: usize,
+    checked_samples: usize,
+    relerr: f64,
+    max_abs_err: f64,
+}
+
+#[derive(Serialize)]
+struct PresavedSketchCheckOutput {
+    threshold: f64,
+    y: Option<SketchPairCheckOutput>,
+    z: Option<SketchPairCheckOutput>,
+}
+
+fn check_saved_sketch_pair<Item: RlstScalar + IOData<Item, Item = Item> + Default + Copy>(
+    structured_operator: &StructuredOperatorInterface,
+    test_base: &str,
+    sketch_base: &str,
+    transposed: bool,
+) -> Option<SketchPairCheckOutput>
+where
+    StructuredOperatorInterface: StructuredOperatorImpl<Item>,
+    Real<Item>: ToPrimitive,
+{
+    let test_flat = <Item as IOData<Item>>::load(test_base).ok()?;
+    let sketch_flat = <Item as IOData<Item>>::load(sketch_base).ok()?;
+    let n_points = structured_operator.n_points;
+
+    assert!(n_points > 0, "Structured operator has zero points.");
+    assert!(
+        test_flat.len() % n_points == 0,
+        "Sample matrix '{}' has invalid length {} for n_points={}.",
+        test_base,
+        test_flat.len(),
+        n_points
+    );
+    assert_eq!(
+        test_flat.len(),
+        sketch_flat.len(),
+        "Sample matrix '{}' and sketch '{}' have incompatible sizes.",
+        test_base,
+        sketch_base
+    );
+
+    let total_rows = test_flat.len() / n_points;
+    let mut input = vec![Item::default(); n_points];
+    let mut output = vec![Item::default(); n_points];
+    let mut rel_num = 0.0_f64;
+    let mut rel_den = 0.0_f64;
+    let mut max_abs_err = 0.0_f64;
+    let row = 0;
+
+    for col in 0..n_points {
+        input[col] = test_flat[col * total_rows + row];
+    }
+
+    if transposed {
+        <StructuredOperatorInterface as StructuredOperatorImpl<Item>>::mv_trans(
+            structured_operator,
+            &input,
+            &mut output,
+        );
+    } else {
+        <StructuredOperatorInterface as StructuredOperatorImpl<Item>>::mv(
+            structured_operator,
+            &input,
+            &mut output,
+        );
+    }
+
+    for col in 0..n_points {
+        let expected = sketch_flat[col * total_rows + row];
+        let diff_abs = (output[col] - expected).abs().to_f64().unwrap();
+        let expected_abs = expected.abs().to_f64().unwrap();
+        rel_num += diff_abs * diff_abs;
+        rel_den += expected_abs * expected_abs;
+        max_abs_err = max_abs_err.max(diff_abs);
+    }
+
+    let relerr = if rel_den > 0.0 {
+        (rel_num / rel_den).sqrt()
+    } else {
+        rel_num.sqrt()
+    };
+
+    Some(SketchPairCheckOutput {
+        total_samples: total_rows,
+        checked_samples: 1,
+        relerr,
+        max_abs_err,
+    })
+}
+
+fn save_presaved_sketch_check(
+    path_str: &str,
+    stats: &PresavedSketchCheckOutput,
+) -> io::Result<()> {
+    fs::create_dir_all(Path::new(path_str))?;
+    let stats_path = Path::new(path_str).join("presaved_sketch_check.json");
+    let json_string = serde_json::to_string_pretty(stats).expect("Failed to serialize");
+    fs::write(stats_path, json_string)
+}
+
+fn validate_presaved_sketches<Item: RlstScalar + IOData<Item, Item = Item> + Default + Copy>(
+    structured_operator: &StructuredOperatorInterface,
+    path_str: &str,
+) where
+    StructuredOperatorInterface: StructuredOperatorImpl<Item>,
+    Real<Item>: ToPrimitive,
+{
+    if !sampling_has_presaved_sketches() {
+        return;
+    }
+
+    let threshold = match std::mem::size_of::<Real<Item>>() {
+        4 => 1e-4,
+        _ => 1e-10,
+    };
+
+    let stats = PresavedSketchCheckOutput {
+        threshold,
+        y: check_saved_sketch_pair::<Item>(structured_operator, "y_test_file", "y_sketch_file", false),
+        z: check_saved_sketch_pair::<Item>(structured_operator, "z_test_file", "z_sketch_file", true),
+    };
+
+    let _ = save_presaved_sketch_check(path_str, &stats);
+
+    if let Some(y_stats) = &stats.y {
+        assert!(
+            y_stats.relerr <= threshold,
+            "Presaved y-sketch check failed: relerr={} exceeds threshold={}.",
+            y_stats.relerr,
+            threshold
+        );
+    }
+    if let Some(z_stats) = &stats.z {
+        assert!(
+            z_stats.relerr <= threshold,
+            "Presaved z-sketch check failed: relerr={} exceeds threshold={}.",
+            z_stats.relerr,
+            threshold
+        );
+    }
+}
+
+fn default_max_leaf_points(id_tol: f64, geometry_type: &GeometryType) -> usize {
+    if id_tol < 1.0 {
+        return 50;
+    }
+
+    let rank = id_tol.to_usize().unwrap();
+    match geometry_type {
+        GeometryType::Square => 4 * rank,
+        GeometryType::SphereSurface
+        | GeometryType::CubeSurface
+        | GeometryType::CylinderSurface
+        | GeometryType::EllipsoidSurface
+        | GeometryType::Dihedral
+        | GeometryType::Device
+        | GeometryType::F16
+        | GeometryType::RidgedHorn
+        | GeometryType::EMCCAlmond
+        | GeometryType::FrigateHull
+        | GeometryType::Plane => 6 * rank,
+        GeometryType::Sphere | GeometryType::Cube => 8 * rank,
+        GeometryType::TrefoilKnot => {
+            panic!(
+                "Leaf-size policy is undefined for geometry {:?}. \
+Please classify it explicitly as 2D, 3D surface, or 3D volume.",
+                geometry_type
+            )
+        }
+    }
 }
 
 impl<Item: RlstScalar> TestParams<Item> {
@@ -246,7 +480,7 @@ impl<Item: RlstScalar> ScenarioOptions<Item> {
                     (h, *kappa)
                 }
                 DimArg::KappaAndMeshwidth(kappa, h) => (*h, *kappa),
-                DimArg::MeshWidth(h) => (num::Zero::zero(), *h),
+                DimArg::MeshWidth(h) => (*h, num::Zero::zero()),
                 DimArg::RefinementLevelAndDepth(ref_level, depth) => (*ref_level, *depth),
             })
             .collect();
@@ -327,6 +561,9 @@ macro_rules! implement_test_framework {
                 for (dim_num, dim_arg) in
                     self.test_params.scenario_params.dim_args.iter().enumerate()
                 {
+                    let _ = clear_sampling_dir();
+                    let _ = clear_sampling_seed_dir();
+                    let path_str = self.test_params.get_test_dir(dim_num);
                     let structured_operator_params = StructuredOperatorParams::new(
                         self.test_params
                             .scenario_params
@@ -345,6 +582,11 @@ macro_rules! implement_test_framework {
                         <StructuredOperatorInterface as StructuredOperatorImpl<Self::Item>>::new(
                             &structured_operator_params,
                         );
+                    let has_presaved_sketches = sampling_has_presaved_sketches();
+                    if has_presaved_sketches {
+                        validate_presaved_sketches::<Self::Item>(&structured_operator, &path_str);
+                        let _ = snapshot_sampling_dir();
+                    }
                     let points: Vec<bempp_octree::Point> =
                         get_bempp_points(&structured_operator).unwrap();
                     let operator = StructuredOperator::from_local(structured_operator);
@@ -370,8 +612,6 @@ macro_rules! implement_test_framework {
                         Solve::False => {}
                     };
 
-                    let path_str = self.test_params.get_test_dir(dim_num);
-
                     let test_path = Path::new(&path_str).join("y_test_file.h5");
                     let sketch_path = Path::new(&path_str).join("y_sketch_file.h5");
                     let _ = move_if_exists(test_path.to_str().unwrap(), ".");
@@ -383,11 +623,15 @@ macro_rules! implement_test_framework {
                     let _ = move_if_exists(sketch_path.to_str().unwrap(), ".");
 
                     for &id_tol in self.test_params.scenario_params.id_tols.iter() {
-                        let max_leaf_points = if id_tol < 1.0 {
-                            50
+                        if has_presaved_sketches {
+                            let _ = restore_sampling_seed_dir();
                         } else {
-                            (2.0 * id_tol).to_usize().unwrap()
-                        };
+                            let _ = clear_sampling_dir();
+                        }
+                        let max_leaf_points = default_max_leaf_points(
+                            id_tol.to_f64().unwrap(),
+                            &self.test_params.scenario_params.geometry_type,
+                        );
                         let tree: Octree<'_, SimpleCommunicator> = Octree::new(
                             &points,
                             self.test_params.scenario_params.max_tree_depth,
@@ -407,6 +651,15 @@ macro_rules! implement_test_framework {
                         let mut solves = solves.clone();
 
                         println!("Test: {} points, tol:{}", dim, id_tol);
+                        if comm.rank() == 0 {
+                            let start_level = global_max_level;
+                            let end_level = self.test_params.rsrs_params.min_level;
+                            let total_levels = start_level.saturating_sub(end_level) + 1;
+                            println!(
+                                "RSRS factorization starting: levels {} down to {} ({} total levels)",
+                                start_level, end_level, total_levels
+                            );
+                        }
 
                         self.test_params.rsrs_params.id_options.tol_id = id_tol;
 
@@ -682,12 +935,12 @@ macro_rules! implement_distributed_test_framework {
                     let _ = move_if_exists(sketch_path.to_str().unwrap(), ".");
 
                     for &id_tol in self.test_params.scenario_params.id_tols.iter() {
+                        let _ = clear_sampling_dir();
 
-                        let max_leaf_points = if id_tol < 1.0 {
-                            50
-                        } else {
-                            (2.0 * id_tol).to_usize().unwrap()
-                        };
+                        let max_leaf_points = default_max_leaf_points(
+                            id_tol.to_f64().unwrap(),
+                            &self.test_params.scenario_params.geometry_type,
+                        );
 
                         let tree: Octree<'_, SimpleCommunicator> =
                             Octree::new(&points, self.test_params.scenario_params.max_tree_depth, max_leaf_points, &comm);
@@ -705,6 +958,15 @@ macro_rules! implement_distributed_test_framework {
                         let mut solves = solves.clone();
 
                         println!("Test: {} points, tol:{}", dim, id_tol);
+                        if comm.rank() == 0 {
+                            let start_level = global_max_level;
+                            let end_level = self.test_params.rsrs_params.min_level;
+                            let total_levels = start_level.saturating_sub(end_level) + 1;
+                            println!(
+                                "RSRS factorization starting: levels {} down to {} ({} total levels)",
+                                start_level, end_level, total_levels
+                            );
+                        }
 
                         self.test_params.rsrs_params.id_options.tol_id = id_tol;
 
