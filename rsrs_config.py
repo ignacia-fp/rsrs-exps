@@ -95,7 +95,8 @@ class RSRSBenchmarkConfig:
         flush_factors: bool = False,
         store_far: bool = False,
         initial_num_samples = 0,
-        assembler = 0
+        assembler = 0,
+        symmetric = None
     ):
         
         """
@@ -396,7 +397,7 @@ class RSRSBenchmarkConfig:
         self.flush_factors = flush_factors
         self.store_far = store_far
         self.initial_num_samples = initial_num_samples
-
+        self.symmetric = symmetric
         if self.dim_arg_types[self.dim_arg_type_index] == "RefinementLevelAndDepth":
             if self.ref_level is None or self.depth is None:
                 raise ValueError("Both `ref_level` and `depth` must be specified for 'RefinementLevelAndDepth' dim_arg_type.")
@@ -488,6 +489,7 @@ class RSRSBenchmarkConfig:
             "num_threads": self.num_threads,
             "flush_factors": self.flush_factors,
             "store_far": self.store_far,
+            "symmetric": self.symmetric,
         }
 
     def as_dict(self) -> Dict[str, Dict]:
@@ -637,6 +639,11 @@ class RSRSBenchmarkConfig:
         else:
             rrqr_pred = "rrqr"
 
+        if self.symmetric is None:
+            sym = "symmetry"
+        else:
+            sym = "symmetric"
+
         if self.op_shift == 0:
             return (
                 f"rsrs_null_{args['null_method']}"
@@ -646,7 +653,7 @@ class RSRSBenchmarkConfig:
                 f"_initsam_{args['initial_num_samples']}"
                 f"_mrnk_{args['min_rank']}"
                 f"_mlvl_{args['min_level']}"
-                f"_herm_{camel_to_snake(str(args['symmetry']))}"
+                f"_herm_{camel_to_snake(str(args[sym]))}"
                 f"_rpick_{args['rank_picking']}"
                 f"_next_{args['near_block_extraction_method']}"
                 f"_tolextn_{args['tol_ext_near']:.0e}"
@@ -664,7 +671,7 @@ class RSRSBenchmarkConfig:
                 f"_stabilised_{sci_no_padding(self.op_shift)}"
                 f"_mrnk_{args['min_rank']}"
                 f"_mlvl_{args['min_level']}"
-                f"_herm_{camel_to_snake(str(args['symmetry']))}"
+                f"_herm_{camel_to_snake(str(args[sym]))}"
                 f"_rpick_{args['rank_picking']}"
                 f"_next_{args['near_block_extraction_method']}"
                 f"_tolextn_{args['tol_ext_near']:.0e}"
@@ -2467,5 +2474,90 @@ class RSRSBenchmarkConfig:
         dim_param = self.h
         geometry_type = camel_to_snake(self.geometry_types[self.geometry])
         precision = self.precision_types[self.precision_index]
-        assembler = "dense"
+        assembler = "fmm"
         OperatorClass(dim_param, kappa, geometry_type, precision, 0, init_samples, assembler)
+
+    def summarize_gmres_cases(self, as_dataframe=False, sort_by_tolerance=True):
+        """
+        Summarize each case for table-making.
+
+        For each stats file/case, returns:
+        - tolerance
+        - avg iterations for no preconditioner
+        - avg iterations for RSRS preconditioner
+        - solve_error
+        - app_condition_number
+        - norm_2_error
+        - norm_2_error_inv
+        - number of RHS solves found in each category
+
+        Notes
+        -----
+        - Iteration count is taken as len(residual_history) for each RHS.
+        - Averages are taken over all available RHS residual histories.
+        - Missing data are returned as None.
+        """
+        all_stats = self.load_all_stats(kind="error")
+        if not all_stats:
+            return None if not as_dataframe else None
+
+        def _avg_iterations(residual_histories):
+            """
+            residual_histories is expected to be a list of lists:
+                [
+                    [r0, r1, r2, ...],   # rhs 0
+                    [r0, r1, r2, ...],   # rhs 1
+                    ...
+                ]
+            """
+            if not isinstance(residual_histories, list) or len(residual_histories) == 0:
+                return None, 0
+
+            iteration_counts = []
+            for hist in residual_histories:
+                if isinstance(hist, list) and len(hist) > 0:
+                    iteration_counts.append(len(hist))
+
+            if not iteration_counts:
+                return None, 0
+
+            return sum(iteration_counts) / len(iteration_counts), len(iteration_counts)
+
+        rows = []
+
+        for stat in all_stats:
+            solves = stat.get("solves", {})
+            no_prec_list = solves.get("no_prec", [])
+            prec_list = solves.get("prec", [])
+
+            avg_no_prec, n_no_prec = _avg_iterations(no_prec_list)
+            avg_prec, n_prec = _avg_iterations(prec_list)
+
+            row = {
+                "tolerance": stat.get("tolerance", None),
+                "avg_iters_no_prec": avg_no_prec,
+                "avg_iters_prec": avg_prec,
+                "num_rhs_no_prec": n_no_prec,
+                "num_rhs_prec": n_prec,
+                "solve_error": stat.get("solve_error", None),
+                "app_condition_number": stat.get("app_condition_number", None),
+                "norm_2_error": stat.get("norm_2_error", None),
+                "norm_2_error_inv": stat.get("norm_2_error_inv", None),
+            }
+            rows.append(row)
+
+        if sort_by_tolerance:
+            def _tol_key(row):
+                tol = row["tolerance"]
+                try:
+                    return float(tol)
+                except (TypeError, ValueError):
+                    return float("inf")
+
+            rows.sort(key=_tol_key)
+
+        if as_dataframe:
+            import pandas as pd
+            return pd.DataFrame(rows)
+
+        return rows

@@ -226,7 +226,7 @@ def get_geometry(geometry_type, dim_param):
     elif geometry_type == 'cube_surface':
         return bempp_cl.api.shapes.cube(h=dim_param)
     elif geometry_type == 'cylinder_surface':   
-        return bempp_cl.api.shapes.cylinders(h=dim_param, r=[0.5])
+        return sh.cylinder(r1 = 1.0, r2 = 1.0, h=0.5, lc = dim_param)#bempp_cl.api.shapes.cylinders(h=dim_param, r=[0.5])
     elif geometry_type == 'ellipsoid_surface':
         return bempp_cl.api.shapes.ellipsoid(h=dim_param)
     elif geometry_type == 'trefoil_knot':

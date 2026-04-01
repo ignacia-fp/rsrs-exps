@@ -557,7 +557,8 @@ class BaseStructuredOperator(ABC):
         assembler = 'fmm'
     ):
         try:
-            print(dim_param)
+            dim_param = round(dim_param, 6)
+            print('h python', dim_param)
             if dim_param < 1:
                 self.grid = get_geometry(geometry_type, dim_param)
                 path = Path(os.getcwd()) / "results"
@@ -1481,7 +1482,8 @@ class BemppClMaxwellEfie(BaseStructuredOperator):
                 self.domain, self.dual_to_range, self.range, kappa, assembler = self.assembler
             ).weak_form()
             self.n_points = self.mat.shape[0]
-            _maybe_generate_samples(self.mat, None, self.precision, self.n_points, self.init_samples, transposable = True)
+            #if self.assembler == "dense":
+            _maybe_generate_samples(self.mat, self.mat, self.precision, self.n_points, self.init_samples, transposable = False)
             self.rhs_data_type = self.mat.dtype
             if n_sources > 0:
                 self.rhs = self.get_rhs(n_sources=self.n_sources)
@@ -1489,11 +1491,24 @@ class BemppClMaxwellEfie(BaseStructuredOperator):
             print("Error initializing BemppClMaxwellEfie:", e)
             raise
 
-    def mv(self, v):
+    '''def mv(self, v):
         return apply(self.mat, v)
 
     def mv_trans(self, v):
-        return apply(self.mat, v)
+        return apply(self.mat, v)'''
+
+    def _complex_dtype(self):
+        return np.complex64 if self.precision == "single" else np.complex128
+
+    def mv(self, v):
+        v = np.asarray(v, dtype=self._complex_dtype())
+        out = apply(self.mat, v)
+        return np.asarray(out, dtype=self._complex_dtype())
+
+    def mv_trans(self, v):
+        v = np.asarray(v, dtype=self._complex_dtype())
+        out = apply(self.mat, v)
+        return np.asarray(out, dtype=self._complex_dtype())
 
     @property
     def cond(self):

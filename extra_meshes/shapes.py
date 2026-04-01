@@ -8071,3 +8071,61 @@ def plane(h=0.1):
 
     geometry = "lc1 = " + str(h) + ";\n" + "lc2 = " + str(h) + ";\n" + stub
     return __generate_grid_from_geo_string(geometry)
+
+
+
+def cylinder(r1=1.0, r2=1.0, lc=1.0, h= 5.0):
+    stub ='''
+    a1 = r1 / Sqrt(2);
+    a2 = r2 / Sqrt(2);
+
+    // Bottom
+    Point(1) = {0, 0, 0, lc};
+    Point(3) = { a1,  a1, 0, lc};
+    Point(5) = {-a1,  a1, 0, lc};
+    Point(7) = {-a1, -a1, 0, lc};
+    Point(9) = { a1, -a1, 0, lc};
+
+    // Top
+    Point(10) = {0, 0, H, lc};
+    Point(12) = { a2,  a2, H, lc};
+    Point(14) = {-a2,  a2, H, lc};
+    Point(16) = {-a2, -a2, H, lc};
+    Point(18) = { a2, -a2, H, lc};
+
+    // Top arcs
+    Circle(17) = {12, 10, 14};
+    Circle(18) = {14, 10, 16};
+    Circle(19) = {16, 10, 18};
+    Circle(20) = {18, 10, 12};
+
+    // Bottom arcs
+    Circle(21) = {3, 1, 5};
+    Circle(22) = {5, 1, 7};
+    Circle(23) = {7, 1, 9};
+    Circle(24) = {9, 1, 3};
+
+    // Side edges
+    Line(25) = {7, 16};
+    Line(27) = {9, 18};
+    Line(29) = {3, 12};
+    Line(31) = {5, 14};
+
+    // Side surfaces
+    Line Loop(59) = {27, 20, -29, -24};
+    Ruled Surface(60) = {59};
+
+    Line Loop(61) = {29, 17, -31, -21};
+    Ruled Surface(62) = {61};
+
+    Line Loop(63) = {31, 18, -25, -22};
+    Ruled Surface(64) = {63};
+
+    Line Loop(65) = {25, 19, -27, -23};
+    Ruled Surface(66) = {65};
+
+    Physical Surface("sides") = {60, 62, 64, 66};
+    '''
+
+    geometry = "lc = " + str(lc) + ";\n"  + "r1 = " + str(r1) + ";\n" + "r2 = " + str(r2) + ";\n" + "H = " + str(h) + ";\n" + stub
+    return __generate_grid_from_geo_string(geometry)
