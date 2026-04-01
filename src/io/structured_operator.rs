@@ -83,7 +83,6 @@ extern "C" {
     // Geometry / info
     // -------------------------
     fn get_points(structured_operator: *mut StructuredOperatorOpaque) -> *const f64;
-    //fn get_condition_number(structured_operator: *mut StructuredOperatorOpaque) -> f64;
     fn get_n_points(structured_operator: *mut StructuredOperatorOpaque) -> usize;
 
     // -------------------------
@@ -198,7 +197,6 @@ pub enum StructuredOperatorImplType<T: OperatorBase + AsApply> {
     Rust(BemppRsOperator<T>),
 }*/
 
-type Real<T> = <T as rlst::RlstScalar>::Real;
 pub trait StructuredOperatorImpl<Item: RlstScalar> {
     type Item: RlstScalar;
     fn new(params: &StructuredOperatorParams) -> Self;
@@ -206,7 +204,6 @@ pub trait StructuredOperatorImpl<Item: RlstScalar> {
     fn mv_trans(&self, input: &[Item], output: &mut [Item]);
     fn get_points(&self) -> Option<Vec<Point>>;
     fn rhs(&self) -> Vec<Vec<Self::Item>>; // updated to multi-RHS
-    fn get_condition_number(&self) -> Real<Self::Item>;
 }
 
 fn detect_python_env() -> (String, String) {
@@ -323,11 +320,6 @@ macro_rules! implement_structured_operator {
 
             fn get_points(&self) -> Option<Vec<Point>> {
                 get_bempp_points(&self)
-            }
-
-            fn get_condition_number(&self) -> Real<Self::Item> {
-                num::Zero::zero()
-                //unsafe { get_condition_number(self.raw) }
             }
         }
     };

@@ -601,11 +601,6 @@ class BaseStructuredOperator(ABC):
 
     @property
     @abstractmethod
-    def cond(self):
-        pass
-
-    @property
-    @abstractmethod
     def dense(self):
         pass
 
@@ -629,10 +624,6 @@ class BasicStructuredOperator(BaseStructuredOperator):
     def mv_trans(self, v):
         
             return self.mat.T @ v
-
-    @property
-    def cond(self):
-        raise ValueError("Condition number not implemented (unused).")
 
     @property
     def dense(self):
@@ -671,10 +662,6 @@ class BemppClLaplaceSingleLayer(BaseStructuredOperator):
         return self.mat.T * v
 
     @property
-    def cond(self):
-        raise ValueError("Condition number not implemented yet for this operator.")
-
-    @property
     def dense(self):
         if self.mat is None:
             raise ValueError("Matrix not initialized.")
@@ -710,10 +697,6 @@ class BemppClHelmholtzSingleLayer(BaseStructuredOperator):
     def mv_trans(self, v):
         
             return self.mat.T * v
-
-    @property
-    def cond(self):
-        raise ValueError("Condition number not implemented yet for this operator.")
 
     @property
     def dense(self):
@@ -772,10 +755,6 @@ class KiFMMLaplaceOperator(BaseStructuredOperator):
         return self.mv(v)
 
     @property
-    def cond(self):
-        raise ValueError("Condition number not implemented yet for this operator.")
-
-    @property
     def dense(self):
         raise ValueError("There is not a dense representation implemented for this operator.")
 
@@ -832,10 +811,6 @@ class KiFMMHelmholtzOperator(BaseStructuredOperator):
         return self.mv(v)
 
     @property
-    def cond(self):
-        raise ValueError("Condition number not implemented yet for this operator.")
-
-    @property
     def dense(self):
         raise ValueError("There is not a dense representation implemented for this operator.")
 
@@ -859,10 +834,6 @@ class BemppRsLaplaceOperator(BaseStructuredOperator):
 
     def mv_trans(self, v):
         raise ValueError("Mv trans implemented in rust.")
-
-    @property
-    def cond(self):
-        raise ValueError("Matrix not initialized.")
 
     @property
     def dense(self):
@@ -909,10 +880,6 @@ class BemppClLaplaceCombined(BaseStructuredOperator):
     def mv_trans(self, v):
         
             return self.mat_T * v
-
-    @property
-    def cond(self):
-        raise ValueError("Condition number not implemented yet for this operator.")
 
     @property
     def dense(self):
@@ -962,10 +929,6 @@ class BemppClLaplaceSecond(BaseStructuredOperator):
     def mv_trans(self, v):
         
             return self.mat_T * v
-
-    @property
-    def cond(self):
-        raise ValueError("Condition number not implemented yet for this operator.")
 
     @property
     def dense(self):
@@ -1034,10 +997,6 @@ class BemppClLaplaceSingleLayerCP(BaseStructuredOperator):
             return self.mat_T * v
 
     @property
-    def cond(self):
-        raise ValueError("Condition number not implemented yet for this operator.")
-
-    @property
     def dense(self):
         if self.mat is None:
             raise ValueError("Matrix not initialized.")
@@ -1079,10 +1038,6 @@ class BemppClLaplaceSingleLayerMM(BaseStructuredOperator):
     def mv_trans(self, v):
         
             return self.mat.T * v
-
-    @property
-    def cond(self):
-        raise ValueError("Condition number not implemented yet for this operator.")
 
     @property
     def dense(self):
@@ -1135,10 +1090,6 @@ class BemppClHelmholtzSingleLayerCP(BaseStructuredOperator):
             return self.mat_T * v
 
     @property
-    def cond(self):
-        raise ValueError("Condition number not implemented yet for this operator.")
-
-    @property
     def dense(self):
         if self.mat is None:
             raise ValueError("Matrix not initialized.")
@@ -1187,10 +1138,6 @@ class BemppClLaplaceSingleLayerCPID(BaseStructuredOperator):
         return self.mat_T * v
 
     @property
-    def cond(self):
-        raise ValueError("Condition number not implemented yet for this operator.")
-
-    @property
     def dense(self):
         if self.mat is None:
             raise ValueError("Matrix not initialized.")
@@ -1230,10 +1177,6 @@ class BemppClLaplaceSingleLayerP1(BaseStructuredOperator):
     def mv_trans(self, v):
         
             return self.mat.T * v
-
-    @property
-    def cond(self):
-        raise ValueError("Condition number not implemented yet for this operator.")
 
     @property
     def dense(self):
@@ -1293,10 +1236,6 @@ class KiFMMLaplaceOperatorV(BaseStructuredOperator):
         return self.mv(v)
 
     @property
-    def cond(self):
-        raise ValueError("Condition number not implemented yet for this operator.")
-
-    @property
     def dense(self):
         raise ValueError("There is not a dense representation implemented for this operator.")
 
@@ -1340,10 +1279,6 @@ class BemppClLaplaceCombinedP1(BaseStructuredOperator):
     def mv_trans(self, v):
         
             return self.mat.T * v
-
-    @property
-    def cond(self):
-        raise ValueError("Condition number not implemented yet for this operator.")
 
     @property
     def dense(self):
@@ -1393,10 +1328,6 @@ class BemppClLaplaceSingleLayerCPIDP1(BaseStructuredOperator):
 
     def mv_trans(self, v):
         return self.mat_T * v
-
-    @property
-    def cond(self):
-        raise ValueError("Condition number not implemented yet for this operator.")
 
     @property
     def dense(self):
@@ -1449,10 +1380,6 @@ class BemppClHelmholtzSingleLayerCPID(BaseStructuredOperator):
 
     def mv_trans(self, v):
         return self.mat_T * v
-
-    @property
-    def cond(self):
-        raise ValueError("Condition number not implemented yet for this operator.")
 
     @property
     def dense(self):
@@ -1511,10 +1438,6 @@ class BemppClMaxwellEfie(BaseStructuredOperator):
         return np.asarray(out, dtype=self._complex_dtype())
 
     @property
-    def cond(self):
-        raise ValueError("Condition number not implemented yet for this operator.")
-
-    @property
     def dense(self):
         if self.mat is None:
             raise ValueError("Matrix not initialized.")
@@ -1554,10 +1477,6 @@ class BemppClHelmholtzSingleLayerP1(BaseStructuredOperator):
     def mv_trans(self, v):
         
             return self.mat.T * v
-
-    @property
-    def cond(self):
-        raise ValueError("Condition number not implemented yet for this operator.")
 
     @property
     def dense(self):
@@ -1683,10 +1602,6 @@ class BemppClBurtonMiller(BaseStructuredOperator):
             return apply(self.mat_T, v)
 
     @property
-    def cond(self):
-        raise ValueError("Condition number not implemented yet for this operator.")
-
-    @property
     def dense(self):
         if self.mat is None:
             raise ValueError("Matrix not initialized.")
@@ -1790,10 +1705,6 @@ class BemppClHelmholtzCombined(BaseStructuredOperator):
             return apply(self.mat_T, v)
 
     @property
-    def cond(self):
-        raise ValueError("Condition number not implemented yet for this operator.")
-
-    @property
     def dense(self):
         if self.mat is None:
             raise ValueError("Matrix not initialized.")
@@ -1801,3 +1712,103 @@ class BemppClHelmholtzCombined(BaseStructuredOperator):
 
     def get_rhs(self, n_sources=1):
         return right_hand_side(self, 'Dirichlet', n_sources)
+
+
+class BIEGrid(BaseStructuredOperator):
+    def __init__(self, dim_param, kappa, geometry_type, precision, n_sources=1, init_samples=0, assembler='fmm'):
+        try:
+            from .bie_grid import BIEGrid as _BIEGridExperiment
+
+            ndim_map = {
+                'square': 2,
+                'cube': 3,
+            }
+            ndim = ndim_map.get(str(geometry_type).lower())
+            if ndim is None:
+                raise ValueError(
+                    "BIEGrid only supports geometry_type 'square' (2D) or 'cube' (3D)."
+                )
+
+            if dim_param <= 0:
+                raise ValueError("BIEGrid expects dim_param to be positive.")
+
+            # Match the rest of the benchmark flow: mesh-width inputs (< 1) map to a
+            # regular grid spacing h ~= 1 / cells_per_axis, while larger values are
+            # treated as an explicit cells-per-axis request.
+            if dim_param < 1:
+                reciprocal_h = 1.0 / float(dim_param)
+                # Mesh widths arrive through JSON/Rust as finite-precision decimals, so
+                # values intended to be 1 / m can show up as m + 1e-14. Round to the
+                # nearest regular-grid resolution instead of biasing upward with ceil().
+                cells_per_axis = int(np.rint(reciprocal_h))
+            else:
+                cells_per_axis = int(round(dim_param))
+            cells_per_axis = max(cells_per_axis, 4)
+            requested_n = cells_per_axis ** ndim
+
+            self.init_samples = init_samples
+            self.precision = precision
+            self.n_sources = n_sources
+            self.kappa = kappa
+            self.assembler = assembler.lower()
+            self.dim_param = dim_param
+            self.cells_per_axis = cells_per_axis
+            self.scalar_type = 'real'
+            self.operator_type = 'BIEGrid'
+            self.form = 'none'
+            self.grid = None
+            self.mat = None
+            self.mat_T = None
+            self.rhs = None
+            self.rhs_data_type = None
+
+            self._experiment = _BIEGridExperiment(requested_n, ndim)
+            self.mat = self._experiment.fast_apply_op
+            self.mat_T = self._experiment.fast_apply_op
+
+            raw_points = np.asarray(self._experiment.XX, dtype=np.float64)
+            if raw_points.ndim != 2:
+                raise ValueError(f"Unexpected BIEGrid point array shape: {raw_points.shape}")
+
+            if raw_points.shape[1] == 2:
+                zeros = np.zeros((raw_points.shape[0], 1), dtype=np.float64)
+                points = np.hstack((raw_points, zeros))
+            elif raw_points.shape[1] == 3:
+                points = raw_points
+            else:
+                raise ValueError(
+                    f"BIEGrid points must have 2 or 3 coordinates, got {raw_points.shape[1]}"
+                )
+
+            self.points = np.require(points, dtype=np.float64, requirements=['C', 'A', 'O'])
+            self.n_points = self.points.shape[0]
+            self.rhs_data_type = np.float32 if self.precision == 'single' else np.float64
+
+            if self.init_samples > 0:
+                _maybe_generate_samples(
+                    self.mat,
+                    self.mat_T,
+                    self.precision,
+                    self.n_points,
+                    self.init_samples,
+                )
+
+            self.rhs = self.get_rhs(n_sources=self.n_sources)
+        except Exception as e:
+            print("Error initializing BIEGrid:", e)
+            raise
+
+    def mv(self, v):
+        arr = np.asarray(v, dtype=self.rhs_data_type)
+        return np.asarray(self.mat @ arr, dtype=self.rhs_data_type).reshape(-1)
+
+    def mv_trans(self, v):
+        arr = np.asarray(v, dtype=self.rhs_data_type)
+        return np.asarray(self.mat_T.rmatvec(arr), dtype=self.rhs_data_type).reshape(-1)
+
+    @property
+    def dense(self):
+        return np.asarray(self._experiment.Amat, dtype=self.rhs_data_type)
+
+    def get_rhs(self, n_sources=1):
+        return right_hand_side(self, None, n_sources)

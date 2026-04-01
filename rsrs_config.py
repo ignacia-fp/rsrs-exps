@@ -3,7 +3,6 @@ import numpy as np
 import subprocess
 from typing import List, Dict, Union
 import re
-import json
 from pathlib import Path
 import matplotlib.pyplot as plt
 import os
@@ -65,7 +64,7 @@ class RSRSBenchmarkConfig:
         f: float = 1.01,
         dim_arg_type: int = 2,
         geometry: int = 0,
-        solve_tol: float = 1e-5,
+        solve_tol: float = 1e-10,
         solve: bool = True,
         plot: bool = True,
         dense_errors: bool = False,
@@ -297,7 +296,7 @@ class RSRSBenchmarkConfig:
             "BemppClLaplaceSingleLayerCP", "BemppClLaplaceSingleLayerMM", "BemppClHelmholtzSingleLayerCP", "BemppClLaplaceSingleLayerCPID",
             "BemppClLaplaceSingleLayerP1", "KiFMMLaplaceOperatorV", "BemppClLaplaceCombinedP1", "BemppClLaplaceSingleLayerCPIDP1",
             "BemppClHelmholtzSingleLayerCPID", "BemppClMaxwellEfie", "BemppClHelmholtzSingleLayerP1", "BemppClBurtonMiller", "BemppClHelmholtzCombined",
-            "BemppClLaplaceSecond"
+            "BemppClLaplaceSecond", "BIEGrid"
         ]
         self.precision_types = ["Single", "Double"] # Single precision methods have not been enabled yet
 
@@ -442,7 +441,7 @@ class RSRSBenchmarkConfig:
         dim_args_map = {
             "Kappa": {"Kappa": self.kappa},
             "KappaAndMeshwidth": {"KappaAndMeshwidth": (self.kappa, self.h)},
-            "Meshwidth": {"Meshwidth": self.h},
+            "Meshwidth": {"MeshWidth": self.h},
             "RefinementLevelAndDepth": {"RefinementLevelAndDepth": (self.ref_level, self.depth)},
         }
         return {
@@ -723,6 +722,44 @@ class RSRSBenchmarkConfig:
 
         return stats
 
+    @classmethod
+    def generate_table_a(
+        cls,
+        series_specs,
+        caption="Accuracy and solver effectiveness.",
+        label="tab:accuracy",
+        table_only=False,
+        out_path=None,
+    ):
+        from results_tables import generate_table_a
+
+        return generate_table_a(
+            series_specs,
+            caption=caption,
+            label=label,
+            table_only=table_only,
+            out_path=out_path,
+        )
+
+    @classmethod
+    def generate_table_b(
+        cls,
+        series_specs,
+        caption="Preconditioner performance.",
+        label="tab:preconditioner",
+        table_only=False,
+        out_path=None,
+    ):
+        from results_tables import generate_table_b
+
+        return generate_table_b(
+            series_specs,
+            caption=caption,
+            label=label,
+            table_only=table_only,
+            out_path=out_path,
+        )
+
     
     def plot_errors_vs_tolerance(self, metric_index=1, plot=True, logx=True, logy=True, save_plot=False):
         """
@@ -734,7 +771,7 @@ class RSRSBenchmarkConfig:
             The index of the error metric to plot on the y-axis. Must be one of:
             1 - 'norm_2_error'
             2 - 'norm_2_error_inv'
-            3 - 'app_condition_number'
+            3 - 'cond_rsrs_estimate'
             4 - 'tot_num_samples'
             5 - 'residual_size'
         logx : bool
@@ -750,7 +787,7 @@ class RSRSBenchmarkConfig:
         metrics = [
             "norm_2_error",
             "norm_2_error_inv",
-            "app_condition_number",
+            "cond_rsrs_estimate",
             "tot_num_samples",
             "residual_size"
         ]
@@ -758,7 +795,7 @@ class RSRSBenchmarkConfig:
         pretty_names = {
             "norm_2_error": r"$\|A - A_{\mathrm{app}}\|_2 / \|A\|_2$",
             "norm_2_error_inv": r"$\|A_{\mathrm{app}}^{-1} A - I\|_2$",
-            "app_condition_number": "Approximate Condition Number",
+            "cond_rsrs_estimate": r"$\mathrm{cond}(A_{\mathrm{rsrs}})$ estimate",
             "tot_num_samples": "Total Number of Samples",
             "residual_size": "Residual Size"
         }
@@ -2561,3 +2598,4 @@ class RSRSBenchmarkConfig:
             return pd.DataFrame(rows)
 
         return rows
+
