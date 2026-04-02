@@ -3,7 +3,7 @@
 strict = []
 
 [package]
-name = "bempp-rsrs"
+name = "bempp-rsrs-exps"
 version = "0.0.1-dev"
 edition = "2021"
 authors = ["Ignacia Fierro-Piccardo <ignaciapiccardo@gmail.com>"]
@@ -21,6 +21,7 @@ rand_chacha = "0.3.*"
 num = "0.4.*"
 rlst = { git = "https://github.com/ignacia-fp/rlst.git", branch = "extend_abstract_operator", features = [
     "enable_tracing",
+    "mpi",
 ] }
 bempp-octree = { git = "https://github.com/bempp/octree.git" }
 mpi = { version = "0.8.*", features = ["derive", "user-operations"] }
@@ -45,6 +46,7 @@ green-kernels = { git = "https://github.com/ignacia-fp/green-kernels-for-rsrs.gi
 ] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+hdf5 = { git = "https://github.com/aldanor/hdf5-rust.git", branch = "master" }
 piechart = "1.0.0"
 rayon = "1.8"
 libc = "0.2"
@@ -69,3 +71,6 @@ cc = "1.0"
 
 [lints.clippy]
 wildcard_imports = "forbid"
+
+[patch."https://github.com/ignacia-fp/rlst.git"]
+rlst = { path = "../rlst" }

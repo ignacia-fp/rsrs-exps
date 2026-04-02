@@ -1,4 +1,5 @@
 use super::errors::rsrs_error_estimator;
+use crate::io::errors::frobenius_diff_and_reference_norm;
 use crate::io::errors::{DiffOperator, IdOperator, NormalOperator};
 use bempp_rsrs::rsrs::rsrs_cycle::Rsrs;
 use bempp_rsrs::rsrs::rsrs_factors::rsrs_operator::Inv;
@@ -6,6 +7,8 @@ use bempp_rsrs::rsrs::sketch::SampleType;
 use bempp_rsrs::rsrs::sketch::SamplingSpace;
 use bempp_rsrs::rsrs::statistics::LevelEffort;
 use bempp_rsrs::rsrs::statistics::{IdTimes, LuTimes, UpdateTimes};
+use hdf5::{File as Hdf5File, Group as Hdf5Group};
+use num::complex::Complex;
 use num::FromPrimitive;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
@@ -13,7 +16,10 @@ use rand_distr::{Distribution, Standard, StandardNormal};
 use rlst::dense::linalg::naupd::NonSymmetricArnoldiUpdate;
 use rlst::dense::linalg::neupd::NonSymmetricArnoldiExtract;
 use rlst::{
-    dense::{linalg::lu::MatrixLu, tools::RandScalar},
+    dense::{
+        linalg::{interpolative_decomposition::MatrixIdNoSkel, lu::MatrixLu},
+        tools::RandScalar,
+    },
     prelude::*,
 };
 use serde::{Deserialize, Serialize};
@@ -34,8 +40,12 @@ pub struct Solves<Item: RlstScalar> {
     pub prec: Option<Vec<Vec<Real<Item>>>>,
     pub rel_err_no_prec: Option<Vec<Real<Item>>>,
     pub rel_err_prec: Option<Vec<Real<Item>>>,
+    #[serde(skip_serializing)]
     pub sols_no_prec: Option<Vec<Vec<Item>>>,
+    #[serde(skip_serializing)]
     pub sols_prec: Option<Vec<Vec<Item>>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vectors_file: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -44,6 +54,9 @@ pub struct ErrorStatsOutput<Item: RlstScalar> {
     app_inv_err_right: Real<Item>,
     app_err_left: Real<Item>,
     app_err_right: Real<Item>,
+    norm_fro_error: Real<Item>,
+    norm_fro_error_inv: Real<Item>,
+    norm_fro_operator: Real<Item>,
     norm_2_error: Real<Item>,
     norm_2_error_inv: Real<Item>,
     norm_2_operator: Real<Item>,
@@ -114,6 +127,12 @@ struct TimeStatsOutput {
     residual_calculation: u128,
     level_effort: Vec<LevelEffort>,
     mv_avg_time: Vec<u128>,
+    run_start_rss_bytes: Option<u64>,
+    max_sample_buffer_bytes: u64,
+    max_factor_bytes: u64,
+    max_accounted_factorization_bytes: u64,
+    max_estimated_temporary_runtime_bytes: Option<u64>,
+    memory_snapshots: Vec<MemorySnapshotOutput>,
 }
 
 #[derive(Serialize)]
@@ -155,6 +174,30 @@ pub struct RankStatsInput {
     pub dec_boxes_per_level: Vec<usize>,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+struct FactorMemoryStatsOutput {
+    total_bytes: u64,
+    id_bytes: u64,
+    lu_bytes: u64,
+    diag_bytes: u64,
+    perm_bytes: u64,
+    id_count: usize,
+    lu_count: usize,
+    diag_count: usize,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct MemorySnapshotOutput {
+    label: String,
+    rss_bytes: Option<u64>,
+    peak_rss_bytes: Option<u64>,
+    baseline_rss_bytes: Option<u64>,
+    sample_buffer_bytes: u64,
+    factor_memory: FactorMemoryStatsOutput,
+    accounted_factorization_bytes: u64,
+    estimated_temporary_runtime_bytes: Option<u64>,
+}
+
 #[derive(Debug, Deserialize)]
 #[allow(dead_code)]
 pub struct TimeStatsInput {
@@ -170,6 +213,18 @@ pub struct TimeStatsInput {
     pub index_calculation: f64,
     pub sorting_near_field: f64,
     pub residual_calculation: f64,
+    #[serde(default)]
+    pub run_start_rss_bytes: Option<u64>,
+    #[serde(default)]
+    pub max_sample_buffer_bytes: u64,
+    #[serde(default)]
+    pub max_factor_bytes: u64,
+    #[serde(default)]
+    pub max_accounted_factorization_bytes: u64,
+    #[serde(default)]
+    pub max_estimated_temporary_runtime_bytes: Option<u64>,
+    #[serde(default)]
+    pub memory_snapshots: Vec<MemorySnapshotOutput>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -222,6 +277,37 @@ pub fn save_time_stats<Item: RlstScalar + MatrixInverse + MatrixPseudoInverse + 
         elapsed_time_at_limiting: rsrs_data.stats.limiting_factors.limiting_level.elapsed_time,
         level_effort: rsrs_data.stats.level_effort.clone(),
         mv_avg_time: rsrs_data.stats.mv_avg_time.clone(),
+        run_start_rss_bytes: rsrs_data.stats.run_start_rss_bytes,
+        max_sample_buffer_bytes: rsrs_data.stats.max_sample_buffer_bytes,
+        max_factor_bytes: rsrs_data.stats.max_factor_bytes,
+        max_accounted_factorization_bytes: rsrs_data.stats.max_accounted_factorization_bytes,
+        max_estimated_temporary_runtime_bytes: rsrs_data
+            .stats
+            .max_estimated_temporary_runtime_bytes,
+        memory_snapshots: rsrs_data
+            .stats
+            .memory_snapshots
+            .iter()
+            .map(|snapshot| MemorySnapshotOutput {
+                label: snapshot.label.clone(),
+                rss_bytes: snapshot.rss_bytes,
+                peak_rss_bytes: snapshot.peak_rss_bytes,
+                baseline_rss_bytes: snapshot.baseline_rss_bytes,
+                sample_buffer_bytes: snapshot.sample_buffer_bytes,
+                factor_memory: FactorMemoryStatsOutput {
+                    total_bytes: snapshot.factor_memory.total_bytes,
+                    id_bytes: snapshot.factor_memory.id_bytes,
+                    lu_bytes: snapshot.factor_memory.lu_bytes,
+                    diag_bytes: snapshot.factor_memory.diag_bytes,
+                    perm_bytes: snapshot.factor_memory.perm_bytes,
+                    id_count: snapshot.factor_memory.id_count,
+                    lu_count: snapshot.factor_memory.lu_count,
+                    diag_count: snapshot.factor_memory.diag_count,
+                },
+                accounted_factorization_bytes: snapshot.accounted_factorization_bytes,
+                estimated_temporary_runtime_bytes: snapshot.estimated_temporary_runtime_bytes,
+            })
+            .collect(),
     };
 
     let json_string = serde_json::to_string_pretty(&stats).expect("Failed to serialize");
@@ -252,13 +338,131 @@ where
     })
 }
 
-pub fn save_error_stats<
+pub(crate) trait SolveVectorArchive<T: RlstScalar> {
+    fn write_matrix(group: &Hdf5Group, data: &[Vec<T>]) -> hdf5::Result<()>;
+}
+
+fn matrix_shape<T>(data: &[Vec<T>]) -> hdf5::Result<(usize, usize)> {
+    let rows = data.len();
+    let cols = data.first().map_or(0, Vec::len);
+
+    if data.iter().any(|row| row.len() != cols) {
+        return Err(hdf5::Error::Internal(
+            "all archived vectors must have the same length".into(),
+        ));
+    }
+
+    Ok((rows, cols))
+}
+
+macro_rules! implement_solve_vector_archive_real {
+    ($scalar:ty) => {
+        impl SolveVectorArchive<$scalar> for $scalar {
+            fn write_matrix(group: &Hdf5Group, data: &[Vec<$scalar>]) -> hdf5::Result<()> {
+                let (rows, cols) = matrix_shape(data)?;
+                let flat: Vec<$scalar> = data.iter().flat_map(|row| row.iter().copied()).collect();
+
+                group
+                    .new_dataset::<$scalar>()
+                    .shape((rows, cols))
+                    .create("real")?
+                    .write_raw(&flat)?;
+
+                Ok(())
+            }
+        }
+    };
+}
+
+macro_rules! implement_solve_vector_archive_complex {
+    ($scalar:ty) => {
+        impl SolveVectorArchive<Complex<$scalar>> for Complex<$scalar> {
+            fn write_matrix(group: &Hdf5Group, data: &[Vec<Complex<$scalar>>]) -> hdf5::Result<()> {
+                let (rows, cols) = matrix_shape(data)?;
+                let mut real = Vec::with_capacity(rows * cols);
+                let mut imag = Vec::with_capacity(rows * cols);
+
+                for row in data {
+                    for value in row {
+                        real.push(value.re);
+                        imag.push(value.im);
+                    }
+                }
+
+                group
+                    .new_dataset::<$scalar>()
+                    .shape((rows, cols))
+                    .create("real")?
+                    .write_raw(&real)?;
+                group
+                    .new_dataset::<$scalar>()
+                    .shape((rows, cols))
+                    .create("imag")?
+                    .write_raw(&imag)?;
+
+                Ok(())
+            }
+        }
+    };
+}
+
+implement_solve_vector_archive_real!(f32);
+implement_solve_vector_archive_real!(f64);
+implement_solve_vector_archive_complex!(f32);
+implement_solve_vector_archive_complex!(f64);
+
+fn write_optional_vector_group<Item>(
+    file: &Hdf5File,
+    name: &str,
+    data: Option<&[Vec<Item>]>,
+) -> hdf5::Result<()>
+where
+    Item: RlstScalar + SolveVectorArchive<Item>,
+{
+    let Some(data) = data else {
+        return Ok(());
+    };
+
+    if data.is_empty() {
+        return Ok(());
+    }
+
+    let group = file.create_group(name)?;
+    <Item as SolveVectorArchive<Item>>::write_matrix(&group, data)
+}
+
+fn save_solve_vectors<Item>(
+    solves: &Solves<Item>,
+    tol: Real<Item>,
+    path_str: &str,
+) -> Option<String>
+where
+    Item: RlstScalar + SolveVectorArchive<Item>,
+{
+    let has_vectors = solves.sols_no_prec.is_some() || solves.sols_prec.is_some();
+
+    if !has_vectors {
+        return None;
+    }
+
+    let file_name = format!("solve_vectors_{:e}.h5", tol);
+    let file_path = Path::new(path_str).join(&file_name);
+    let file = Hdf5File::create(&file_path).unwrap();
+
+    write_optional_vector_group(&file, "sols_no_prec", solves.sols_no_prec.as_deref()).unwrap();
+    write_optional_vector_group(&file, "sols_prec", solves.sols_prec.as_deref()).unwrap();
+
+    Some(file_name)
+}
+
+pub(crate) fn save_error_stats<
     'a,
     Item: RlstScalar
         + RandScalar
         + MatrixInverse
         + MatrixPseudoInverse
         + MatrixId
+        + MatrixIdNoSkel
         + MatrixLu
         + MatrixQr
         + NonSymmetricArnoldiUpdate
@@ -273,7 +477,8 @@ pub fn save_error_stats<
     solves: Solves<Item>,
     tol: Real<Item>,
     path_str: &str,
-    transpose_is_identity: bool,
+    transpose_matches_apply: bool,
+    complex_symmetric_rsrs: bool,
 ) where
     StandardNormal: Distribution<Real<Item>>,
     Standard: Distribution<Real<Item>>,
@@ -281,6 +486,7 @@ pub fn save_error_stats<
         MatrixLuDecomposition<Item = Item>,
     TriangularMatrix<Item>: TriangularOperations<Item = Item>,
     <Item as rlst::RlstScalar>::Real: RandScalar,
+    Item: SolveVectorArchive<Item>,
     <<Space as rlst::LinearSpace>::E as rlst::ElementImpl>::Space: InnerProductSpace,
     IdOperator<Item, Space>: rlst::AsApply,
     IdOperator<Item, Space>: OperatorBase<Domain = Space, Range = Space>,
@@ -291,30 +497,35 @@ pub fn save_error_stats<
     stats_path.push_str("/error_stats_");
     stats_path.push_str(&string_tol);
     stats_path.push_str(".json");
+    let mut solves = solves;
+    solves.vectors_file = save_solve_vectors(&solves, tol, path_str);
 
     rsrs_operator.inv(false);
     let tol_eigs = <Space::F as RlstScalar>::Real::from_f64(1e-10).unwrap();
     let (app_err_left, app_err_right) =
         rsrs_error_estimator(structured_operator_op, rsrs_operator, 10, false);
+    let approx_transpose_matches_apply = transpose_matches_apply && !complex_symmetric_rsrs;
+    let (norm_fro_error, norm_fro_operator) =
+        frobenius_diff_and_reference_norm(structured_operator_op, rsrs_operator);
 
     let diff = DiffOperator(structured_operator_op.r(), rsrs_operator.r());
     let normal = NormalOperator {
         op: diff.r(),
-        transpose_is_identity,
+        transpose_matches_apply: approx_transpose_matches_apply,
     };
     let mut eigs1 = Eigs::new(normal.r(), tol_eigs, None, None, None);
     let (sigma_1, _) = eigs1.run(None, 1, None, false);
 
     let normal_structured = NormalOperator {
         op: structured_operator_op.r(),
-        transpose_is_identity,
+        transpose_matches_apply,
     };
     let mut eigs2 = Eigs::new(normal_structured.r(), tol_eigs, None, None, None);
     let (sigma_2, _) = eigs2.run(None, 1, None, false);
 
     let normal_rsrs = NormalOperator {
         op: rsrs_operator.r(),
-        transpose_is_identity,
+        transpose_matches_apply: approx_transpose_matches_apply,
     };
     let mut eigs3 = Eigs::new(normal_rsrs.r(), tol_eigs, None, None, None);
     let (c_1, _) = eigs3.run(None, 1, None, false);
@@ -328,10 +539,11 @@ pub fn save_error_stats<
     let id_op = IdOperator::new(domain, range);
 
     let prod1 = rsrs_operator.r().product(structured_operator_op.r());
+    let (norm_fro_error_inv, _) = frobenius_diff_and_reference_norm(&id_op, &prod1);
     let diff = DiffOperator(prod1.r(), id_op.r());
     let normal = NormalOperator {
         op: diff.r(),
-        transpose_is_identity,
+        transpose_matches_apply: approx_transpose_matches_apply,
     };
 
     let mut eigs1 = Eigs::new(normal.r(), tol_eigs, None, None, None);
@@ -339,7 +551,7 @@ pub fn save_error_stats<
 
     let normal_rsrs = NormalOperator {
         op: rsrs_operator.r(),
-        transpose_is_identity,
+        transpose_matches_apply: approx_transpose_matches_apply,
     };
     let mut eigs2 = Eigs::new(normal_rsrs.r(), tol_eigs, None, None, None);
     let (c_2, _) = eigs2.run(None, 1, None, false);
@@ -374,6 +586,9 @@ pub fn save_error_stats<
         app_err_left,
         app_err_right,
         cond_rsrs_estimate: condition_number,
+        norm_fro_error,
+        norm_fro_error_inv,
+        norm_fro_operator,
         norm_2_operator: sigma_2[0].abs().sqrt(),
         norm_2_error,
         norm_2_error_inv,

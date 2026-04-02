@@ -30,7 +30,7 @@ use num::ToPrimitive;
 use rlst::tracing::trace_call;
 use std::fs;
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Deserialize)]
 pub enum Results {
@@ -77,6 +77,16 @@ pub struct DataType {
     pub precision: Precision,
 }
 
+fn transpose_matches_apply(structured_operator_type: &StructuredOperatorType) -> bool {
+    matches!(
+        structured_operator_type,
+        StructuredOperatorType::BemppRsLaplaceOperator
+            | StructuredOperatorType::KiFMMLaplaceOperator
+            | StructuredOperatorType::KiFMMHelmholtzOperator
+            | StructuredOperatorType::KiFMMLaplaceOperatorV
+    )
+}
+
 #[derive(Debug)]
 pub struct ScenarioOptions<Item: RlstScalar> {
     id_tols: Vec<Real<Item>>,
@@ -99,39 +109,42 @@ pub struct TestFramework<Item: RlstScalar> {
     test_params: TestParams<Item>,
 }
 
-fn move_if_exists<P: AsRef<Path>>(src: P, dst_dir: P) -> io::Result<()> {
-    let src = src.as_ref();
-    let dst_dir = dst_dir.as_ref();
-
-    if src.exists() {
-        // Create destination directory if it doesn't exist
-        if !dst_dir.exists() {
-            fs::create_dir_all(dst_dir)?;
-        }
-
-        // Build the destination path (preserve filename)
-        let file_name = src
-            .file_name()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "Source has no filename"))?;
-        let dst_path = dst_dir.join(file_name);
-
-        // Move the file (rename = move)
-        fs::rename(src, &dst_path)?;
-    }
-
-    Ok(())
+fn sample_storage_dir(path_str: &str) -> PathBuf {
+    Path::new(path_str).join("sampling")
 }
 
-fn clear_sampling_dir() -> io::Result<()> {
-    let sampling_dir = Path::new("sampling");
+fn sampling_seed_dir(path_str: &str) -> PathBuf {
+    Path::new(path_str).join(".sampling_seed")
+}
+
+fn sampling_dir_has_presaved_sketches(sampling_dir: &Path) -> bool {
+    let y_pair = sampling_dir.join("y_test_file.00000.h5").exists()
+        && sampling_dir.join("y_sketch_file.00000.h5").exists();
+    let z_pair = sampling_dir.join("z_test_file.00000.h5").exists()
+        && sampling_dir.join("z_sketch_file.00000.h5").exists();
+    y_pair || z_pair
+}
+
+fn existing_sampling_dir(path_str: &str) -> Option<PathBuf> {
+    let preferred = sample_storage_dir(path_str);
+    if sampling_dir_has_presaved_sketches(&preferred) {
+        Some(preferred)
+    } else {
+        let legacy = PathBuf::from("sampling");
+        sampling_dir_has_presaved_sketches(&legacy).then_some(legacy)
+    }
+}
+
+fn clear_sampling_dir(path_str: &str) -> io::Result<()> {
+    let sampling_dir = sample_storage_dir(path_str);
     if sampling_dir.exists() {
         fs::remove_dir_all(sampling_dir)?;
     }
     Ok(())
 }
 
-fn clear_sampling_seed_dir() -> io::Result<()> {
-    let sampling_seed_dir = Path::new(".sampling_seed");
+fn clear_sampling_seed_dir(path_str: &str) -> io::Result<()> {
+    let sampling_seed_dir = sampling_seed_dir(path_str);
     if sampling_seed_dir.exists() {
         fs::remove_dir_all(sampling_seed_dir)?;
     }
@@ -153,28 +166,23 @@ fn copy_dir_all(src: &Path, dst: &Path) -> io::Result<()> {
     Ok(())
 }
 
-fn sampling_has_presaved_sketches() -> bool {
-    let y_pair = Path::new("sampling/y_test_file.00000.h5").exists()
-        && Path::new("sampling/y_sketch_file.00000.h5").exists();
-    let z_pair = Path::new("sampling/z_test_file.00000.h5").exists()
-        && Path::new("sampling/z_sketch_file.00000.h5").exists();
-    y_pair || z_pair
+fn sampling_has_presaved_sketches(path_str: &str) -> bool {
+    existing_sampling_dir(path_str).is_some()
 }
 
-fn snapshot_sampling_dir() -> io::Result<()> {
-    clear_sampling_seed_dir()?;
-    let sampling_dir = Path::new("sampling");
-    if sampling_dir.exists() {
-        copy_dir_all(sampling_dir, Path::new(".sampling_seed"))?;
+fn snapshot_sampling_dir(path_str: &str) -> io::Result<()> {
+    clear_sampling_seed_dir(path_str)?;
+    if let Some(sampling_dir) = existing_sampling_dir(path_str) {
+        copy_dir_all(&sampling_dir, &sampling_seed_dir(path_str))?;
     }
     Ok(())
 }
 
-fn restore_sampling_seed_dir() -> io::Result<()> {
-    clear_sampling_dir()?;
-    let sampling_seed_dir = Path::new(".sampling_seed");
+fn restore_sampling_seed_dir(path_str: &str) -> io::Result<()> {
+    clear_sampling_dir(path_str)?;
+    let sampling_seed_dir = sampling_seed_dir(path_str);
     if sampling_seed_dir.exists() {
-        copy_dir_all(sampling_seed_dir, Path::new("sampling"))?;
+        copy_dir_all(&sampling_seed_dir, &sample_storage_dir(path_str))?;
     }
     Ok(())
 }
@@ -196,6 +204,7 @@ struct PresavedSketchCheckOutput {
 
 fn check_saved_sketch_pair<Item: RlstScalar + IOData<Item, Item = Item> + Default + Copy>(
     structured_operator: &StructuredOperatorInterface,
+    sampling_dir: &Path,
     test_base: &str,
     sketch_base: &str,
     transposed: bool,
@@ -204,8 +213,8 @@ where
     StructuredOperatorInterface: StructuredOperatorImpl<Item>,
     Real<Item>: ToPrimitive,
 {
-    let test_flat = <Item as IOData<Item>>::load(test_base).ok()?;
-    let sketch_flat = <Item as IOData<Item>>::load(sketch_base).ok()?;
+    let test_flat = <Item as IOData<Item>>::load_in_dir(test_base, Some(sampling_dir)).ok()?;
+    let sketch_flat = <Item as IOData<Item>>::load_in_dir(sketch_base, Some(sampling_dir)).ok()?;
     let n_points = structured_operator.n_points;
 
     assert!(n_points > 0, "Structured operator has zero points.");
@@ -273,10 +282,7 @@ where
     })
 }
 
-fn save_presaved_sketch_check(
-    path_str: &str,
-    stats: &PresavedSketchCheckOutput,
-) -> io::Result<()> {
+fn save_presaved_sketch_check(path_str: &str, stats: &PresavedSketchCheckOutput) -> io::Result<()> {
     fs::create_dir_all(Path::new(path_str))?;
     let stats_path = Path::new(path_str).join("presaved_sketch_check.json");
     let json_string = serde_json::to_string_pretty(stats).expect("Failed to serialize");
@@ -290,9 +296,9 @@ fn validate_presaved_sketches<Item: RlstScalar + IOData<Item, Item = Item> + Def
     StructuredOperatorInterface: StructuredOperatorImpl<Item>,
     Real<Item>: ToPrimitive,
 {
-    if !sampling_has_presaved_sketches() {
+    let Some(sampling_dir) = existing_sampling_dir(path_str) else {
         return;
-    }
+    };
 
     let threshold = match std::mem::size_of::<Real<Item>>() {
         4 => 1e-4,
@@ -301,8 +307,20 @@ fn validate_presaved_sketches<Item: RlstScalar + IOData<Item, Item = Item> + Def
 
     let stats = PresavedSketchCheckOutput {
         threshold,
-        y: check_saved_sketch_pair::<Item>(structured_operator, "y_test_file", "y_sketch_file", false),
-        z: check_saved_sketch_pair::<Item>(structured_operator, "z_test_file", "z_sketch_file", true),
+        y: check_saved_sketch_pair::<Item>(
+            structured_operator,
+            &sampling_dir,
+            "y_test_file",
+            "y_sketch_file",
+            false,
+        ),
+        z: check_saved_sketch_pair::<Item>(
+            structured_operator,
+            &sampling_dir,
+            "z_test_file",
+            "z_sketch_file",
+            true,
+        ),
     };
 
     let _ = save_presaved_sketch_check(path_str, &stats);
@@ -561,9 +579,13 @@ macro_rules! implement_test_framework {
                 for (dim_num, dim_arg) in
                     self.test_params.scenario_params.dim_args.iter().enumerate()
                 {
-                    let _ = clear_sampling_dir();
-                    let _ = clear_sampling_seed_dir();
                     let path_str = self.test_params.get_test_dir(dim_num);
+                    let preferred_sampling_dir = sample_storage_dir(&path_str);
+                    let preferred_sampling_dir_str =
+                        preferred_sampling_dir.to_string_lossy().into_owned();
+                    self.test_params.rsrs_params.sketching.sample_storage_dir =
+                        Some(preferred_sampling_dir_str.clone());
+                    let _ = clear_sampling_seed_dir(&path_str);
                     let structured_operator_params = StructuredOperatorParams::new(
                         self.test_params
                             .scenario_params
@@ -576,16 +598,18 @@ macro_rules! implement_test_framework {
                         self.test_params.scenario_params.n_sources,
                         self.test_params.rsrs_params.sketching.initial_num_samples as i32,
                         self.test_params.scenario_params.assembler.clone(),
-                    );
+                    )
+                    .with_sample_storage_dir(preferred_sampling_dir_str);
 
                     let structured_operator: StructuredOperatorInterface =
                         <StructuredOperatorInterface as StructuredOperatorImpl<Self::Item>>::new(
                             &structured_operator_params,
                         );
-                    let has_presaved_sketches = sampling_has_presaved_sketches();
-                    if has_presaved_sketches {
+                    let has_presaved_sketches = sampling_has_presaved_sketches(&path_str);
+                    if self.test_params.rsrs_params.sketching.load_samples && has_presaved_sketches
+                    {
                         validate_presaved_sketches::<Self::Item>(&structured_operator, &path_str);
-                        let _ = snapshot_sampling_dir();
+                        let _ = snapshot_sampling_dir(&path_str);
                     }
                     let points: Vec<bempp_octree::Point> =
                         get_bempp_points(&structured_operator).unwrap();
@@ -600,6 +624,7 @@ macro_rules! implement_test_framework {
                         rel_err_prec: None,
                         sols_no_prec: None,
                         sols_prec: None,
+                        vectors_file: None,
                     };
 
                     match self.output_options.solve {
@@ -611,22 +636,13 @@ macro_rules! implement_test_framework {
                         }
                         Solve::False => {}
                     };
-
-                    let test_path = Path::new(&path_str).join("y_test_file.h5");
-                    let sketch_path = Path::new(&path_str).join("y_sketch_file.h5");
-                    let _ = move_if_exists(test_path.to_str().unwrap(), ".");
-                    let _ = move_if_exists(sketch_path.to_str().unwrap(), ".");
-
-                    let test_path = Path::new(&path_str).join("z_test_file.h5");
-                    let sketch_path = Path::new(&path_str).join("z_sketch_file.h5");
-                    let _ = move_if_exists(test_path.to_str().unwrap(), ".");
-                    let _ = move_if_exists(sketch_path.to_str().unwrap(), ".");
-
                     for &id_tol in self.test_params.scenario_params.id_tols.iter() {
-                        if has_presaved_sketches {
-                            let _ = restore_sampling_seed_dir();
-                        } else {
-                            let _ = clear_sampling_dir();
+                        if self.test_params.rsrs_params.sketching.load_samples {
+                            if has_presaved_sketches {
+                                let _ = restore_sampling_seed_dir(&path_str);
+                            } else {
+                                let _ = clear_sampling_dir(&path_str);
+                            }
                         }
                         let max_leaf_points = default_max_leaf_points(
                             id_tol.to_f64().unwrap(),
@@ -673,6 +689,9 @@ macro_rules! implement_test_framework {
 
                         let mut rsrs_operator =
                             RsrsOperator::from_local_spaces(&mut rsrs_factors, domain, range);
+                        let transpose_matches_apply = transpose_matches_apply(
+                            &self.test_params.scenario_params.structured_operator_type,
+                        );
                         match self.output_options.solve {
                             Solve::True(tol) => {
                                 rsrs_operator.inv(true);
@@ -695,7 +714,11 @@ macro_rules! implement_test_framework {
                                     solves,
                                     id_tol,
                                     &path_str,
-                                    false,
+                                    transpose_matches_apply,
+                                    self.test_params
+                                        .rsrs_params
+                                        .symmetry
+                                        .complex_symmetric_val::<Self::Item>(),
                                 );
                                 save_time_stats(&rsrs_algo, id_tol, &path_str);
                                 save_rank_stats(&rsrs_algo, id_tol, &path_str);
@@ -744,7 +767,11 @@ macro_rules! implement_test_framework {
                                     solves,
                                     id_tol,
                                     &path_str,
-                                    false,
+                                    transpose_matches_apply,
+                                    self.test_params
+                                        .rsrs_params
+                                        .symmetry
+                                        .complex_symmetric_val::<Self::Item>(),
                                 );
                                 save_rank_stats(&rsrs_algo, id_tol, &path_str);
 
@@ -782,10 +809,6 @@ macro_rules! implement_test_framework {
                         }
                     }
 
-                    let _ = move_if_exists("y_test_file.h5", &path_str);
-                    let _ = move_if_exists("y_sketch_file.h5", &path_str);
-                    let _ = move_if_exists("z_test_file.h5", &path_str);
-                    let _ = move_if_exists("z_sketch_file.h5", &path_str);
                 }
             }
         }
@@ -851,6 +874,11 @@ macro_rules! implement_distributed_test_framework {
                     options.set_regular_quadrature_degree(ReferenceCellType::Triangle, quad_degree);
 
                     let qrule = options.get_regular_quadrature_rule(ReferenceCellType::Triangle);
+                    let qpoints = qrule
+                        .points
+                        .iter()
+                        .map(|&point| num::cast(point).unwrap())
+                        .collect::<Vec<Real<Self::Item>>>();
 
                     let kifmm_evaluator =
                         bempp::greens_function_evaluators::kifmm_evaluator::KiFmmEvaluator::from_spaces(
@@ -860,7 +888,7 @@ macro_rules! implement_distributed_test_framework {
                             local_tree_depth,
                             global_tree_depth,
                             expansion_order,
-                            &qrule.points,
+                            &qpoints,
                         );
 
                     let operator = bempp::laplace::evaluator::single_layer(
@@ -880,12 +908,12 @@ macro_rules! implement_distributed_test_framework {
                     let mut points = Vec::new();
                     let mut p = vec![0.0; 3];
                     for cell in grid.local_grid().entity_iter(2) {
-                        let mut barycentre = [0.0; 3];
+                        let mut barycentre = [0.0f64; 3];
                         for point in cell.geometry().points() {
                             point.coords(&mut p);
-                            barycentre[0] += p[0]/3.0;
-                            barycentre[1] += p[1]/3.0;
-                            barycentre[2] += p[2]/3.0;
+                            barycentre[0] += num::cast::<_, f64>(p[0]).unwrap() / 3.0;
+                            barycentre[1] += num::cast::<_, f64>(p[1]).unwrap() / 3.0;
+                            barycentre[2] += num::cast::<_, f64>(p[2]).unwrap() / 3.0;
                         }
                         let point = bempp_octree::Point::new(barycentre, 000);
                         points.push(point);
@@ -910,6 +938,7 @@ macro_rules! implement_distributed_test_framework {
                         rel_err_no_prec: None,
                         sols_no_prec: None,
                         sols_prec: None,
+                        vectors_file: None,
                     };
 
                     match self.output_options.solve {
@@ -923,19 +952,24 @@ macro_rules! implement_distributed_test_framework {
                     };
 
                     let path_str = self.test_params.get_test_dir(dim_num);
-
-                    let test_path = Path::new(&path_str).join("y_test_file.h5");
-                    let sketch_path = Path::new(&path_str).join("y_sketch_file.h5");
-                    let _ = move_if_exists(test_path.to_str().unwrap(), ".");
-                    let _ = move_if_exists(sketch_path.to_str().unwrap(), ".");
-
-                    let test_path = Path::new(&path_str).join("z_test_file.h5");
-                    let sketch_path = Path::new(&path_str).join("z_sketch_file.h5");
-                    let _ = move_if_exists(test_path.to_str().unwrap(), ".");
-                    let _ = move_if_exists(sketch_path.to_str().unwrap(), ".");
+                    let preferred_sampling_dir = sample_storage_dir(&path_str);
+                    self.test_params.rsrs_params.sketching.sample_storage_dir =
+                        Some(preferred_sampling_dir.to_string_lossy().into_owned());
+                    let _ = clear_sampling_seed_dir(&path_str);
+                    let has_presaved_sketches = sampling_has_presaved_sketches(&path_str);
+                    if self.test_params.rsrs_params.sketching.load_samples && has_presaved_sketches
+                    {
+                        let _ = snapshot_sampling_dir(&path_str);
+                    }
 
                     for &id_tol in self.test_params.scenario_params.id_tols.iter() {
-                        let _ = clear_sampling_dir();
+                        if self.test_params.rsrs_params.sketching.load_samples {
+                            if has_presaved_sketches {
+                                let _ = restore_sampling_seed_dir(&path_str);
+                            } else {
+                                let _ = clear_sampling_dir(&path_str);
+                            }
+                        }
 
                         let max_leaf_points = default_max_leaf_points(
                             id_tol.to_f64().unwrap(),
@@ -973,6 +1007,9 @@ macro_rules! implement_distributed_test_framework {
                         let mut rsrs_algo: Rsrs<Self::Item> =
                             Rsrs::new(&tree, self.test_params.rsrs_params.clone(), dim);
                         let mut rsrs_operator = rsrs_algo.get_rsrs_operator(operator.r());
+                        let transpose_matches_apply = transpose_matches_apply(
+                            &self.test_params.scenario_params.structured_operator_type,
+                        );
 
 
 
@@ -997,7 +1034,11 @@ macro_rules! implement_distributed_test_framework {
                                     solves,
                                     id_tol,
                                     &path_str,
-                                    true
+                                    transpose_matches_apply,
+                                    self.test_params
+                                        .rsrs_params
+                                        .symmetry
+                                        .complex_symmetric_val::<Self::Item>(),
                                 );
                                 save_time_stats(&rsrs_algo, id_tol, &path_str);
                                 save_rank_stats(&rsrs_algo, id_tol, &path_str);
@@ -1043,7 +1084,11 @@ macro_rules! implement_distributed_test_framework {
                                     solves,
                                     id_tol,
                                     &path_str,
-                                    true,
+                                    transpose_matches_apply,
+                                    self.test_params
+                                        .rsrs_params
+                                        .symmetry
+                                        .complex_symmetric_val::<Self::Item>(),
                                 );
                                 save_rank_stats(&rsrs_algo, id_tol, &path_str);
                                 if self.output_options.factors_cn{
@@ -1073,14 +1118,11 @@ macro_rules! implement_distributed_test_framework {
                             }
                         }
                     }
-                    let _ = move_if_exists("y_test_file.h5", &path_str);
-                    let _ = move_if_exists("y_sketch_file.h5", &path_str);
-                    let _ = move_if_exists("z_test_file.h5", &path_str);
-                    let _ = move_if_exists("z_sketch_file.h5", &path_str);
                 }
             }
         }
     }
 }
 
+implement_distributed_test_framework!(f32);
 implement_distributed_test_framework!(f64);

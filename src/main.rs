@@ -67,6 +67,8 @@ fn determine_type_behavior(
 
 fn build_and_run_test<'a, SimpleCommunicator>()
 where
+    TestFramework<f32>:
+        TestFrameworkImpl<'a, f32, rlst::DistributedArrayVectorSpace<'a, SimpleCommunicator, f32>>,
     TestFramework<f64>:
         TestFrameworkImpl<'a, f64, rlst::DistributedArrayVectorSpace<'a, SimpleCommunicator, f64>>,
     SimpleCommunicator: mpi::topology::Communicator + 'a,
@@ -102,7 +104,13 @@ where
                     scenario_options.structured_operator_type,
                     StructuredOperatorType::BemppRsLaplaceOperator
                 ) {
-                    unimplemented!()
+                    let mut test_framework =
+                        TestFramework::<f32>::new(scenario_options, rsrs_options, output_options);
+                    <TestFramework<f32> as TestFrameworkImpl<
+                        'a,
+                        f32,
+                        DistributedArrayVectorSpace<'a, SimpleCommunicator, f32>,
+                    >>::run_tests(&mut test_framework);
                 } else {
                     let mut test_framework =
                         TestFramework::<f32>::new(scenario_options, rsrs_options, output_options);

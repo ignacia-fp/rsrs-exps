@@ -82,9 +82,9 @@ def apply(op, X):
 def _maybe_generate_samples(
     op,
     op_T,
-    precision,
-    n: int,
-    init_samples: int,
+    precision_or_n,
+    n: int | None = None,
+    init_samples: int | None = None,
     *,
     prefix_y: str = "y",
     prefix_z: str = "z",
@@ -98,7 +98,7 @@ def _maybe_generate_samples(
     transposable = False,
 ):
     """
-    Ensure at least init_samples are present on disk (in sampling/).
+    Ensure at least init_samples are present on disk.
     If fewer exist, append the missing number.
 
     If (common, nonsym, nonsymT) are provided:
@@ -107,7 +107,20 @@ def _maybe_generate_samples(
     and we compute common*[Omega_y Omega_z] in one multiply.
     """
 
-    
+    if isinstance(precision_or_n, str):
+        precision = precision_or_n.lower()
+        if n is None or init_samples is None:
+            raise TypeError("precision-based sampling calls require both n and init_samples")
+    else:
+        precision = "double"
+        if init_samples is None:
+            if n is None:
+                raise TypeError("legacy sampling calls require n and init_samples")
+            init_samples = int(n)
+            n = int(precision_or_n)
+        else:
+            n = int(n)
+
     if op is None:
         test_mat = np.ones((n, 1))
         t0 = time.perf_counter()
@@ -135,10 +148,11 @@ def _maybe_generate_samples(
     y_sk   = f"{prefix_y}_sketch_file"
     z_test = f"{prefix_z}_test_file"
     z_sk   = f"{prefix_z}_sketch_file"
+    active_sample_dir = _existing_sampling_dir(y_test) or _sampling_dir()
 
     # Count existing samples (rows)
     t0 = time.perf_counter()
-    m_old = existing_num_rows(y_test) or 0
+    m_old = existing_num_rows(y_test, active_sample_dir) or 0
     t_count = time.perf_counter() - t0
 
     if init_samples <= m_old:
@@ -193,11 +207,11 @@ def _maybe_generate_samples(
                 # I/O
                 t1 = time.perf_counter()
                 store_complex = np.iscomplexobj(Y)
-                append_samples_multipart(Omega_y.T, y_test, store_complex)
-                append_samples_multipart(Y.T,       y_sk,   store_complex)
+                append_samples_multipart(Omega_y.T, y_test, store_complex, sample_dir=active_sample_dir)
+                append_samples_multipart(Y.T, y_sk, store_complex, sample_dir=active_sample_dir)
                 t_io = time.perf_counter() - t1
 
-                m_new = existing_num_rows(y_test) or (m_old + n_add)
+                m_new = existing_num_rows(y_test, active_sample_dir) or (m_old + n_add)
                 t_total = time.perf_counter() - t_total0
                 print(
                     "[sampling] symmetric: saved only y_* | "
@@ -233,13 +247,13 @@ def _maybe_generate_samples(
     # I/O
     t0 = time.perf_counter()
     store_complex = np.iscomplexobj(Y) or np.iscomplexobj(Z)
-    append_samples_multipart(Omega_y.T,          y_test, store_complex)
-    append_samples_multipart(Y.T,               y_sk,   store_complex)
-    append_samples_multipart(np.conj(Omega_z).T, z_test, store_complex)
-    append_samples_multipart(np.conj(Z).T,       z_sk,   store_complex)
+    append_samples_multipart(Omega_y.T, y_test, store_complex, sample_dir=active_sample_dir)
+    append_samples_multipart(Y.T, y_sk, store_complex, sample_dir=active_sample_dir)
+    append_samples_multipart(np.conj(Omega_z).T, z_test, store_complex, sample_dir=active_sample_dir)
+    append_samples_multipart(np.conj(Z).T, z_sk, store_complex, sample_dir=active_sample_dir)
     t_io = time.perf_counter() - t0
 
-    m_new = existing_num_rows(y_test) or (m_old + n_add)
+    m_new = existing_num_rows(y_test, active_sample_dir) or (m_old + n_add)
     t_total = time.perf_counter() - t_total0
     print(
         "[sampling] done | "
@@ -253,11 +267,37 @@ def _maybe_generate_samples(
 # Match Rust constants
 BLOCK_COLS = 4096
 CHUNK_ROWS = 256
-SAMPLING_DIR = "sampling"
+DEFAULT_SAMPLING_DIR = "sampling"
 
 
-def _ensure_sampling_dir() -> None:
-    Path(SAMPLING_DIR).mkdir(parents=True, exist_ok=True)
+def _sampling_dir(sample_dir: str | os.PathLike | None = None) -> Path:
+    if sample_dir is not None:
+        return Path(sample_dir)
+
+    env_dir = os.environ.get("RSRS_SAMPLE_STORAGE_DIR")
+    if env_dir:
+        return Path(env_dir)
+
+    return Path(DEFAULT_SAMPLING_DIR)
+
+
+def _sampling_candidates(sample_dir: str | os.PathLike | None = None) -> list[Path]:
+    preferred = _sampling_dir(sample_dir)
+    legacy = Path(DEFAULT_SAMPLING_DIR)
+    return [preferred] if preferred == legacy else [preferred, legacy]
+
+
+def _existing_sampling_dir(base: str, sample_dir: str | os.PathLike | None = None) -> Path | None:
+    for candidate in _sampling_candidates(sample_dir):
+        if _find_part_files(base, candidate):
+            return candidate
+    return None
+
+
+def _ensure_sampling_dir(sample_dir: str | os.PathLike | None = None) -> Path:
+    path = _sampling_dir(sample_dir)
+    path.mkdir(parents=True, exist_ok=True)
+    return path
 
 
 def _canonical_base(input: str) -> str:
@@ -273,18 +313,21 @@ def _canonical_base(input: str) -> str:
     return s
 
 
-def _part_path(base: str, b: int) -> str:
+def _part_path(base: str, b: int, sample_dir: str | os.PathLike | None = None) -> str:
     b0 = _canonical_base(base)
-    return f"{SAMPLING_DIR}/{b0}.{b:05d}.h5"
+    return str(_sampling_dir(sample_dir) / f"{b0}.{b:05d}.h5")
 
 
-def _find_part_files(base: str) -> list[tuple[int, str]]:
+def _find_part_files(
+    base: str, sample_dir: str | os.PathLike | None = None
+) -> list[tuple[int, str]]:
     """
-    Mirror Rust find_part_files(): scan sampling/ for stem.{00000..}.h5
+    Mirror Rust find_part_files(): scan the configured sampling dir for
+    stem.{00000..}.h5.
     Require contiguous indices 0..K-1.
     """
     stem = _canonical_base(base)
-    d = Path(SAMPLING_DIR)
+    d = _sampling_dir(sample_dir)
     if not d.exists():
         return []
 
@@ -307,7 +350,7 @@ def _find_part_files(base: str) -> list[tuple[int, str]]:
     for expected, (idx, _) in enumerate(parts):
         if idx != expected:
             raise RuntimeError(
-                f"missing part file index {expected} (found {idx}) in {SAMPLING_DIR}"
+                f"missing part file index {expected} (found {idx}) in {d}"
             )
     return parts
 
@@ -340,12 +383,17 @@ def _chunk_len_for(total_len: int, wk: int) -> int:
     return min(int(total_len), max(1, CHUNK_ROWS * wk))
 
 
-def save_samples_multipart_overwrite(A: np.ndarray, base: str, force_complex: bool = False) -> None:
+def save_samples_multipart_overwrite(
+    A: np.ndarray,
+    base: str,
+    force_complex: bool = False,
+    sample_dir: str | os.PathLike | None = None,
+) -> None:
     """
     Overwrite multipart files with A in Rust-compatible layout.
     If force_complex=True, write both datasets "real" and "imag" (imag zeros if A is real).
     """
-    _ensure_sampling_dir()
+    sample_path = _ensure_sampling_dir(sample_dir)
 
     A = np.asarray(A)
     if A.ndim != 2:
@@ -354,7 +402,7 @@ def save_samples_multipart_overwrite(A: np.ndarray, base: str, force_complex: bo
     AF = np.asfortranarray(A)
 
     # Remove existing parts
-    parts = _find_part_files(base)
+    parts = _find_part_files(base, sample_path)
     for _, p in parts:
         Path(p).unlink()
 
@@ -366,7 +414,7 @@ def save_samples_multipart_overwrite(A: np.ndarray, base: str, force_complex: bo
         blk = AF[:, col0:col0 + wk]
         flat = blk.reshape(-1, order="F")
 
-        p = _part_path(base, b)
+        p = _part_path(base, b, sample_path)
         with h5py.File(p, "w") as f:
             _write_shape_attr(f, m, ncols)
 
@@ -381,14 +429,19 @@ def save_samples_multipart_overwrite(A: np.ndarray, base: str, force_complex: bo
                 f.create_dataset("imag", data=im, shape=(im.size,), chunks=(chunk_len,))
 
 
-def append_samples_multipart(A_extra: np.ndarray, base: str, force_complex: bool = False) -> None:
+def append_samples_multipart(
+    A_extra: np.ndarray,
+    base: str,
+    force_complex: bool = False,
+    sample_dir: str | os.PathLike | None = None,
+) -> None:
     """
     Append rows of A_extra to existing multipart data for `base`.
     If no existing data, this becomes a fresh write.
 
     If force_complex=True, always write both "real" and "imag" datasets (imag zeros if input is real).
     """
-    _ensure_sampling_dir()
+    sample_path = _ensure_sampling_dir(sample_dir)
 
     A_extra = np.asarray(A_extra)
     if A_extra.ndim != 2:
@@ -398,9 +451,14 @@ def append_samples_multipart(A_extra: np.ndarray, base: str, force_complex: bool
 
     is_complex = force_complex or np.iscomplexobj(A_extraF)
 
-    parts = _find_part_files(base)
+    parts = _find_part_files(base, sample_path)
     if not parts:
-        save_samples_multipart_overwrite(A_extraF, base, force_complex=force_complex)
+        save_samples_multipart_overwrite(
+            A_extraF,
+            base,
+            force_complex=force_complex,
+            sample_dir=sample_path,
+        )
         return
 
     with h5py.File(parts[0][1], "r") as f0:
@@ -413,7 +471,7 @@ def append_samples_multipart(A_extra: np.ndarray, base: str, force_complex: bool
     if stored_is_complex != is_complex:
         raise RuntimeError(
             f"format mismatch for base '{base}': stored complex={stored_is_complex}, "
-            f"but requested complex={is_complex}. Delete existing sampling/{_canonical_base(base)}.*.h5 to reset."
+            f"but requested complex={is_complex}. Delete {_sampling_dir(sample_path)}/{_canonical_base(base)}.*.h5 to reset."
         )
 
     m_new = m_old + m_add
@@ -431,7 +489,9 @@ def append_samples_multipart(A_extra: np.ndarray, base: str, force_complex: bool
                 raise RuntimeError(f"len mismatch in {p}::real: got {old_re.size}, expected {m_old*wk}")
 
             if not is_complex:
-                new_re = np.concatenate([old_re, np.asarray(flat_extra)], axis=0)
+                old_block = old_re.reshape((m_old, wk), order="F")
+                extra_block = np.asarray(flat_extra).reshape((m_add, wk), order="F")
+                new_re = np.concatenate([old_block, extra_block], axis=0).reshape(-1, order="F")
             else:
                 old_im = np.array(f["imag"][:], copy=False)
                 if old_im.size != m_old * wk:
@@ -440,8 +500,13 @@ def append_samples_multipart(A_extra: np.ndarray, base: str, force_complex: bool
                 extra_re = np.asarray(flat_extra.real)
                 extra_im = np.asarray(flat_extra.imag) if np.iscomplexobj(flat_extra) else np.zeros_like(extra_re)
 
-                new_re = np.concatenate([old_re, extra_re], axis=0)
-                new_im = np.concatenate([old_im, extra_im], axis=0)
+                old_re_block = old_re.reshape((m_old, wk), order="F")
+                old_im_block = old_im.reshape((m_old, wk), order="F")
+                extra_re_block = extra_re.reshape((m_add, wk), order="F")
+                extra_im_block = extra_im.reshape((m_add, wk), order="F")
+
+                new_re = np.concatenate([old_re_block, extra_re_block], axis=0).reshape(-1, order="F")
+                new_im = np.concatenate([old_im_block, extra_im_block], axis=0).reshape(-1, order="F")
 
         with h5py.File(p, "w") as f:
             _write_shape_attr(f, m_new, ncols)
@@ -451,8 +516,8 @@ def append_samples_multipart(A_extra: np.ndarray, base: str, force_complex: bool
                 f.create_dataset("imag", data=new_im, shape=(new_im.size,), chunks=(chunk_len,))
 
 
-def existing_num_rows(base: str) -> int | None:
-    parts = _find_part_files(base)
+def existing_num_rows(base: str, sample_dir: str | os.PathLike | None = None) -> int | None:
+    parts = _find_part_files(base, sample_dir)
     if not parts:
         return None
     with h5py.File(parts[0][1], "r") as f0:
@@ -496,9 +561,10 @@ def generate_and_append_test_and_sketches(
     y_sk   = f"{prefix_y}_sketch_file"
     z_test = f"{prefix_z}_test_file"
     z_sk   = f"{prefix_z}_sketch_file"
+    active_sample_dir = _existing_sampling_dir(y_test) or _sampling_dir()
 
     # How many samples (rows) already exist?
-    m_old = existing_num_rows(y_test) or 0
+    m_old = existing_num_rows(y_test, active_sample_dir) or 0
 
     # If we already have enough, don't add anything
     if n_samples_target <= m_old:
@@ -526,12 +592,12 @@ def generate_and_append_test_and_sketches(
     # We decide per-array based on dtype/object, no forcing.
     store_complex = np.iscomplexobj(Y) or np.iscomplexobj(Z)
 
-    append_samples_multipart(Omega_y.T,          y_test, store_complex)
-    append_samples_multipart(Y.T,               y_sk,   store_complex)
-    append_samples_multipart(np.conj(Omega_z).T, z_test, store_complex)
-    append_samples_multipart(np.conj(Z).T,       z_sk,   store_complex)
+    append_samples_multipart(Omega_y.T, y_test, store_complex, sample_dir=active_sample_dir)
+    append_samples_multipart(Y.T, y_sk, store_complex, sample_dir=active_sample_dir)
+    append_samples_multipart(np.conj(Omega_z).T, z_test, store_complex, sample_dir=active_sample_dir)
+    append_samples_multipart(np.conj(Z).T, z_sk, store_complex, sample_dir=active_sample_dir)
 
-    m_new = existing_num_rows(y_test)
+    m_new = existing_num_rows(y_test, active_sample_dir)
     print(f"[sampling] appended {n_add}. Total stored samples now: {m_new}.")
 
     t_total = time.perf_counter() - t_total0

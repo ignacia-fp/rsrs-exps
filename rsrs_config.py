@@ -7,6 +7,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import os
 import importlib
+import _rsrs_config_results as _config_results
 
 pi = np.pi
 
@@ -88,6 +89,7 @@ class RSRSBenchmarkConfig:
         fact_type = 1,
         n_sources: int = 1,
         save_samples: bool = True,
+        load_samples: bool = True,
         num_threads: int = 32,
         min_num_samples: int = 0,
         symmetry: int = 0,
@@ -392,6 +394,7 @@ class RSRSBenchmarkConfig:
         self.tol_ext_diag = tol_ext_diag
         self.n_sources = n_sources
         self.save_samples = save_samples
+        self.load_samples = load_samples
         self.num_threads = num_threads
         self.flush_factors = flush_factors
         self.store_far = store_far
@@ -485,6 +488,7 @@ class RSRSBenchmarkConfig:
             "rank_picking": self.rank_pickings[self.rank_picking_index],
             "fact_type": self.fact_types[self.fact_type],
             "save_samples": self.save_samples,
+            "load_samples": self.load_samples,
             "num_threads": self.num_threads,
             "flush_factors": self.flush_factors,
             "store_far": self.store_far,
@@ -680,47 +684,20 @@ class RSRSBenchmarkConfig:
             )
 
     def load_all_stats(self, kind="error"):
-        """
-        Load all JSON stats files of a given kind from the scenario's result directory.
-        
-        Parameters
-        ----------
-        kind : str
-            Type of statistics to load. Must be one of: 'error', 'time', 'rank', condition_numbers.
-            Corresponds to files named like 'error_stats_{tol}.json', etc.
-        
-        Returns
-        -------
-        List[dict]
-            List of dictionaries containing parsed JSON data, each augmented with a 'tolerance' key.
-        """
-        valid_kinds = {"error", "time", "rank", "condition_number"}
-        if kind not in valid_kinds:
-            raise ValueError(f"Invalid kind '{kind}'. Must be one of: {valid_kinds}.")
+        return _config_results.load_all_stats(self, kind=kind)
 
-        folder = self.generate_folder_name()
-        subfolder = self.generate_sub_folder_name()
-        base_path = Path(os.getcwd()) / "results" / folder / subfolder
+    def _results_base_path(self):
+        return _config_results.results_base_path(self)
 
-        stats = []
-        pattern = re.compile(fr"{kind}_stats_(.+)\.json")
+    def _select_error_stat(self, tol=None):
+        return _config_results.select_error_stat(self, tol=tol)
 
-        for file in base_path.iterdir():
-            if file.is_file() and file.name.startswith(f"{kind}_stats_") and file.suffix == ".json":
-                match = pattern.match(file.name)
-                if match:
-                    tol_str = match.group(1)
-                    try:
-                        tolerance = float(tol_str)
-                    except ValueError:
-                        continue  # Skip invalid tolerance values
+    @staticmethod
+    def _decode_legacy_vectors(vectors):
+        return _config_results.decode_legacy_vectors(vectors)
 
-                    with open(file, "r", encoding="utf-8") as f:
-                        data = json.load(f)
-                        data["tolerance"] = tolerance
-                        stats.append(data)
-
-        return stats
+    def _load_solution_group(self, stat, group_name):
+        return _config_results.load_solution_group(self, stat, group_name)
 
     @classmethod
     def generate_table_a(
@@ -1548,38 +1525,12 @@ class RSRSBenchmarkConfig:
         src.rename(dst)
 
     def load_sols(self, tol=1e-2):
-        all_stats = self.load_all_stats(kind="error")
-        all_stats.sort(key=lambda d: float(d["tolerance"]))
-
         if tol == 0.0:
-            solves = all_stats[0].get("solves", {}).get("sols_no_prec", [])
+            stat = self._select_error_stat()
+            return self._load_solution_group(stat, "sols_no_prec")
         else:
-            ind = 0
-            for data in all_stats:
-                if data is None:
-                    continue
-
-                tol_str = data["tolerance"]
-                if float(tol_str) == tol:
-                    break
-                else:
-                    ind += 1
-            solves = all_stats[ind].get("solves", {}).get("sols_prec", [])
-        solutions = []
-        for sol in solves:
-            arr = np.array(sol)
-                # Real case: 1D array
-            if arr.ndim == 1:
-                solutions.append(arr.astype(float))
-
-            # Complex case: 2D array with last dimension = 2 ([Re, Im])
-            elif arr.ndim == 2 and arr.shape[-1] == 2:
-                complex_arr = arr[:, 0] + 1j * arr[:, 1]
-                solutions.append(complex_arr)
-
-            else:
-                raise ValueError(f"Unexpected solution shape {arr.shape}")
-        return solutions
+            stat = self._select_error_stat(tol)
+            return self._load_solution_group(stat, "sols_prec")
 
     def get_far_field(self, tol=1e-2, n_grid_points=150, plane=0, lims = [-1,1,-1,1], c=0.0):
         import bempp_cl.api
@@ -2598,4 +2549,3 @@ class RSRSBenchmarkConfig:
             return pd.DataFrame(rows)
 
         return rows
-

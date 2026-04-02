@@ -9,11 +9,14 @@ use bempp_rsrs::rsrs::sketch::{SampleType, SamplingSpace};
 use bempp_rsrs::utils::data_ins_ext::{ExtInsType, Extraction, MatrixExtraction};
 use mpi::traits::Communicator;
 use mpi::traits::Equivalence;
-use num::NumCast;
+use num::{FromPrimitive, NumCast};
 use rand_distr::{Distribution, Standard, StandardNormal};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use rlst::{
-    dense::{linalg::lu::MatrixLu, tools::RandScalar},
+    dense::{
+        linalg::{interpolative_decomposition::MatrixIdNoSkel, lu::MatrixLu},
+        tools::RandScalar,
+    },
     prelude::*,
 };
 use serde::Serialize;
@@ -151,7 +154,7 @@ pub struct NormalOperator<
     Op1: OperatorBase<Domain = Space, Range = Space>,
 > {
     pub op: Op1,
-    pub transpose_is_identity: bool,
+    pub transpose_matches_apply: bool,
 }
 
 impl<
@@ -160,10 +163,10 @@ impl<
         Op1: OperatorBase<Domain = Space, Range = Space>,
     > NormalOperator<Item, Space, Op1>
 {
-    pub fn new(op: Op1, transpose_is_identity: bool) -> Self {
+    pub fn new(op: Op1, transpose_matches_apply: bool) -> Self {
         Self {
             op,
-            transpose_is_identity,
+            transpose_matches_apply,
         }
     }
 }
@@ -316,7 +319,7 @@ where
             .apply_extended(alpha, x.r(), beta, y_aux_1.r_mut(), TransMode::NoTrans);
         let y_aux_1_conj = self.domain().conj_vec(&y_aux_1);
 
-        if self.transpose_is_identity {
+        if self.transpose_matches_apply {
             self.op.apply_extended(
                 alpha,
                 y_aux_1_conj,
@@ -371,7 +374,14 @@ where
 }
 
 fn mul_op<
-    Item: RlstScalar + RandScalar + MatrixInverse + MatrixId + MatrixPseudoInverse + MatrixLu + MatrixQr,
+    Item: RlstScalar
+        + RandScalar
+        + MatrixInverse
+        + MatrixId
+        + MatrixIdNoSkel
+        + MatrixPseudoInverse
+        + MatrixLu
+        + MatrixQr,
     Space: SamplingSpace<F = Item>,
     OpImpl: AsApply<Domain = Space, Range = Space>,
 >(
@@ -389,7 +399,14 @@ fn mul_op<
 
 pub fn app_error_right<
     'a,
-    Item: RlstScalar + RandScalar + MatrixInverse + MatrixId + MatrixPseudoInverse + MatrixLu + MatrixQr,
+    Item: RlstScalar
+        + RandScalar
+        + MatrixInverse
+        + MatrixId
+        + MatrixIdNoSkel
+        + MatrixPseudoInverse
+        + MatrixLu
+        + MatrixQr,
     Space: SamplingSpace<F = Item>,
     OpImpl: AsApply<Domain = Space, Range = Space>,
     OpImpl2: AsApply<Domain = Space, Range = Space> + Inv,
@@ -423,14 +440,14 @@ where
     let mut mod_sample_frame = mul_op(rsrs_op, &sample_frame, trans_mode);
 
     let max_err = if inv {
-        mod_sample_frame = mul_op(target_op, &mod_sample_frame, TransMode::NoTrans);
+        mod_sample_frame = mul_op(target_op, &mod_sample_frame, trans_mode);
         mod_sample_frame
             .iter_mut()
             .zip(sample_frame.iter())
             .map(|(approx_vec, ref_vec)| {
                 approx_vec.sub_inplace(ref_vec.r());
-                if approx_vec.r().norm() == num::Zero::zero() {
-                    num::One::one()
+                if ref_vec.r().norm() == num::Zero::zero() {
+                    approx_vec.r().norm()
                 } else {
                     approx_vec.r().norm() / ref_vec.r().norm()
                 }
@@ -439,7 +456,7 @@ where
             .into_iter()
             .max_by(|a, b| a.partial_cmp(b).unwrap())
     } else {
-        sample_frame = mul_op(target_op, &sample_frame, TransMode::NoTrans);
+        sample_frame = mul_op(target_op, &sample_frame, trans_mode);
         sample_frame
             .iter_mut()
             .zip(mod_sample_frame.iter_mut())
@@ -461,7 +478,14 @@ where
 
 pub fn app_error_left<
     'a,
-    Item: RlstScalar + RandScalar + MatrixInverse + MatrixId + MatrixPseudoInverse + MatrixLu + MatrixQr,
+    Item: RlstScalar
+        + RandScalar
+        + MatrixInverse
+        + MatrixId
+        + MatrixIdNoSkel
+        + MatrixPseudoInverse
+        + MatrixLu
+        + MatrixQr,
     Space: SamplingSpace<F = Item>,
     OpImpl: AsApply<Domain = Space, Range = Space>,
     OpImpl2: AsApply<Domain = Space, Range = Space> + Inv,
@@ -484,7 +508,7 @@ where
 
     let mut sample_frame = VectorFrame::default();
     let mut rng: rand::rngs::StdRng = rand::SeedableRng::from_entropy();
-    let space = target_op.range();
+    let space = target_op.domain();
 
     for _ in 0..sample_size {
         let mut sample_vec = SamplingSpace::zero(space.clone());
@@ -501,8 +525,8 @@ where
             .zip(sample_frame.iter())
             .map(|(approx_vec, ref_vec)| {
                 approx_vec.sub_inplace(ref_vec.r());
-                if approx_vec.r().norm() == num::Zero::zero() {
-                    num::One::one()
+                if ref_vec.r().norm() == num::Zero::zero() {
+                    approx_vec.r().norm()
                 } else {
                     approx_vec.r().norm() / ref_vec.r().norm()
                 }
@@ -533,7 +557,14 @@ where
 
 pub fn rsrs_error_estimator<
     'a,
-    Item: RlstScalar + RandScalar + MatrixInverse + MatrixId + MatrixPseudoInverse + MatrixLu + MatrixQr,
+    Item: RlstScalar
+        + RandScalar
+        + MatrixInverse
+        + MatrixId
+        + MatrixIdNoSkel
+        + MatrixPseudoInverse
+        + MatrixLu
+        + MatrixQr,
     Space: SamplingSpace<F = Item>,
     OpImpl: AsApply<Domain = Space, Range = Space>,
     OpImpl2: AsApply<Domain = Space, Range = Space> + Inv,
@@ -557,6 +588,49 @@ where
     let app_err_right = app_error_right(target_op, rsrs_operator, sample_size, inv);
 
     (app_err_left, app_err_right)
+}
+
+pub fn frobenius_diff_and_reference_norm<
+    Item: RlstScalar,
+    Space: SamplingSpace<F = Item> + IndexableSpace,
+    OpRef: AsApply<Domain = Space, Range = Space>,
+    OpApprox: AsApply<Domain = Space, Range = Space>,
+>(
+    reference_op: &OpRef,
+    approx_op: &OpApprox,
+) -> (Real<Item>, Real<Item>)
+where
+    <<Space as rlst::LinearSpace>::E as rlst::ElementImpl>::Space: rlst::InnerProductSpace,
+{
+    let dim = reference_op.domain().dimension();
+    let domain = reference_op.domain();
+    let mut reference_sq = 0.0f64;
+    let mut diff_sq = 0.0f64;
+
+    for col in 0..dim {
+        let mut basis = SamplingSpace::zero(domain.clone());
+        let mut raw = vec![Item::from_real(Item::real(0.0)); dim];
+        raw[col] = num::One::one();
+        basis.imp_mut().fill_inplace_raw(&raw);
+
+        let reference_col = reference_op.apply(basis.r(), TransMode::NoTrans);
+        let mut approx_col = approx_op.apply(basis.r(), TransMode::NoTrans);
+        approx_col.sub_inplace(reference_col.r());
+
+        let reference_norm: f64 = NumCast::from(reference_col.norm()).unwrap();
+        let diff_norm: f64 = NumCast::from(approx_col.norm()).unwrap();
+
+        reference_sq += reference_norm * reference_norm;
+        diff_sq += diff_norm * diff_norm;
+    }
+
+    let reference_fro = reference_sq.sqrt();
+    let rel_diff = diff_sq.sqrt() / reference_fro.max(1.0e-14);
+
+    (
+        Real::<Item>::from_f64(rel_diff).unwrap(),
+        Real::<Item>::from_f64(reference_fro).unwrap(),
+    )
 }
 
 /////////////Dense matrix error extraction
@@ -726,7 +800,14 @@ where
 }
 
 fn commutative_factors_errors<
-    Item: RlstScalar + RandScalar + MatrixInverse + MatrixPseudoInverse + MatrixLu + MatrixId + MatrixQr,
+    Item: RlstScalar
+        + RandScalar
+        + MatrixInverse
+        + MatrixPseudoInverse
+        + MatrixLu
+        + MatrixId
+        + MatrixIdNoSkel
+        + MatrixQr,
 >(
     factors: &CommutativeFactors<Item>,
     target_arr: &mut DynamicArray<Item, 2>,
@@ -843,7 +924,14 @@ where
 }
 
 fn el_factors_inv_mul_errors<
-    Item: RlstScalar + RandScalar + MatrixInverse + MatrixId + MatrixPseudoInverse + MatrixLu + MatrixQr,
+    Item: RlstScalar
+        + RandScalar
+        + MatrixInverse
+        + MatrixId
+        + MatrixIdNoSkel
+        + MatrixPseudoInverse
+        + MatrixLu
+        + MatrixQr,
 >(
     rsrs_factors: &RsrsFactors<Item>,
     target_arr: &mut DynamicArray<Item, 2>,
@@ -981,7 +1069,14 @@ struct ErrorStatsContainer {
 }
 
 pub fn get_boxes_errors<
-    Item: RlstScalar + RandScalar + MatrixInverse + MatrixPseudoInverse + MatrixId + MatrixLu + MatrixQr,
+    Item: RlstScalar
+        + RandScalar
+        + MatrixInverse
+        + MatrixPseudoInverse
+        + MatrixId
+        + MatrixIdNoSkel
+        + MatrixLu
+        + MatrixQr,
 >(
     structured_operator_mat: &mut DynamicArray<Item, 2>,
     rsrs_factors: &mut RsrsFactors<Item>,
@@ -1060,4 +1155,313 @@ pub fn get_boxes_errors<
 
     let mut file = File::create(stats_path).unwrap();
     file.write_all(json_string.as_bytes()).unwrap();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use num::Complex;
+
+    struct DenseMatrixOperator<Item: RlstScalar> {
+        matrix: DynamicArray<Item, 2>,
+        domain: Rc<ArrayVectorSpace<Item>>,
+        range: Rc<ArrayVectorSpace<Item>>,
+    }
+
+    impl<Item: RlstScalar> DenseMatrixOperator<Item> {
+        fn new(matrix: DynamicArray<Item, 2>) -> Self {
+            let shape = matrix.shape();
+            Self {
+                matrix,
+                domain: ArrayVectorSpace::from_dimension(shape[1]),
+                range: ArrayVectorSpace::from_dimension(shape[0]),
+            }
+        }
+
+        fn entry(&self, row: usize, col: usize, trans_mode: TransMode) -> Item {
+            match trans_mode {
+                TransMode::NoTrans => self.matrix[[row, col]],
+                TransMode::Trans => self.matrix[[col, row]],
+                TransMode::ConjNoTrans => self.matrix[[row, col]].conj(),
+                TransMode::ConjTrans => self.matrix[[col, row]].conj(),
+            }
+        }
+    }
+
+    impl<Item: RlstScalar> std::fmt::Debug for DenseMatrixOperator<Item> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(
+                f,
+                "DenseMatrixOperator([{}x{}])",
+                self.range.dimension(),
+                self.domain.dimension()
+            )
+        }
+    }
+
+    impl<Item: RlstScalar> OperatorBase for DenseMatrixOperator<Item> {
+        type Domain = ArrayVectorSpace<Item>;
+        type Range = ArrayVectorSpace<Item>;
+
+        fn domain(&self) -> Rc<Self::Domain> {
+            self.domain.clone()
+        }
+
+        fn range(&self) -> Rc<Self::Range> {
+            self.range.clone()
+        }
+    }
+
+    impl<Item: RlstScalar> AsApply for DenseMatrixOperator<Item> {
+        fn apply_extended<
+            ContainerIn: ElementContainer<E = <Self::Domain as LinearSpace>::E>,
+            ContainerOut: ElementContainerMut<E = <Self::Range as LinearSpace>::E>,
+        >(
+            &self,
+            alpha: <Self::Range as LinearSpace>::F,
+            x: Element<ContainerIn>,
+            beta: <Self::Range as LinearSpace>::F,
+            mut y: Element<ContainerOut>,
+            trans_mode: TransMode,
+        ) {
+            let row_dim = self.range.dimension();
+            let col_dim = self.domain.dimension();
+            let input = x.imp().view();
+            let prev = y.imp().view().iter().collect::<Vec<_>>();
+            let mut out = vec![Item::from_real(Item::real(0.0)); row_dim];
+
+            for row in 0..row_dim {
+                let mut accum = Item::from_real(Item::real(0.0));
+                for col in 0..col_dim {
+                    accum = accum + self.entry(row, col, trans_mode) * input[[col]];
+                }
+                out[row] = alpha * accum + beta * prev[row];
+            }
+
+            y.imp_mut().fill_inplace_raw(&out);
+        }
+
+        fn apply<ContainerIn: ElementContainer<E = <Self::Domain as LinearSpace>::E>>(
+            &self,
+            x: Element<ContainerIn>,
+            trans_mode: TransMode,
+        ) -> rlst::operator::ElementType<<Self::Range as LinearSpace>::E> {
+            let mut y = zero_element(self.range());
+            self.apply_extended(
+                <<Self::Range as LinearSpace>::F as num::One>::one(),
+                x,
+                <<Self::Range as LinearSpace>::F as num::Zero>::zero(),
+                y.r_mut(),
+                trans_mode,
+            );
+            y
+        }
+    }
+
+    struct ToggleInverseOperator<Item: RlstScalar> {
+        forward: DenseMatrixOperator<Item>,
+        inverse: DenseMatrixOperator<Item>,
+        inv: bool,
+    }
+
+    impl<Item: RlstScalar> ToggleInverseOperator<Item> {
+        fn new(forward: DynamicArray<Item, 2>, inverse: DynamicArray<Item, 2>) -> Self {
+            Self {
+                forward: DenseMatrixOperator::new(forward),
+                inverse: DenseMatrixOperator::new(inverse),
+                inv: false,
+            }
+        }
+
+        fn active(&self) -> &DenseMatrixOperator<Item> {
+            if self.inv {
+                &self.inverse
+            } else {
+                &self.forward
+            }
+        }
+    }
+
+    impl<Item: RlstScalar> std::fmt::Debug for ToggleInverseOperator<Item> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "ToggleInverseOperator(inv={})", self.inv)
+        }
+    }
+
+    impl<Item: RlstScalar> OperatorBase for ToggleInverseOperator<Item> {
+        type Domain = ArrayVectorSpace<Item>;
+        type Range = ArrayVectorSpace<Item>;
+
+        fn domain(&self) -> Rc<Self::Domain> {
+            self.active().domain()
+        }
+
+        fn range(&self) -> Rc<Self::Range> {
+            self.active().range()
+        }
+    }
+
+    impl<Item: RlstScalar> AsApply for ToggleInverseOperator<Item> {
+        fn apply_extended<
+            ContainerIn: ElementContainer<E = <Self::Domain as LinearSpace>::E>,
+            ContainerOut: ElementContainerMut<E = <Self::Range as LinearSpace>::E>,
+        >(
+            &self,
+            alpha: <Self::Range as LinearSpace>::F,
+            x: Element<ContainerIn>,
+            beta: <Self::Range as LinearSpace>::F,
+            y: Element<ContainerOut>,
+            trans_mode: TransMode,
+        ) {
+            self.active().apply_extended(alpha, x, beta, y, trans_mode);
+        }
+
+        fn apply<ContainerIn: ElementContainer<E = <Self::Domain as LinearSpace>::E>>(
+            &self,
+            x: Element<ContainerIn>,
+            trans_mode: TransMode,
+        ) -> rlst::operator::ElementType<<Self::Range as LinearSpace>::E> {
+            self.active().apply(x, trans_mode)
+        }
+    }
+
+    impl<Item: RlstScalar> Inv for ToggleInverseOperator<Item> {
+        fn inv(&mut self, inv: bool) {
+            self.inv = inv;
+        }
+    }
+
+    fn rel_l2_error<Item: RlstScalar>(actual: &[Item], expected: &[Item]) -> f64 {
+        let mut actual_arr = rlst_dynamic_array1!(Item, [actual.len()]);
+        let mut expected_arr = rlst_dynamic_array1!(Item, [expected.len()]);
+        actual_arr.fill_from_raw_data(actual);
+        expected_arr.fill_from_raw_data(expected);
+
+        let mut diff = empty_array();
+        diff.fill_from_resize(actual_arr.r() - expected_arr.r());
+
+        let num: f64 = NumCast::from(diff.norm_2()).unwrap();
+        let den: f64 = NumCast::from(expected_arr.norm_2()).unwrap();
+        num / den.max(1.0e-14)
+    }
+
+    fn apply_operator<Item, Op>(op: &Op, input: &[Item], trans_mode: TransMode) -> Vec<Item>
+    where
+        Item: RlstScalar,
+        Op: AsApply<Domain = ArrayVectorSpace<Item>, Range = ArrayVectorSpace<Item>>,
+    {
+        let mut x = zero_element(op.domain());
+        x.imp_mut().fill_inplace_raw(input);
+        op.apply(x.r(), trans_mode).view().iter().collect()
+    }
+
+    fn copy_array2<Item: RlstScalar>(arr: &DynamicArray<Item, 2>) -> DynamicArray<Item, 2> {
+        let shape = arr.shape();
+        let mut out = rlst_dynamic_array2!(Item, [shape[0], shape[1]]);
+        out.fill_from(arr.r());
+        out
+    }
+
+    #[test]
+    fn app_error_estimators_are_zero_for_exact_operator_and_inverse() {
+        let mut matrix = rlst_dynamic_array2!(f64, [2, 2]);
+        matrix[[0, 0]] = 1.0;
+        matrix[[0, 1]] = 2.0;
+        matrix[[1, 0]] = 0.0;
+        matrix[[1, 1]] = 1.0;
+
+        let mut inverse = rlst_dynamic_array2!(f64, [2, 2]);
+        inverse[[0, 0]] = 1.0;
+        inverse[[0, 1]] = -2.0;
+        inverse[[1, 0]] = 0.0;
+        inverse[[1, 1]] = 1.0;
+
+        let target = DenseMatrixOperator::new(copy_array2(&matrix));
+        let mut rsrs_like = ToggleInverseOperator::new(matrix, inverse);
+
+        let left_err = app_error_left(&target, &rsrs_like, 8, false);
+        let right_err = app_error_right(&target, &rsrs_like, 8, false);
+        let left_err: f64 = NumCast::from(left_err).unwrap();
+        let right_err: f64 = NumCast::from(right_err).unwrap();
+
+        assert!(left_err <= 1.0e-12, "left error too large: {left_err}");
+        assert!(right_err <= 1.0e-12, "right error too large: {right_err}");
+
+        rsrs_like.inv(true);
+        let left_inv_err = app_error_left(&target, &rsrs_like, 8, true);
+        let right_inv_err = app_error_right(&target, &rsrs_like, 8, true);
+        let left_inv_err: f64 = NumCast::from(left_inv_err).unwrap();
+        let right_inv_err: f64 = NumCast::from(right_inv_err).unwrap();
+
+        assert!(
+            left_inv_err <= 1.0e-12,
+            "left inverse error too large: {left_inv_err}"
+        );
+        assert!(
+            right_inv_err <= 1.0e-12,
+            "right inverse error too large: {right_inv_err}"
+        );
+
+        rsrs_like.inv(false);
+        let (rel_fro_error, norm_fro_target) =
+            frobenius_diff_and_reference_norm(&target, &rsrs_like);
+        let rel_fro_error: f64 = NumCast::from(rel_fro_error).unwrap();
+        let norm_fro_target: f64 = NumCast::from(norm_fro_target).unwrap();
+
+        assert!(
+            rel_fro_error <= 1.0e-12,
+            "forward Frobenius error too large: {rel_fro_error}"
+        );
+        assert!(
+            (norm_fro_target - (6.0f64).sqrt()).abs() <= 1.0e-12,
+            "unexpected forward Frobenius norm: {norm_fro_target}"
+        );
+
+        rsrs_like.inv(true);
+        let product = rsrs_like.r().product(target.r());
+        let id_op = IdOperator::new(target.domain(), target.range());
+        let (rel_fro_inverse_error, norm_fro_identity) =
+            frobenius_diff_and_reference_norm(&id_op, &product);
+        let rel_fro_inverse_error: f64 = NumCast::from(rel_fro_inverse_error).unwrap();
+        let norm_fro_identity: f64 = NumCast::from(norm_fro_identity).unwrap();
+
+        assert!(
+            rel_fro_inverse_error <= 1.0e-12,
+            "inverse Frobenius error too large: {rel_fro_inverse_error}"
+        );
+        assert!(
+            (norm_fro_identity - (2.0f64).sqrt()).abs() <= 1.0e-12,
+            "unexpected identity Frobenius norm: {norm_fro_identity}"
+        );
+    }
+
+    #[test]
+    fn normal_operator_matches_dense_adjoint_product() {
+        let mut matrix = rlst_dynamic_array2!(Complex<f64>, [2, 2]);
+        matrix[[0, 0]] = Complex::new(1.0, 0.5);
+        matrix[[0, 1]] = Complex::new(-0.25, 1.0);
+        matrix[[1, 0]] = Complex::new(0.75, -0.5);
+        matrix[[1, 1]] = Complex::new(2.0, 0.25);
+
+        let op = DenseMatrixOperator::new(copy_array2(&matrix));
+        let normal = NormalOperator::new(op, false);
+        let x = vec![Complex::new(1.0, -0.5), Complex::new(-0.25, 0.75)];
+
+        let actual = apply_operator(&normal, &x, TransMode::NoTrans);
+        let tmp = apply_operator(
+            &DenseMatrixOperator::new(copy_array2(&matrix)),
+            &x,
+            TransMode::NoTrans,
+        );
+        let tmp_conj: Vec<_> = tmp.iter().map(|value| value.conj()).collect();
+        let second = apply_operator(
+            &DenseMatrixOperator::new(matrix),
+            &tmp_conj,
+            TransMode::Trans,
+        );
+        let expected: Vec<_> = second.iter().map(|value| value.conj()).collect();
+
+        let err = rel_l2_error(&actual, &expected);
+        assert!(err <= 1.0e-12, "normal operator error too large: {err}");
+    }
 }

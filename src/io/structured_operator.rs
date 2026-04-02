@@ -167,6 +167,7 @@ pub struct StructuredOperatorParams {
     n_sources: i32,
     init_samples: i32,
     assembler: Assembler,
+    sample_storage_dir: Option<String>,
 }
 impl StructuredOperatorParams {
     pub fn new(
@@ -188,7 +189,13 @@ impl StructuredOperatorParams {
             n_sources,
             init_samples,
             assembler,
+            sample_storage_dir: None,
         }
+    }
+
+    pub fn with_sample_storage_dir(mut self, sample_storage_dir: impl Into<String>) -> Self {
+        self.sample_storage_dir = Some(sample_storage_dir.into());
+        self
     }
 }
 /*type BemppRsOperator<T> = Operator<T>;
@@ -206,14 +213,8 @@ pub trait StructuredOperatorImpl<Item: RlstScalar> {
     fn rhs(&self) -> Vec<Vec<Self::Item>>; // updated to multi-RHS
 }
 
-fn detect_python_env() -> (String, String) {
-    let code = r#"
-import sys
-print(sys.executable)
-print(sys.prefix)
-"#;
-
-    let output = std::process::Command::new("python3")
+fn query_python_env(python_executable: &str, code: &str) -> (String, String) {
+    let output = std::process::Command::new(python_executable)
         .arg("-c")
         .arg(code)
         .output()
@@ -226,12 +227,54 @@ print(sys.prefix)
     (executable, prefix)
 }
 
+fn detect_python_env() -> (String, String) {
+    let code = r#"
+import sys
+print(sys.executable)
+print(sys.prefix)
+"#;
+
+    if let Ok(python_executable) = std::env::var("RSRS_EXPS_PYTHON") {
+        return query_python_env(&python_executable, code);
+    }
+
+    if let Ok(version_text) = std::fs::read_to_string(".python-version") {
+        if let Some(version) = version_text
+            .lines()
+            .map(str::trim)
+            .find(|line| !line.is_empty())
+        {
+            if let Ok(output) = std::process::Command::new("pyenv")
+                .env("PYENV_VERSION", version)
+                .args(["which", "python"])
+                .output()
+            {
+                if output.status.success() {
+                    let python_executable =
+                        String::from_utf8_lossy(&output.stdout).trim().to_string();
+                    if !python_executable.is_empty() {
+                        return query_python_env(&python_executable, code);
+                    }
+                }
+            }
+        }
+    }
+
+    query_python_env("python3", code)
+}
+
 macro_rules! implement_structured_operator {
     ($scalar:ty, $mv:expr, $mv_t:expr, $rhs_fn:expr) => {
         impl StructuredOperatorImpl<$scalar> for StructuredOperatorInterface {
             type Item = $scalar;
 
             fn new(params: &StructuredOperatorParams) -> Self {
+                if let Some(sample_storage_dir) = params.sample_storage_dir.as_deref() {
+                    std::env::set_var("RSRS_SAMPLE_STORAGE_DIR", sample_storage_dir);
+                } else {
+                    std::env::remove_var("RSRS_SAMPLE_STORAGE_DIR");
+                }
+
                 let class_name = params.structured_operator_type.as_ref();
                 let c_str = std::ffi::CString::new(class_name).unwrap();
                 let precision_str = match params.precision {
