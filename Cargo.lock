@@ -2791,6 +2791,7 @@ checksum = "dc897dd8d9e8bd1ed8cdad82b5966c3e0ecae09fb1907d58efaa013543185d0a"
 [[package]]
 name = "rlst"
 version = "0.2.1"
+source = "git+https://github.com/ignacia-fp/rlst.git?branch=extend_abstract_operator#7b9feb376e9e15be1e2800f8f45b1df2918fc6df"
 dependencies = [
  "arpack-ng-sys",
  "bempp-distributed-tools",
@@ -2820,6 +2821,7 @@ dependencies = [
 [[package]]
 name = "rlst-proc-macro"
 version = "0.2.1"
+source = "git+https://github.com/ignacia-fp/rlst.git?branch=extend_abstract_operator#7b9feb376e9e15be1e2800f8f45b1df2918fc6df"
 dependencies = [
  "darling",
  "quote",

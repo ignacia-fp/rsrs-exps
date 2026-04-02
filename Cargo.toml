@@ -71,6 +71,3 @@ cc = "1.0"
 
 [lints.clippy]
 wildcard_imports = "forbid"
-
-[patch."https://github.com/ignacia-fp/rlst.git"]
-rlst = { path = "../rlst" }
