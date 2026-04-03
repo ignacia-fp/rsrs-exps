@@ -353,9 +353,9 @@ where
     }
 }
 
-fn _gen_sample_frame<Item: RlstScalar + RandScalar, Space: SamplingSpace<F = Item> + Clone>(
+fn _gen_sample_frame<Item: RlstScalar + RandScalar, Space: SamplingSpace<F = Item>>(
     sample_size: usize,
-    space: Space,
+    space: Rc<Space>,
 ) -> VectorFrame<<Space as rlst::LinearSpace>::E>
 where
     StandardNormal: Distribution<Item::Real>,
@@ -366,8 +366,28 @@ where
     let mut rng: rand::rngs::StdRng = rand::SeedableRng::from_entropy();
 
     for _ in 0..sample_size {
-        let mut sample_vec = SamplingSpace::zero(std::rc::Rc::new(space.clone()));
+        let mut sample_vec = SamplingSpace::zero(space.clone());
         space.sampling(&mut sample_vec, &mut rng, SampleType::StandardNormal);
+        frame.push(sample_vec);
+    }
+    frame
+}
+
+fn _gen_real_gaussian_sample_frame<Item: RlstScalar + RandScalar, Space: SamplingSpace<F = Item>>(
+    sample_size: usize,
+    space: Rc<Space>,
+) -> VectorFrame<<Space as rlst::LinearSpace>::E>
+where
+    StandardNormal: Distribution<Item::Real>,
+    Standard: Distribution<Item::Real>,
+    <Item as rlst::RlstScalar>::Real: RandScalar,
+{
+    let mut frame = VectorFrame::default();
+    let mut rng: rand::rngs::StdRng = rand::SeedableRng::from_entropy();
+
+    for _ in 0..sample_size {
+        let mut sample_vec = SamplingSpace::zero(space.clone());
+        space.sampling(&mut sample_vec, &mut rng, SampleType::RealStandardNormal);
         frame.push(sample_vec);
     }
     frame
@@ -598,23 +618,28 @@ pub fn frobenius_diff_and_reference_norm<
 >(
     reference_op: &OpRef,
     approx_op: &OpApprox,
+    sample_size: usize,
 ) -> (Real<Item>, Real<Item>)
 where
+    Item: RandScalar + MatrixInverse + MatrixId + MatrixIdNoSkel + MatrixPseudoInverse + MatrixLu + MatrixQr,
+    StandardNormal: Distribution<Item::Real>,
+    Standard: Distribution<Item::Real>,
+    <Item as rlst::RlstScalar>::Real: RandScalar,
     <<Space as rlst::LinearSpace>::E as rlst::ElementImpl>::Space: rlst::InnerProductSpace,
+    LuDecomposition<Item, BaseArray<Item, VectorContainer<Item>, 2>>:
+        MatrixLuDecomposition<Item = Item>,
+    TriangularMatrix<Item>: TriangularOperations<Item = Item>,
 {
-    let dim = reference_op.domain().dimension();
-    let domain = reference_op.domain();
+    let sample_size = sample_size.max(1);
+    let sample_frame = _gen_real_gaussian_sample_frame(sample_size, reference_op.domain());
+    let reference_frame = mul_op(reference_op, &sample_frame, TransMode::NoTrans);
+    let mut approx_frame = mul_op(approx_op, &sample_frame, TransMode::NoTrans);
+
     let mut reference_sq = 0.0f64;
     let mut diff_sq = 0.0f64;
+    let sample_scale = (sample_size as f64).sqrt();
 
-    for col in 0..dim {
-        let mut basis = SamplingSpace::zero(domain.clone());
-        let mut raw = vec![Item::from_real(Item::real(0.0)); dim];
-        raw[col] = num::One::one();
-        basis.imp_mut().fill_inplace_raw(&raw);
-
-        let reference_col = reference_op.apply(basis.r(), TransMode::NoTrans);
-        let mut approx_col = approx_op.apply(basis.r(), TransMode::NoTrans);
+    for (reference_col, approx_col) in reference_frame.iter().zip(approx_frame.iter_mut()) {
         approx_col.sub_inplace(reference_col.r());
 
         let reference_norm: f64 = NumCast::from(reference_col.norm()).unwrap();
@@ -624,8 +649,9 @@ where
         diff_sq += diff_norm * diff_norm;
     }
 
-    let reference_fro = reference_sq.sqrt();
-    let rel_diff = diff_sq.sqrt() / reference_fro.max(1.0e-14);
+    let reference_fro = reference_sq.sqrt() / sample_scale;
+    let diff_fro = diff_sq.sqrt() / sample_scale;
+    let rel_diff = diff_fro / reference_fro.max(1.0e-14);
 
     (
         Real::<Item>::from_f64(rel_diff).unwrap(),
@@ -1362,6 +1388,28 @@ mod tests {
         out
     }
 
+    fn exact_frobenius_norm_complex(arr: &DynamicArray<Complex<f64>, 2>) -> f64 {
+        arr.iter().map(|x| x.norm_sqr()).sum::<f64>().sqrt()
+    }
+
+    fn populate_complex_test_matrix(arr: &mut DynamicArray<Complex<f64>, 2>) {
+        let rows = arr.shape()[0];
+        let cols = arr.shape()[1];
+        for row in 0..rows {
+            for col in 0..cols {
+                let u = (row as f64 + 1.0) / rows as f64;
+                let v = (col as f64 + 1.0) / cols as f64;
+                let re = 3.2 * u * v
+                    + 0.07 * ((row as f64 + 1.0) * (col as f64 + 2.0)).sin()
+                    + 0.02 * ((row + 3 * col + 1) as f64).cos();
+                let im = -1.4 * u * v
+                    + 0.05 * ((2 * row + col + 1) as f64).cos()
+                    - 0.03 * ((row + col + 2) as f64).sin();
+                arr[[row, col]] = Complex::new(re, im);
+            }
+        }
+    }
+
     #[test]
     fn app_error_estimators_are_zero_for_exact_operator_and_inverse() {
         let mut matrix = rlst_dynamic_array2!(f64, [2, 2]);
@@ -1404,7 +1452,7 @@ mod tests {
 
         rsrs_like.inv(false);
         let (rel_fro_error, norm_fro_target) =
-            frobenius_diff_and_reference_norm(&target, &rsrs_like);
+            frobenius_diff_and_reference_norm(&target, &rsrs_like, 8);
         let rel_fro_error: f64 = NumCast::from(rel_fro_error).unwrap();
         let norm_fro_target: f64 = NumCast::from(norm_fro_target).unwrap();
 
@@ -1421,7 +1469,7 @@ mod tests {
         let product = rsrs_like.r().product(target.r());
         let id_op = IdOperator::new(target.domain(), target.range());
         let (rel_fro_inverse_error, norm_fro_identity) =
-            frobenius_diff_and_reference_norm(&id_op, &product);
+            frobenius_diff_and_reference_norm(&id_op, &product, 8);
         let rel_fro_inverse_error: f64 = NumCast::from(rel_fro_inverse_error).unwrap();
         let norm_fro_identity: f64 = NumCast::from(norm_fro_identity).unwrap();
 
@@ -1464,4 +1512,32 @@ mod tests {
         let err = rel_l2_error(&actual, &expected);
         assert!(err <= 1.0e-12, "normal operator error too large: {err}");
     }
+
+    #[test]
+    fn randomized_frobenius_estimator_matches_exact_dense_norms_complex() {
+        let mut matrix = rlst_dynamic_array2!(Complex<f64>, [10, 10]);
+        populate_complex_test_matrix(&mut matrix);
+
+        let zero = rlst_dynamic_array2!(Complex<f64>, [10, 10]);
+        let target = DenseMatrixOperator::new(copy_array2(&matrix));
+        let zero_op = DenseMatrixOperator::new(zero);
+
+        let (rel_fro_error, estimated_fro_norm) =
+            frobenius_diff_and_reference_norm(&target, &zero_op, 1024);
+        let rel_fro_error: f64 = NumCast::from(rel_fro_error).unwrap();
+        let estimated_fro_norm: f64 = NumCast::from(estimated_fro_norm).unwrap();
+        let exact_fro_norm = exact_frobenius_norm_complex(&matrix);
+
+        let norm_rel_err = (estimated_fro_norm - exact_fro_norm).abs() / exact_fro_norm;
+
+        assert!(
+            norm_rel_err <= 0.12,
+            "estimated complex Frobenius norm too far from exact: estimated={estimated_fro_norm}, exact={exact_fro_norm}, rel_err={norm_rel_err}"
+        );
+        assert!(
+            (rel_fro_error - 1.0).abs() <= 0.12,
+            "relative complex Frobenius error should be close to 1 for zero approximation: got {rel_fro_error}"
+        );
+    }
+
 }

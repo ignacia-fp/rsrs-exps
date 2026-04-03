@@ -9,12 +9,10 @@ use bempp_rsrs::rsrs::statistics::LevelEffort;
 use bempp_rsrs::rsrs::statistics::{IdTimes, LuTimes, UpdateTimes};
 use hdf5::{File as Hdf5File, Group as Hdf5Group};
 use num::complex::Complex;
-use num::FromPrimitive;
+use num::{FromPrimitive, NumCast};
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 use rand_distr::{Distribution, Standard, StandardNormal};
-use rlst::dense::linalg::naupd::NonSymmetricArnoldiUpdate;
-use rlst::dense::linalg::neupd::NonSymmetricArnoldiExtract;
 use rlst::{
     dense::{
         linalg::{interpolative_decomposition::MatrixIdNoSkel, lu::MatrixLu},
@@ -33,6 +31,9 @@ use std::{
 };
 
 type Real<T> = <T as rlst::RlstScalar>::Real;
+const POWER_ITERATIONS: usize = 20;
+const FROBENIUS_ESTIMATION_SAMPLES: usize = 20;
+const ADJOINT_CHECK_SAMPLES: usize = 8;
 
 #[derive(Serialize, Clone)]
 pub struct Solves<Item: RlstScalar> {
@@ -54,6 +55,7 @@ pub struct ErrorStatsOutput<Item: RlstScalar> {
     app_inv_err_right: Real<Item>,
     app_err_left: Real<Item>,
     app_err_right: Real<Item>,
+    adjoint_consistency_error: Real<Item>,
     norm_fro_error: Real<Item>,
     norm_fro_error_inv: Real<Item>,
     norm_fro_operator: Real<Item>,
@@ -338,6 +340,98 @@ where
     })
 }
 
+fn estimate_normal_operator_norm_sq<
+    Item: RlstScalar + RandScalar,
+    Space: SamplingSpace<F = Item>,
+    OpImpl: AsApply<Domain = Space, Range = Space>,
+>(
+    operator: &OpImpl,
+    iterations: usize,
+) -> Real<Item>
+where
+    StandardNormal: Distribution<Real<Item>>,
+    Standard: Distribution<Real<Item>>,
+    <Item as rlst::RlstScalar>::Real: RandScalar,
+    <<Space as rlst::LinearSpace>::E as rlst::ElementImpl>::Space: InnerProductSpace,
+{
+    let mut iterate = SamplingSpace::zero(operator.domain());
+    with_thread_rng(|rng| {
+        operator
+            .domain()
+            .sampling(&mut iterate, rng, SampleType::RealStandardNormal);
+    });
+
+    let mut iterate_norm = iterate.norm();
+    if iterate_norm == num::Zero::zero() {
+        return num::Zero::zero();
+    }
+    let inv_norm: Real<Item> = <Real<Item> as num::One>::one() / iterate_norm;
+    iterate.scale_inplace(Item::from_real(inv_norm));
+
+    let mut estimate = num::Zero::zero();
+    for _ in 0..iterations {
+        let next = operator.apply(iterate.r(), TransMode::NoTrans);
+        estimate = next.norm();
+        if estimate == num::Zero::zero() {
+            return num::Zero::zero();
+        }
+
+        iterate = operator.domain().clone_vec(&next);
+        iterate_norm = iterate.norm();
+        if iterate_norm == num::Zero::zero() {
+            return num::Zero::zero();
+        }
+        let inv_norm: Real<Item> = <Real<Item> as num::One>::one() / iterate_norm;
+        iterate.scale_inplace(Item::from_real(inv_norm));
+    }
+
+    estimate
+}
+
+fn estimate_adjoint_consistency_error<
+    Item: RlstScalar + RandScalar,
+    Space: SamplingSpace<F = Item>,
+    OpImpl: AsApply<Domain = Space, Range = Space>,
+>(
+    operator: &OpImpl,
+    sample_size: usize,
+) -> Real<Item>
+where
+    StandardNormal: Distribution<Real<Item>>,
+    Standard: Distribution<Real<Item>>,
+    <Item as rlst::RlstScalar>::Real: RandScalar,
+    <<Space as rlst::LinearSpace>::E as rlst::ElementImpl>::Space: InnerProductSpace,
+{
+    let mut max_rel = 0.0f64;
+
+    for _ in 0..sample_size.max(1) {
+        let mut x = SamplingSpace::zero(operator.range());
+        let mut y = SamplingSpace::zero(operator.domain());
+        with_thread_rng(|rng| {
+            operator
+                .range()
+                .sampling(&mut x, rng, SampleType::StandardNormal);
+            operator
+                .domain()
+                .sampling(&mut y, rng, SampleType::StandardNormal);
+        });
+
+        let ay = operator.apply(y.r(), TransMode::NoTrans);
+        let a_star_x = operator.apply(x.r(), TransMode::ConjTrans);
+
+        let lhs = x.inner_product(ay.r());
+        let rhs = a_star_x.inner_product(y.r());
+
+        let lhs_abs: f64 = NumCast::from(lhs.abs()).unwrap();
+        let rhs_abs: f64 = NumCast::from(rhs.abs()).unwrap();
+        let defect_abs: f64 = NumCast::from((lhs - rhs).abs()).unwrap();
+        let denom = lhs_abs.max(rhs_abs).max(1.0e-14);
+        max_rel = max_rel.max(defect_abs / denom);
+    }
+
+    Real::<Item>::from_f64(max_rel).unwrap()
+}
+
 pub(crate) trait SolveVectorArchive<T: RlstScalar> {
     fn write_matrix(group: &Hdf5Group, data: &[Vec<T>]) -> hdf5::Result<()>;
 }
@@ -464,9 +558,7 @@ pub(crate) fn save_error_stats<
         + MatrixId
         + MatrixIdNoSkel
         + MatrixLu
-        + MatrixQr
-        + NonSymmetricArnoldiUpdate
-        + NonSymmetricArnoldiExtract,
+        + MatrixQr,
     Space: SamplingSpace<F = Item> + IndexableSpace,
     OpImpl: AsApply<Domain = Space, Range = Space>,
     OpImpl2: AsApply<Domain = Space, Range = Space> + Inv,
@@ -478,7 +570,7 @@ pub(crate) fn save_error_stats<
     tol: Real<Item>,
     path_str: &str,
     transpose_matches_apply: bool,
-    complex_symmetric_rsrs: bool,
+    _complex_symmetric_rsrs: bool,
 ) where
     StandardNormal: Distribution<Real<Item>>,
     Standard: Distribution<Real<Item>>,
@@ -501,36 +593,44 @@ pub(crate) fn save_error_stats<
     solves.vectors_file = save_solve_vectors(&solves, tol, path_str);
 
     rsrs_operator.inv(false);
-    let tol_eigs = <Space::F as RlstScalar>::Real::from_f64(1e-10).unwrap();
     let (app_err_left, app_err_right) =
         rsrs_error_estimator(structured_operator_op, rsrs_operator, 10, false);
-    let approx_transpose_matches_apply = transpose_matches_apply && !complex_symmetric_rsrs;
+    let adjoint_consistency_error =
+        estimate_adjoint_consistency_error(rsrs_operator, ADJOINT_CHECK_SAMPLES);
+    // Treat the approximation and error operators as general operators for norm
+    // estimation, even when the target operator is symmetric. The RSRS
+    // approximation is not guaranteed to preserve symmetry exactly.
+    let approx_transpose_matches_apply = false;
     let (norm_fro_error, norm_fro_operator) =
-        frobenius_diff_and_reference_norm(structured_operator_op, rsrs_operator);
+        frobenius_diff_and_reference_norm(
+            structured_operator_op,
+            rsrs_operator,
+            FROBENIUS_ESTIMATION_SAMPLES,
+        );
 
     let diff = DiffOperator(structured_operator_op.r(), rsrs_operator.r());
     let normal = NormalOperator {
         op: diff.r(),
         transpose_matches_apply: approx_transpose_matches_apply,
     };
-    let mut eigs1 = Eigs::new(normal.r(), tol_eigs, None, None, None);
-    let (sigma_1, _) = eigs1.run(None, 1, None, false);
+    let sigma_1: Real<Item> =
+        estimate_normal_operator_norm_sq(&normal.r(), POWER_ITERATIONS);
 
     let normal_structured = NormalOperator {
         op: structured_operator_op.r(),
         transpose_matches_apply,
     };
-    let mut eigs2 = Eigs::new(normal_structured.r(), tol_eigs, None, None, None);
-    let (sigma_2, _) = eigs2.run(None, 1, None, false);
+    let sigma_2: Real<Item> =
+        estimate_normal_operator_norm_sq(&normal_structured.r(), POWER_ITERATIONS);
 
     let normal_rsrs = NormalOperator {
         op: rsrs_operator.r(),
         transpose_matches_apply: approx_transpose_matches_apply,
     };
-    let mut eigs3 = Eigs::new(normal_rsrs.r(), tol_eigs, None, None, None);
-    let (c_1, _) = eigs3.run(None, 1, None, false);
+    let c_1: Real<Item> =
+        estimate_normal_operator_norm_sq(&normal_rsrs.r(), POWER_ITERATIONS);
 
-    let norm_2_error = sigma_1[0].abs().sqrt() / sigma_2[0].abs().sqrt();
+    let norm_2_error = sigma_1.abs().sqrt() / sigma_2.abs().sqrt();
 
     rsrs_operator.inv(true);
 
@@ -539,26 +639,27 @@ pub(crate) fn save_error_stats<
     let id_op = IdOperator::new(domain, range);
 
     let prod1 = rsrs_operator.r().product(structured_operator_op.r());
-    let (norm_fro_error_inv, _) = frobenius_diff_and_reference_norm(&id_op, &prod1);
+    let (norm_fro_error_inv, _) =
+        frobenius_diff_and_reference_norm(&id_op, &prod1, FROBENIUS_ESTIMATION_SAMPLES);
     let diff = DiffOperator(prod1.r(), id_op.r());
     let normal = NormalOperator {
         op: diff.r(),
         transpose_matches_apply: approx_transpose_matches_apply,
     };
 
-    let mut eigs1 = Eigs::new(normal.r(), tol_eigs, None, None, None);
-    let (sigma_1, _) = eigs1.run(None, 1, None, false);
+    let sigma_1: Real<Item> =
+        estimate_normal_operator_norm_sq(&normal.r(), POWER_ITERATIONS);
 
     let normal_rsrs = NormalOperator {
         op: rsrs_operator.r(),
         transpose_matches_apply: approx_transpose_matches_apply,
     };
-    let mut eigs2 = Eigs::new(normal_rsrs.r(), tol_eigs, None, None, None);
-    let (c_2, _) = eigs2.run(None, 1, None, false);
+    let c_2: Real<Item> =
+        estimate_normal_operator_norm_sq(&normal_rsrs.r(), POWER_ITERATIONS);
 
-    let norm_2_error_inv = sigma_1[0].abs().sqrt();
+    let norm_2_error_inv = sigma_1.abs().sqrt();
 
-    let condition_number = c_2[0].abs().sqrt() * c_1[0].abs().sqrt();
+    let condition_number = c_2.abs().sqrt() * c_1.abs().sqrt();
 
     let (app_inv_err_left, app_inv_err_right) =
         rsrs_error_estimator(structured_operator_op, rsrs_operator, 10, true);
@@ -585,11 +686,12 @@ pub(crate) fn save_error_stats<
         app_inv_err_right,
         app_err_left,
         app_err_right,
+        adjoint_consistency_error,
         cond_rsrs_estimate: condition_number,
         norm_fro_error,
         norm_fro_error_inv,
         norm_fro_operator,
-        norm_2_operator: sigma_2[0].abs().sqrt(),
+        norm_2_operator: sigma_2.abs().sqrt(),
         norm_2_error,
         norm_2_error_inv,
         solve_error,
@@ -690,5 +792,254 @@ pub fn read_file<Item: RlstScalar>(
                 "Invalid file type",
             ))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::io::errors::NormalOperator;
+    use num::NumCast;
+    use std::rc::Rc;
+
+    struct DenseMatrixOperator<Item: RlstScalar> {
+        matrix: DynamicArray<Item, 2>,
+        domain: Rc<ArrayVectorSpace<Item>>,
+        range: Rc<ArrayVectorSpace<Item>>,
+    }
+
+    impl<Item: RlstScalar> DenseMatrixOperator<Item> {
+        fn new(matrix: DynamicArray<Item, 2>) -> Self {
+            let shape = matrix.shape();
+            Self {
+                matrix,
+                domain: ArrayVectorSpace::from_dimension(shape[1]),
+                range: ArrayVectorSpace::from_dimension(shape[0]),
+            }
+        }
+
+        fn entry(&self, row: usize, col: usize, trans_mode: TransMode) -> Item {
+            match trans_mode {
+                TransMode::NoTrans => self.matrix[[row, col]],
+                TransMode::Trans => self.matrix[[col, row]],
+                TransMode::ConjNoTrans => self.matrix[[row, col]].conj(),
+                TransMode::ConjTrans => self.matrix[[col, row]].conj(),
+            }
+        }
+    }
+
+    impl<Item: RlstScalar> std::fmt::Debug for DenseMatrixOperator<Item> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(
+                f,
+                "DenseMatrixOperator([{}x{}])",
+                self.range.dimension(),
+                self.domain.dimension()
+            )
+        }
+    }
+
+    impl<Item: RlstScalar> OperatorBase for DenseMatrixOperator<Item> {
+        type Domain = ArrayVectorSpace<Item>;
+        type Range = ArrayVectorSpace<Item>;
+
+        fn domain(&self) -> Rc<Self::Domain> {
+            self.domain.clone()
+        }
+
+        fn range(&self) -> Rc<Self::Range> {
+            self.range.clone()
+        }
+    }
+
+    impl<Item: RlstScalar> AsApply for DenseMatrixOperator<Item> {
+        fn apply_extended<
+            ContainerIn: ElementContainer<E = <Self::Domain as LinearSpace>::E>,
+            ContainerOut: ElementContainerMut<E = <Self::Range as LinearSpace>::E>,
+        >(
+            &self,
+            alpha: <Self::Range as LinearSpace>::F,
+            x: Element<ContainerIn>,
+            beta: <Self::Range as LinearSpace>::F,
+            mut y: Element<ContainerOut>,
+            trans_mode: TransMode,
+        ) {
+            let row_dim = self.range.dimension();
+            let col_dim = self.domain.dimension();
+            let input = x.imp().view();
+            let prev = y.imp().view().iter().collect::<Vec<_>>();
+            let mut out = vec![Item::from_real(Item::real(0.0)); row_dim];
+
+            for row in 0..row_dim {
+                let mut accum = Item::from_real(Item::real(0.0));
+                for col in 0..col_dim {
+                    accum = accum + self.entry(row, col, trans_mode) * input[[col]];
+                }
+                out[row] = alpha * accum + beta * prev[row];
+            }
+
+            y.imp_mut().fill_inplace_raw(&out);
+        }
+
+        fn apply<ContainerIn: ElementContainer<E = <Self::Domain as LinearSpace>::E>>(
+            &self,
+            x: Element<ContainerIn>,
+            trans_mode: TransMode,
+        ) -> rlst::operator::ElementType<<Self::Range as LinearSpace>::E> {
+            let mut y = zero_element(self.range());
+            self.apply_extended(
+                <<Self::Range as LinearSpace>::F as num::One>::one(),
+                x,
+                <<Self::Range as LinearSpace>::F as num::Zero>::zero(),
+                y.r_mut(),
+                trans_mode,
+            );
+            y
+        }
+    }
+
+    fn jacobi_largest_eigenvalue_real(matrix: &[Vec<f64>]) -> f64 {
+        let n = matrix.len();
+        let mut a = matrix.to_vec();
+
+        for _ in 0..200 {
+            let mut p = 0usize;
+            let mut q = 1usize;
+            let mut max_offdiag = 0.0f64;
+
+            for row in 0..n {
+                for col in (row + 1)..n {
+                    let value = a[row][col].abs();
+                    if value > max_offdiag {
+                        max_offdiag = value;
+                        p = row;
+                        q = col;
+                    }
+                }
+            }
+
+            if max_offdiag <= 1.0e-12 {
+                break;
+            }
+
+            let app = a[p][p];
+            let aqq = a[q][q];
+            let apq = a[p][q];
+            let tau = (aqq - app) / (2.0 * apq);
+            let t = if tau >= 0.0 {
+                1.0 / (tau + (1.0 + tau * tau).sqrt())
+            } else {
+                -1.0 / (-tau + (1.0 + tau * tau).sqrt())
+            };
+            let c = 1.0 / (1.0 + t * t).sqrt();
+            let s = t * c;
+
+            for k in 0..n {
+                if k != p && k != q {
+                    let akp = a[k][p];
+                    let akq = a[k][q];
+                    a[k][p] = c * akp - s * akq;
+                    a[p][k] = a[k][p];
+                    a[k][q] = s * akp + c * akq;
+                    a[q][k] = a[k][q];
+                }
+            }
+
+            a[p][p] = c * c * app - 2.0 * s * c * apq + s * s * aqq;
+            a[q][q] = s * s * app + 2.0 * s * c * apq + c * c * aqq;
+            a[p][q] = 0.0;
+            a[q][p] = 0.0;
+        }
+
+        a.iter()
+            .enumerate()
+            .map(|(idx, row)| row[idx])
+            .fold(f64::NEG_INFINITY, f64::max)
+    }
+
+    fn exact_spectral_norm_complex(arr: &DynamicArray<Complex<f64>, 2>) -> f64 {
+        let rows = arr.shape()[0];
+        let cols = arr.shape()[1];
+        let mut gram = vec![vec![Complex::<f64>::new(0.0, 0.0); cols]; cols];
+
+        for i in 0..cols {
+            for j in i..cols {
+                let mut value = Complex::<f64>::new(0.0, 0.0);
+                for row in 0..rows {
+                    value += arr[[row, i]].conj() * arr[[row, j]];
+                }
+                gram[i][j] = value;
+                gram[j][i] = value.conj();
+            }
+        }
+
+        let mut realified = vec![vec![0.0f64; 2 * cols]; 2 * cols];
+        for i in 0..cols {
+            for j in 0..cols {
+                let value = gram[i][j];
+                realified[i][j] = value.re;
+                realified[i][j + cols] = -value.im;
+                realified[i + cols][j] = value.im;
+                realified[i + cols][j + cols] = value.re;
+            }
+        }
+
+        jacobi_largest_eigenvalue_real(&realified).sqrt()
+    }
+
+    fn populate_complex_test_matrix(arr: &mut DynamicArray<Complex<f64>, 2>) {
+        let rows = arr.shape()[0];
+        let cols = arr.shape()[1];
+        for row in 0..rows {
+            for col in 0..cols {
+                let u = (row as f64 + 1.0) / rows as f64;
+                let v = (col as f64 + 1.0) / cols as f64;
+                let re = 3.2 * u * v
+                    + 0.07 * ((row as f64 + 1.0) * (col as f64 + 2.0)).sin()
+                    + 0.02 * ((row + 3 * col + 1) as f64).cos();
+                let im = -1.4 * u * v
+                    + 0.05 * ((2 * row + col + 1) as f64).cos()
+                    - 0.03 * ((row + col + 2) as f64).sin();
+                arr[[row, col]] = Complex::new(re, im);
+            }
+        }
+    }
+
+    #[test]
+    fn adjoint_consistency_error_is_small_for_dense_complex_operator() {
+        let mut matrix = rlst_dynamic_array2!(Complex<f64>, [10, 10]);
+        populate_complex_test_matrix(&mut matrix);
+
+        let op = DenseMatrixOperator::new(matrix);
+        let adjoint_error: f64 =
+            NumCast::from(estimate_adjoint_consistency_error(&op, 32)).unwrap();
+
+        assert!(
+            adjoint_error <= 1.0e-12,
+            "dense operator adjoint consistency check too large: {adjoint_error}"
+        );
+    }
+
+    #[test]
+    fn power_iteration_normal_estimator_matches_dense_spectral_norm() {
+        let mut matrix = rlst_dynamic_array2!(Complex<f64>, [10, 10]);
+        populate_complex_test_matrix(&mut matrix);
+
+        let exact_norm = exact_spectral_norm_complex(&matrix);
+        let op = DenseMatrixOperator::new(matrix);
+        let normal = NormalOperator {
+            op: op.r(),
+            transpose_matches_apply: false,
+        };
+
+        let estimated_norm_sq =
+            estimate_normal_operator_norm_sq(&normal.r(), 40);
+        let estimated_norm: f64 = NumCast::from(estimated_norm_sq.sqrt()).unwrap();
+        let rel_err = (estimated_norm - exact_norm).abs() / exact_norm;
+
+        assert!(
+            rel_err <= 0.05,
+            "power-iteration 2-norm estimate too far from exact: estimated={estimated_norm}, exact={exact_norm}, rel_err={rel_err}"
+        );
     }
 }
