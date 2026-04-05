@@ -634,6 +634,39 @@ class RSRSBenchmarkConfig:
         else:
             raise ValueError("Invalid dim_arg_type")
 
+    def generate_sample_folder_name(self) -> str:
+        geom = camel_to_snake(self.geometry_types[self.geometry])
+        op = self.structured_operator_types[self.operator_type_index]
+        precision = self.precision_types[self.precision_index].lower()
+        dim_key = self.dim_arg_types[self.dim_arg_type_index]
+
+        if dim_key == "RefinementLevelAndDepth":
+            if self.ref_level is None:
+                raise ValueError("ref_level must be specified for sample-folder generation.")
+            if self.ref_level > 1:
+                if self.depth is None:
+                    raise ValueError("depth must be specified for sample-folder generation.")
+                dim_pred = f"ref_level_{self.ref_level}_depth_{self.depth}"
+            else:
+                dim_pred = f"mesh_width_{rust_float_format(self.h)}"
+        elif dim_key == "Meshwidth":
+            dim_pred = f"mesh_width_{rust_float_format(self.h)}"
+        elif dim_key == "Kappa":
+            dim_pred = f"mesh_width_{rust_float_format(self.h)}_kappa_{self.kappa:.2f}"
+        elif dim_key == "KappaAndMeshwidth":
+            dim_pred = f"mesh_width_{rust_float_format(self.h)}_kappa_{self.kappa:.2f}"
+        else:
+            raise ValueError("Invalid dim_arg_type")
+
+        return (
+            f"{geom}_{op}"
+            f"_precision_{precision}"
+            f"_{dim_pred}"
+        )
+
+    def sample_storage_path(self) -> Path:
+        return Path(os.getcwd()) / "results" / "sample_cache" / self.generate_sample_folder_name() / "sampling"
+
     def generate_sub_folder_name(self) -> str:
         args = self.rsrs_args()
 

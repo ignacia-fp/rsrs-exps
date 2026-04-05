@@ -107,10 +107,6 @@ pub struct TestFramework<Item: RlstScalar> {
     test_params: TestParams<Item>,
 }
 
-fn sample_storage_dir(path_str: &str) -> PathBuf {
-    Path::new(path_str).join("sampling")
-}
-
 fn log_root(rank: i32, message: &str) {
     if rank == 0 {
         println!("[rsrs-exps] {message}");
@@ -171,13 +167,8 @@ impl<Item: RlstScalar> TestParams<Item> {
         }
     }
 
-    fn get_structured_operator_name(&self) -> &str {
-        let structured_operator_name = self.scenario_params.structured_operator_type.as_ref();
-        structured_operator_name
-    }
-
-    fn get_test_dir(&self, dim_num: usize) -> String {
-        let geometry = match self.scenario_params.geometry_type {
+    fn geometry_slug(&self) -> &'static str {
+        match self.scenario_params.geometry_type {
             GeometryType::SphereSurface => "sphere_surface",
             GeometryType::CubeSurface => "cube_surface",
             GeometryType::CylinderSurface => "cylinder_surface",
@@ -194,7 +185,62 @@ impl<Item: RlstScalar> TestParams<Item> {
             GeometryType::Plane => "plane",
             GeometryType::Square => "square",
         }
-        .to_string();
+    }
+
+    fn precision_slug(&self) -> &'static str {
+        match self.scenario_params.precision {
+            Precision::Single => "single",
+            Precision::Double => "double",
+        }
+    }
+
+    fn get_structured_operator_name(&self) -> &str {
+        let structured_operator_name = self.scenario_params.structured_operator_type.as_ref();
+        structured_operator_name
+    }
+
+    fn sample_cache_key(&self, dim_num: usize) -> String {
+        let geometry = self.geometry_slug();
+        let structured_operator = self.get_structured_operator_name();
+        let precision = self.precision_slug();
+
+        let dim_pred = if matches!(
+            self.scenario_params.structured_operator_type,
+            StructuredOperatorType::BemppRsLaplaceOperator
+        ) {
+            let (ref_level, depth): (Real<Item>, Real<Item>) =
+                self.scenario_params.dim_args[dim_num];
+            if ref_level < num::One::one() {
+                format!("mesh_width_{:.2e}", ref_level)
+            } else {
+                let ref_level = ref_level.to_usize().unwrap();
+                let depth = depth.to_usize().unwrap();
+                format!("ref_level_{}_depth_{}", ref_level, depth)
+            }
+        } else {
+            let (h, kappa) = self.scenario_params.dim_args[dim_num];
+            if kappa == num::Zero::zero() {
+                format!("mesh_width_{:.2e}", h)
+            } else {
+                format!("mesh_width_{:.2e}_kappa_{:.2}", h, kappa)
+            }
+        };
+
+        format!(
+            "{}_{}_precision_{}_{}",
+            geometry, structured_operator, precision, dim_pred
+        )
+    }
+
+    fn get_sample_storage_dir(&self, dim_num: usize) -> PathBuf {
+        Path::new("results")
+            .join("sample_cache")
+            .join(self.sample_cache_key(dim_num))
+            .join("sampling")
+    }
+
+    fn get_test_dir(&self, dim_num: usize) -> String {
+        let geometry = self.geometry_slug().to_string();
         let structured_operator = self.get_structured_operator_name();
         let version = self.rsrs_params.to_identifier();
 
@@ -371,7 +417,7 @@ macro_rules! implement_test_framework {
                     self.test_params.scenario_params.dim_args.iter().enumerate()
                 {
                     let path_str = self.test_params.get_test_dir(dim_num);
-                    let preferred_sampling_dir = sample_storage_dir(&path_str);
+                    let preferred_sampling_dir = self.test_params.get_sample_storage_dir(dim_num);
                     let preferred_sampling_dir_str =
                         preferred_sampling_dir.to_string_lossy().into_owned();
                     self.test_params.rsrs_params.sketching.sample_storage_dir =
@@ -786,7 +832,7 @@ macro_rules! implement_distributed_test_framework {
                         &format!(
                             "distributed scenario start: out_dir='{}', sample_dir='{}', load_samples={}, save_samples={}, init_samples={}",
                             self.test_params.get_test_dir(dim_num),
-                            sample_storage_dir(&self.test_params.get_test_dir(dim_num)).display(),
+                            self.test_params.get_sample_storage_dir(dim_num).display(),
                             self.test_params.rsrs_params.sketching.load_samples,
                             self.test_params.rsrs_params.sketching.save_samples,
                             self.test_params.rsrs_params.sketching.initial_num_samples,
@@ -822,7 +868,7 @@ macro_rules! implement_distributed_test_framework {
                     };
 
                     let path_str = self.test_params.get_test_dir(dim_num);
-                    let preferred_sampling_dir = sample_storage_dir(&path_str);
+                    let preferred_sampling_dir = self.test_params.get_sample_storage_dir(dim_num);
                     self.test_params.rsrs_params.sketching.sample_storage_dir =
                         Some(preferred_sampling_dir.to_string_lossy().into_owned());
 

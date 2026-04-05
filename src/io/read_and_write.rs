@@ -128,6 +128,7 @@ struct TimeStatsOutput {
     elapsed_time_at_limiting: u128,
     total_elapsed_time: u128,
     total_elapsed_time_wo_sampling: u128,
+    untracked_rsrs_time: u128,
     sampling_extraction_time: u128,
     extraction_time: u128,
     sampling_time: Vec<u128>,
@@ -216,6 +217,10 @@ pub struct MemorySnapshotOutput {
 #[allow(dead_code)]
 pub struct TimeStatsInput {
     total_elapsed_time: f64,
+    #[serde(default)]
+    pub total_elapsed_time_wo_sampling: f64,
+    #[serde(default)]
+    pub untracked_rsrs_time: f64,
     pub extraction_time: f64,
     pub sampling_time: Vec<f64>,
     pub sampling_extraction_time: f64,
@@ -262,10 +267,36 @@ pub fn save_time_stats<Item: RlstScalar + MatrixInverse + MatrixPseudoInverse + 
     stats_path.push_str(&string_tol);
     stats_path.push_str(".json");
 
+    let total_update_id_time: u128 = rsrs_data
+        .stats
+        .update_times
+        .iter()
+        .map(|times| times.id)
+        .sum();
+    let total_update_lu_time: u128 = rsrs_data
+        .stats
+        .update_times
+        .iter()
+        .map(|times| times.lu)
+        .sum();
+    let accounted_rsrs_time = rsrs_data.stats.tot_id_time
+        + rsrs_data.stats.tot_lu_time
+        + total_update_id_time
+        + total_update_lu_time
+        + rsrs_data.stats.extraction_time
+        + rsrs_data.stats.index_calculation
+        + rsrs_data.stats.sorting_near_field
+        + rsrs_data.stats.residual_calculation;
+    let untracked_rsrs_time = rsrs_data
+        .stats
+        .total_elapsed_time_wo_sampling
+        .saturating_sub(accounted_rsrs_time);
+
     let stats = TimeStatsOutput {
         tot_num_samples: rsrs_data.active_samples,
         total_elapsed_time: rsrs_data.stats.total_elapsed_time,
         total_elapsed_time_wo_sampling: rsrs_data.stats.total_elapsed_time_wo_sampling,
+        untracked_rsrs_time,
         dim: rsrs_data.stats.dim,
         extraction_time: rsrs_data.stats.extraction_time,
         sampling_extraction_time: rsrs_data.stats.sampling_extraction_time,

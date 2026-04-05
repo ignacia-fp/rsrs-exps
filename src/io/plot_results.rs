@@ -5,15 +5,28 @@ pub fn time_piechart(tol: f64, path_str: &str) {
     match read_file(path_str, "time_stats", tol).unwrap() {
         FileContent::TimeStats(stats) => {
             let tot_id_time = stats.tot_id_time as f32;
-            let tot_sampling_time = stats.sampling_time.iter().map(|&x| x as f32).sum();
+            let tot_sampling_time: f32 = stats.sampling_time.iter().map(|&x| x as f32).sum();
             let extraction_sampling_time = stats.sampling_extraction_time as f32;
-            let tot_update_id_time = stats.update_times.iter().map(|x| x.id as f32).sum();
-            let tot_update_lu_time = stats.update_times.iter().map(|x| x.lu as f32).sum();
+            let tot_update_id_time: f32 = stats.update_times.iter().map(|x| x.id as f32).sum();
+            let tot_update_lu_time: f32 = stats.update_times.iter().map(|x| x.lu as f32).sum();
             let tot_lu_time = stats.tot_lu_time as f32;
             let tot_extraction_time = stats.extraction_time as f32;
+            let total_rsrs_time = stats.total_elapsed_time_wo_sampling as f32;
             let other = (stats.sorting_near_field
                 + stats.index_calculation
                 + stats.residual_calculation) as f32;
+            let untracked_rsrs_time: f32 = if stats.untracked_rsrs_time > 0.0 {
+                stats.untracked_rsrs_time as f32
+            } else {
+                (total_rsrs_time
+                    - (tot_lu_time
+                        + tot_id_time
+                        + other
+                        + tot_update_id_time
+                        + tot_update_lu_time
+                        + tot_extraction_time))
+                    .max(0.0_f32)
+            };
 
             let data = vec![
                 Data {
@@ -32,6 +45,12 @@ pub fn time_piechart(tol: f64, path_str: &str) {
                     label: "Other".into(),
                     value: other,
                     color: Some(Color::Blue.into()),
+                    fill: '•',
+                },
+                Data {
+                    label: "Untracked RSRS".into(),
+                    value: untracked_rsrs_time,
+                    color: Some(Color::RGB(255, 165, 0).into()),
                     fill: '•',
                 },
                 Data {
@@ -69,18 +88,11 @@ pub fn time_piechart(tol: f64, path_str: &str) {
             println!("LU: {}", tot_lu_time);
             println!("ID: {}", tot_id_time);
             println!("Other: {}", other);
+            println!("Untracked RSRS: {}", untracked_rsrs_time);
             println!("Update ID: {}", tot_update_id_time);
             println!("Update LU: {}", tot_update_lu_time);
             println!("Extraction: {}", tot_extraction_time);
-            println!(
-                "Total RSRS: {}",
-                tot_lu_time
-                    + tot_id_time
-                    + other
-                    + tot_update_id_time
-                    + tot_update_lu_time
-                    + tot_extraction_time
-            );
+            println!("Total RSRS: {}", total_rsrs_time);
             println!(
                 "Total Sampling: {}",
                 tot_sampling_time + extraction_sampling_time
