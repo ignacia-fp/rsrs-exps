@@ -6,6 +6,7 @@ pub fn time_piechart(tol: f64, path_str: &str) {
         FileContent::TimeStats(stats) => {
             let tot_id_time = stats.tot_id_time as f32;
             let tot_sampling_time: f32 = stats.sampling_time.iter().map(|&x| x as f32).sum();
+            let sample_loading_time = stats.sample_loading_time as f32;
             let extraction_sampling_time = stats.sampling_extraction_time as f32;
             let tot_update_id_time: f32 = stats.update_times.iter().map(|x| x.id as f32).sum();
             let tot_update_lu_time: f32 = stats.update_times.iter().map(|x| x.lu as f32).sum();
@@ -66,6 +67,12 @@ pub fn time_piechart(tol: f64, path_str: &str) {
                     fill: '•',
                 },
                 Data {
+                    label: "Sample Load".into(),
+                    value: sample_loading_time,
+                    color: Some(Color::RGB(160, 160, 160).into()),
+                    fill: '•',
+                },
+                Data {
                     label: "Sampling".into(),
                     value: tot_sampling_time,
                     color: Some(Color::White.into()),
@@ -91,11 +98,12 @@ pub fn time_piechart(tol: f64, path_str: &str) {
             println!("Untracked RSRS: {}", untracked_rsrs_time);
             println!("Update ID: {}", tot_update_id_time);
             println!("Update LU: {}", tot_update_lu_time);
+            println!("Sample Load: {}", sample_loading_time);
             println!("Extraction: {}", tot_extraction_time);
             println!("Total RSRS: {}", total_rsrs_time);
             println!(
                 "Total Sampling: {}",
-                tot_sampling_time + extraction_sampling_time
+                sample_loading_time + tot_sampling_time + extraction_sampling_time
             );
 
             Chart::new()

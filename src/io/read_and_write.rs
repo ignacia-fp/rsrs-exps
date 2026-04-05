@@ -129,6 +129,7 @@ struct TimeStatsOutput {
     total_elapsed_time: u128,
     total_elapsed_time_wo_sampling: u128,
     untracked_rsrs_time: u128,
+    sample_loading_time: u128,
     sampling_extraction_time: u128,
     extraction_time: u128,
     sampling_time: Vec<u128>,
@@ -221,6 +222,8 @@ pub struct TimeStatsInput {
     pub total_elapsed_time_wo_sampling: f64,
     #[serde(default)]
     pub untracked_rsrs_time: f64,
+    #[serde(default)]
+    pub sample_loading_time: f64,
     pub extraction_time: f64,
     pub sampling_time: Vec<f64>,
     pub sampling_extraction_time: f64,
@@ -297,6 +300,7 @@ pub fn save_time_stats<Item: RlstScalar + MatrixInverse + MatrixPseudoInverse + 
         total_elapsed_time: rsrs_data.stats.total_elapsed_time,
         total_elapsed_time_wo_sampling: rsrs_data.stats.total_elapsed_time_wo_sampling,
         untracked_rsrs_time,
+        sample_loading_time: rsrs_data.stats.sample_loading_time,
         dim: rsrs_data.stats.dim,
         extraction_time: rsrs_data.stats.extraction_time,
         sampling_extraction_time: rsrs_data.stats.sampling_extraction_time,

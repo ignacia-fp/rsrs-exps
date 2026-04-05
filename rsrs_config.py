@@ -618,19 +618,20 @@ class RSRSBenchmarkConfig:
     def generate_folder_name(self) -> str:
         geom = camel_to_snake(self.geometry_types[self.geometry])
         op = self.structured_operator_types[self.operator_type_index]
+        precision = self.precision_types[self.precision_index].lower()
         dim_key = self.dim_arg_types[self.dim_arg_type_index]
 
         if dim_key == "RefinementLevelAndDepth":
             if self.ref_level > 1:
-                return f"{geom}_{op}_ref_level_{self.ref_level}_depth_{self.depth}_od_{self.max_tree_depth}_num_threads_{self.num_threads}"
+                return f"{geom}_{op}_precision_{precision}_ref_level_{self.ref_level}_depth_{self.depth}_od_{self.max_tree_depth}_num_threads_{self.num_threads}"
             else:
-                return f"{geom}_{op}_mesh_width_{rust_float_format(self.h)}_od_{self.max_tree_depth}_num_threads_{self.num_threads}"
+                return f"{geom}_{op}_precision_{precision}_mesh_width_{rust_float_format(self.h)}_od_{self.max_tree_depth}_num_threads_{self.num_threads}"
         elif dim_key == "Meshwidth":
-            return f"{geom}_{op}_mesh_width_{rust_float_format(self.h)}_od_{self.max_tree_depth}_num_threads_{self.num_threads}"
+            return f"{geom}_{op}_precision_{precision}_mesh_width_{rust_float_format(self.h)}_od_{self.max_tree_depth}_num_threads_{self.num_threads}"
         elif dim_key == "Kappa":
-            return f"{geom}_{op}_mesh_width_{rust_float_format(self.h)}_od_{self.max_tree_depth}_{self.kappa:.2f}_num_threads_{self.num_threads}"
+            return f"{geom}_{op}_precision_{precision}_mesh_width_{rust_float_format(self.h)}_od_{self.max_tree_depth}_{self.kappa:.2f}_num_threads_{self.num_threads}"
         elif dim_key == "KappaAndMeshwidth":
-            return f"{geom}_{op}_mesh_width_{rust_float_format(self.h)}_od_{self.max_tree_depth}_{self.kappa:.2f}_num_threads_{self.num_threads}"
+            return f"{geom}_{op}_precision_{precision}_mesh_width_{rust_float_format(self.h)}_od_{self.max_tree_depth}_{self.kappa:.2f}_num_threads_{self.num_threads}"
         else:
             raise ValueError("Invalid dim_arg_type")
 

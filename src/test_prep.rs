@@ -242,6 +242,7 @@ impl<Item: RlstScalar> TestParams<Item> {
     fn get_test_dir(&self, dim_num: usize) -> String {
         let geometry = self.geometry_slug().to_string();
         let structured_operator = self.get_structured_operator_name();
+        let precision = self.precision_slug();
         let version = self.rsrs_params.to_identifier();
 
         let filename = if matches!(
@@ -267,8 +268,8 @@ impl<Item: RlstScalar> TestParams<Item> {
             let threads = format!("num_threads_{}", self.rsrs_params.num_threads);
 
             format!(
-                "{}_{}_{}_{}",
-                geometry, structured_operator, dim_pred, threads
+                "{}_{}_precision_{}_{}_{}",
+                geometry, structured_operator, precision, dim_pred, threads
             )
         } else {
             let (h, kappa) = self.scenario_params.dim_args[dim_num];
@@ -279,8 +280,8 @@ impl<Item: RlstScalar> TestParams<Item> {
             let kappa = format!("{:.2}", kappa);
             let threads = format!("num_threads_{}", self.rsrs_params.num_threads);
             format!(
-                "{}_{}_{}_{}_{}",
-                geometry, structured_operator, dim_pred, kappa, threads
+                "{}_{}_precision_{}_{}_{}_{}",
+                geometry, structured_operator, precision, dim_pred, kappa, threads
             )
         };
 
