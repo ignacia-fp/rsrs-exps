@@ -10,6 +10,7 @@ use rlst::RlstScalar;
 use serde::Deserialize;
 use std::ffi::CString;
 use std::rc::Rc;
+use std::time::Instant;
 
 #[repr(C)]
 struct StructuredOperatorOpaque {
@@ -307,9 +308,26 @@ macro_rules! implement_structured_operator {
                 })
                 .unwrap();
 
+                println!(
+                    "[rsrs-exps][structured-operator] initialize start: class='{}', geometry='{}', dim_arg={:.6e}, kappa={:.6e}, init_samples={}, sample_dir={}",
+                    class_name,
+                    geometry.to_string_lossy(),
+                    params.dim_arg,
+                    params.kappa,
+                    params.init_samples,
+                    params.sample_storage_dir.as_deref().unwrap_or("<none>")
+                );
+
+                let env_stage = Instant::now();
+                let (python_executable, _python_home) = detect_python_env();
+                println!(
+                    "[rsrs-exps][structured-operator] python environment resolved in {:.3}s: executable='{}'",
+                    env_stage.elapsed().as_secs_f64(),
+                    python_executable
+                );
+                let python_exe_c = CString::new(python_executable).unwrap();
+                let init_stage = Instant::now();
                 let raw = unsafe {
-                    let (python_executable, _python_home) = detect_python_env();
-                    let python_exe_c = CString::new(python_executable).unwrap();
                     initialize_structured_operator(
                         python_exe_c.as_ptr(),
                         c_str.as_ptr(),
@@ -325,6 +343,11 @@ macro_rules! implement_structured_operator {
 
                 assert!(!raw.is_null(), "Failed to initialize structured_operator");
                 let n_points = unsafe { get_n_points(raw as *mut StructuredOperatorOpaque) };
+                println!(
+                    "[rsrs-exps][structured-operator] initialize done in {:.3}s: n_points={}",
+                    init_stage.elapsed().as_secs_f64(),
+                    n_points,
+                );
                 Self { raw, n_points }
             }
 
@@ -372,6 +395,11 @@ macro_rules! implement_structured_operator {
 // Multi-RHS safe Rust wrappers
 // -------------------------
 pub fn rhs_real(structured_operator: &StructuredOperatorInterface) -> Option<Vec<Vec<f64>>> {
+    let stage = Instant::now();
+    println!(
+        "[rsrs-exps][structured-operator] fetch real rhs start: n_points={}",
+        structured_operator.n_points
+    );
     let mut n_rhs: libc::c_int = 0;
     let mut len_out: libc::c_int = 0;
 
@@ -393,10 +421,21 @@ pub fn rhs_real(structured_operator: &StructuredOperatorInterface) -> Option<Vec
     }
 
     unsafe { libc::free(ptr as *mut libc::c_void) };
+    println!(
+        "[rsrs-exps][structured-operator] fetch real rhs done in {:.3}s: rhs_count={}, rhs_len={}",
+        stage.elapsed().as_secs_f64(),
+        all_rhs.len(),
+        len_out
+    );
     Some(all_rhs)
 }
 
 pub fn rhs_real32(structured_operator: &StructuredOperatorInterface) -> Option<Vec<Vec<f32>>> {
+    let stage = Instant::now();
+    println!(
+        "[rsrs-exps][structured-operator] fetch real32 rhs start: n_points={}",
+        structured_operator.n_points
+    );
     let mut n_rhs: libc::c_int = 0;
     let mut len_out: libc::c_int = 0;
 
@@ -418,12 +457,23 @@ pub fn rhs_real32(structured_operator: &StructuredOperatorInterface) -> Option<V
     }
 
     unsafe { libc::free(ptr as *mut libc::c_void) };
+    println!(
+        "[rsrs-exps][structured-operator] fetch real32 rhs done in {:.3}s: rhs_count={}, rhs_len={}",
+        stage.elapsed().as_secs_f64(),
+        all_rhs.len(),
+        len_out
+    );
     Some(all_rhs)
 }
 
 pub fn rhs_complex(
     structured_operator: &StructuredOperatorInterface,
 ) -> Option<Vec<Vec<num::Complex<f64>>>> {
+    let stage = Instant::now();
+    println!(
+        "[rsrs-exps][structured-operator] fetch complex rhs start: n_points={}",
+        structured_operator.n_points
+    );
     let mut n_rhs: libc::c_int = 0;
     let mut len_out: libc::c_int = 0;
 
@@ -445,12 +495,23 @@ pub fn rhs_complex(
     }
 
     unsafe { libc::free(ptr as *mut libc::c_void) };
+    println!(
+        "[rsrs-exps][structured-operator] fetch complex rhs done in {:.3}s: rhs_count={}, rhs_len={}",
+        stage.elapsed().as_secs_f64(),
+        all_rhs.len(),
+        len_out
+    );
     Some(all_rhs)
 }
 
 pub fn rhs_complex32(
     structured_operator: &StructuredOperatorInterface,
 ) -> Option<Vec<Vec<num::Complex<f32>>>> {
+    let stage = Instant::now();
+    println!(
+        "[rsrs-exps][structured-operator] fetch complex32 rhs start: n_points={}",
+        structured_operator.n_points
+    );
     let mut n_rhs: libc::c_int = 0;
     let mut len_out: libc::c_int = 0;
 
@@ -472,6 +533,12 @@ pub fn rhs_complex32(
     }
 
     unsafe { libc::free(ptr as *mut libc::c_void) };
+    println!(
+        "[rsrs-exps][structured-operator] fetch complex32 rhs done in {:.3}s: rhs_count={}, rhs_len={}",
+        stage.elapsed().as_secs_f64(),
+        all_rhs.len(),
+        len_out
+    );
     Some(all_rhs)
 }
 

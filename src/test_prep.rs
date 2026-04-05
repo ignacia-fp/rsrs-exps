@@ -12,10 +12,9 @@ use bempp_rsrs::rsrs::args::RsrsOptions;
 use bempp_rsrs::rsrs::rsrs_cycle::Rsrs;
 use bempp_rsrs::rsrs::rsrs_factors::rsrs_operator::{LocalFromSpaces, RsrsOperator};
 use bempp_rsrs::rsrs::sketch::SamplingSpace;
-use bempp_rsrs::utils::io::IOData;
 use mpi::{topology::SimpleCommunicator, traits::Communicator};
 use rlst::prelude::*;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 type Real<T> = <T as rlst::RlstScalar>::Real;
 use crate::io::errors::get_boxes_errors;
 use crate::io::read_and_write::ConditionNumberOutput;
@@ -28,9 +27,8 @@ use ndelement::types::ReferenceCellType;
 use ndgrid::traits::{Entity, Geometry, Grid, ParallelGrid, Point};
 use num::ToPrimitive;
 use rlst::tracing::trace_call;
-use std::fs;
-use std::io;
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 
 #[derive(Debug, Clone, Deserialize)]
 pub enum Results {
@@ -113,232 +111,24 @@ fn sample_storage_dir(path_str: &str) -> PathBuf {
     Path::new(path_str).join("sampling")
 }
 
-fn sampling_seed_dir(path_str: &str) -> PathBuf {
-    Path::new(path_str).join(".sampling_seed")
-}
-
-fn sampling_dir_has_presaved_sketches(sampling_dir: &Path) -> bool {
-    let y_pair = sampling_dir.join("y_test_file.00000.h5").exists()
-        && sampling_dir.join("y_sketch_file.00000.h5").exists();
-    let z_pair = sampling_dir.join("z_test_file.00000.h5").exists()
-        && sampling_dir.join("z_sketch_file.00000.h5").exists();
-    y_pair || z_pair
-}
-
-fn existing_sampling_dir(path_str: &str) -> Option<PathBuf> {
-    let preferred = sample_storage_dir(path_str);
-    if sampling_dir_has_presaved_sketches(&preferred) {
-        Some(preferred)
-    } else {
-        let legacy = PathBuf::from("sampling");
-        sampling_dir_has_presaved_sketches(&legacy).then_some(legacy)
+fn log_root(rank: i32, message: &str) {
+    if rank == 0 {
+        println!("[rsrs-exps] {message}");
     }
 }
 
-fn clear_sampling_dir(path_str: &str) -> io::Result<()> {
-    let sampling_dir = sample_storage_dir(path_str);
-    if sampling_dir.exists() {
-        fs::remove_dir_all(sampling_dir)?;
+fn start_root_stage(rank: i32, label: &str) -> Instant {
+    if rank == 0 {
+        println!("[rsrs-exps] {label}...");
     }
-    Ok(())
+    Instant::now()
 }
 
-fn clear_sampling_seed_dir(path_str: &str) -> io::Result<()> {
-    let sampling_seed_dir = sampling_seed_dir(path_str);
-    if sampling_seed_dir.exists() {
-        fs::remove_dir_all(sampling_seed_dir)?;
-    }
-    Ok(())
-}
-
-fn copy_dir_all(src: &Path, dst: &Path) -> io::Result<()> {
-    fs::create_dir_all(dst)?;
-    for entry in fs::read_dir(src)? {
-        let entry = entry?;
-        let file_type = entry.file_type()?;
-        let dst_path = dst.join(entry.file_name());
-        if file_type.is_dir() {
-            copy_dir_all(&entry.path(), &dst_path)?;
-        } else {
-            fs::copy(entry.path(), dst_path)?;
-        }
-    }
-    Ok(())
-}
-
-fn sampling_has_presaved_sketches(path_str: &str) -> bool {
-    existing_sampling_dir(path_str).is_some()
-}
-
-fn snapshot_sampling_dir(path_str: &str) -> io::Result<()> {
-    clear_sampling_seed_dir(path_str)?;
-    if let Some(sampling_dir) = existing_sampling_dir(path_str) {
-        copy_dir_all(&sampling_dir, &sampling_seed_dir(path_str))?;
-    }
-    Ok(())
-}
-
-fn restore_sampling_seed_dir(path_str: &str) -> io::Result<()> {
-    clear_sampling_dir(path_str)?;
-    let sampling_seed_dir = sampling_seed_dir(path_str);
-    if sampling_seed_dir.exists() {
-        copy_dir_all(&sampling_seed_dir, &sample_storage_dir(path_str))?;
-    }
-    Ok(())
-}
-
-#[derive(Serialize)]
-struct SketchPairCheckOutput {
-    total_samples: usize,
-    checked_samples: usize,
-    relerr: f64,
-    max_abs_err: f64,
-}
-
-#[derive(Serialize)]
-struct PresavedSketchCheckOutput {
-    threshold: f64,
-    y: Option<SketchPairCheckOutput>,
-    z: Option<SketchPairCheckOutput>,
-}
-
-fn check_saved_sketch_pair<Item: RlstScalar + IOData<Item, Item = Item> + Default + Copy>(
-    structured_operator: &StructuredOperatorInterface,
-    sampling_dir: &Path,
-    test_base: &str,
-    sketch_base: &str,
-    transposed: bool,
-) -> Option<SketchPairCheckOutput>
-where
-    StructuredOperatorInterface: StructuredOperatorImpl<Item>,
-    Real<Item>: ToPrimitive,
-{
-    let test_flat = <Item as IOData<Item>>::load_in_dir(test_base, Some(sampling_dir)).ok()?;
-    let sketch_flat = <Item as IOData<Item>>::load_in_dir(sketch_base, Some(sampling_dir)).ok()?;
-    let n_points = structured_operator.n_points;
-
-    assert!(n_points > 0, "Structured operator has zero points.");
-    assert!(
-        test_flat.len() % n_points == 0,
-        "Sample matrix '{}' has invalid length {} for n_points={}.",
-        test_base,
-        test_flat.len(),
-        n_points
-    );
-    assert_eq!(
-        test_flat.len(),
-        sketch_flat.len(),
-        "Sample matrix '{}' and sketch '{}' have incompatible sizes.",
-        test_base,
-        sketch_base
-    );
-
-    let total_rows = test_flat.len() / n_points;
-    let mut input = vec![Item::default(); n_points];
-    let mut output = vec![Item::default(); n_points];
-    let mut rel_num = 0.0_f64;
-    let mut rel_den = 0.0_f64;
-    let mut max_abs_err = 0.0_f64;
-    let row = 0;
-
-    for col in 0..n_points {
-        input[col] = test_flat[col * total_rows + row];
-    }
-
-    if transposed {
-        <StructuredOperatorInterface as StructuredOperatorImpl<Item>>::mv_trans(
-            structured_operator,
-            &input,
-            &mut output,
-        );
-    } else {
-        <StructuredOperatorInterface as StructuredOperatorImpl<Item>>::mv(
-            structured_operator,
-            &input,
-            &mut output,
-        );
-    }
-
-    for col in 0..n_points {
-        let expected = sketch_flat[col * total_rows + row];
-        let diff_abs = (output[col] - expected).abs().to_f64().unwrap();
-        let expected_abs = expected.abs().to_f64().unwrap();
-        rel_num += diff_abs * diff_abs;
-        rel_den += expected_abs * expected_abs;
-        max_abs_err = max_abs_err.max(diff_abs);
-    }
-
-    let relerr = if rel_den > 0.0 {
-        (rel_num / rel_den).sqrt()
-    } else {
-        rel_num.sqrt()
-    };
-
-    Some(SketchPairCheckOutput {
-        total_samples: total_rows,
-        checked_samples: 1,
-        relerr,
-        max_abs_err,
-    })
-}
-
-fn save_presaved_sketch_check(path_str: &str, stats: &PresavedSketchCheckOutput) -> io::Result<()> {
-    fs::create_dir_all(Path::new(path_str))?;
-    let stats_path = Path::new(path_str).join("presaved_sketch_check.json");
-    let json_string = serde_json::to_string_pretty(stats).expect("Failed to serialize");
-    fs::write(stats_path, json_string)
-}
-
-fn validate_presaved_sketches<Item: RlstScalar + IOData<Item, Item = Item> + Default + Copy>(
-    structured_operator: &StructuredOperatorInterface,
-    path_str: &str,
-) where
-    StructuredOperatorInterface: StructuredOperatorImpl<Item>,
-    Real<Item>: ToPrimitive,
-{
-    let Some(sampling_dir) = existing_sampling_dir(path_str) else {
-        return;
-    };
-
-    let threshold = match std::mem::size_of::<Real<Item>>() {
-        4 => 1e-4,
-        _ => 1e-10,
-    };
-
-    let stats = PresavedSketchCheckOutput {
-        threshold,
-        y: check_saved_sketch_pair::<Item>(
-            structured_operator,
-            &sampling_dir,
-            "y_test_file",
-            "y_sketch_file",
-            false,
-        ),
-        z: check_saved_sketch_pair::<Item>(
-            structured_operator,
-            &sampling_dir,
-            "z_test_file",
-            "z_sketch_file",
-            true,
-        ),
-    };
-
-    let _ = save_presaved_sketch_check(path_str, &stats);
-
-    if let Some(y_stats) = &stats.y {
-        assert!(
-            y_stats.relerr <= threshold,
-            "Presaved y-sketch check failed: relerr={} exceeds threshold={}.",
-            y_stats.relerr,
-            threshold
-        );
-    }
-    if let Some(z_stats) = &stats.z {
-        assert!(
-            z_stats.relerr <= threshold,
-            "Presaved z-sketch check failed: relerr={} exceeds threshold={}.",
-            z_stats.relerr,
-            threshold
+fn finish_root_stage(rank: i32, label: &str, start: Instant) {
+    if rank == 0 {
+        println!(
+            "[rsrs-exps] {label} done in {:.3}s",
+            start.elapsed().as_secs_f64()
         );
     }
 }
@@ -576,6 +366,7 @@ macro_rules! implement_test_framework {
             fn run_tests(&mut self) {
                 let universe: mpi::environment::Universe = mpi::initialize().unwrap();
                 let comm: SimpleCommunicator = universe.world();
+                let rank = comm.rank();
                 for (dim_num, dim_arg) in
                     self.test_params.scenario_params.dim_args.iter().enumerate()
                 {
@@ -585,7 +376,6 @@ macro_rules! implement_test_framework {
                         preferred_sampling_dir.to_string_lossy().into_owned();
                     self.test_params.rsrs_params.sketching.sample_storage_dir =
                         Some(preferred_sampling_dir_str.clone());
-                    let _ = clear_sampling_seed_dir(&path_str);
                     let structured_operator_params = StructuredOperatorParams::new(
                         self.test_params
                             .scenario_params
@@ -601,20 +391,38 @@ macro_rules! implement_test_framework {
                     )
                     .with_sample_storage_dir(preferred_sampling_dir_str);
 
+                    log_root(
+                        rank,
+                        &format!(
+                            "scenario start: out_dir='{}', sample_dir='{}', operator='{}', load_samples={}, save_samples={}, init_samples={}",
+                            path_str,
+                            preferred_sampling_dir.display(),
+                            self.test_params.scenario_params.structured_operator_type.as_ref(),
+                            self.test_params.rsrs_params.sketching.load_samples,
+                            self.test_params.rsrs_params.sketching.save_samples,
+                            self.test_params.rsrs_params.sketching.initial_num_samples,
+                        ),
+                    );
+
+                    let stage = start_root_stage(rank, "initialize structured operator");
                     let structured_operator: StructuredOperatorInterface =
                         <StructuredOperatorInterface as StructuredOperatorImpl<Self::Item>>::new(
                             &structured_operator_params,
                         );
-                    let has_presaved_sketches = sampling_has_presaved_sketches(&path_str);
-                    if self.test_params.rsrs_params.sketching.load_samples && has_presaved_sketches
-                    {
-                        validate_presaved_sketches::<Self::Item>(&structured_operator, &path_str);
-                        let _ = snapshot_sampling_dir(&path_str);
-                    }
+                    finish_root_stage(rank, "initialize structured operator", stage);
+
+                    let stage = start_root_stage(rank, "fetch geometry points");
                     let points: Vec<bempp_octree::Point> =
                         get_bempp_points(&structured_operator).unwrap();
+                    finish_root_stage(rank, "fetch geometry points", stage);
+
+                    let stage = start_root_stage(rank, "wrap structured operator");
                     let operator = StructuredOperator::from_local(structured_operator);
+                    finish_root_stage(rank, "wrap structured operator", stage);
+
+                    let stage = start_root_stage(rank, "fetch right-hand sides");
                     let rhs = operator.get_rhs();
+                    finish_root_stage(rank, "fetch right-hand sides", stage);
                     let dim = points.len();
 
                     let mut solves = Solves {
@@ -629,7 +437,14 @@ macro_rules! implement_test_framework {
 
                     match self.output_options.solve {
                         Solve::True(tol) => {
+                            let label = format!(
+                                "solve without preconditioner ({} rhs, tol={:.3e})",
+                                rhs.len(),
+                                tol
+                            );
+                            let stage = start_root_stage(rank, &label);
                             let (its, rel_err, sols) = solve_system(&operator, &rhs, tol);
+                            finish_root_stage(rank, &label, stage);
                             solves.no_prec = Some(its);
                             solves.rel_err_no_prec = Some(rel_err);
                             solves.sols_no_prec = Some(sols);
@@ -637,27 +452,24 @@ macro_rules! implement_test_framework {
                         Solve::False => {}
                     };
                     for &id_tol in self.test_params.scenario_params.id_tols.iter() {
-                        if self.test_params.rsrs_params.sketching.load_samples {
-                            if has_presaved_sketches {
-                                let _ = restore_sampling_seed_dir(&path_str);
-                            } else {
-                                let _ = clear_sampling_dir(&path_str);
-                            }
-                        }
                         let max_leaf_points = default_max_leaf_points(
                             id_tol.to_f64().unwrap(),
                             &self.test_params.scenario_params.geometry_type,
                         );
+                        let label =
+                            format!("build octree for id_tol={} (max_leaf_points={})", id_tol, max_leaf_points);
+                        let stage = start_root_stage(rank, &label);
                         let tree: Octree<'_, SimpleCommunicator> = Octree::new(
                             &points,
                             self.test_params.scenario_params.max_tree_depth,
                             max_leaf_points,
                             &comm,
                         );
+                        finish_root_stage(rank, &label, stage);
                         let global_number_of_points: usize = tree.global_number_of_points();
                         let global_max_level: usize = tree.global_max_level();
 
-                        if comm.rank() == 0 {
+                        if rank == 0 {
                             println!(
                                 "Setup octree with {} points and maximum level {}",
                                 global_number_of_points, global_max_level
@@ -667,7 +479,7 @@ macro_rules! implement_test_framework {
                         let mut solves = solves.clone();
 
                         println!("Test: {} points, tol:{}", dim, id_tol);
-                        if comm.rank() == 0 {
+                        if rank == 0 {
                             let start_level = global_max_level;
                             let end_level = self.test_params.rsrs_params.min_level;
                             let total_levels = start_level.saturating_sub(end_level) + 1;
@@ -679,25 +491,38 @@ macro_rules! implement_test_framework {
 
                         self.test_params.rsrs_params.id_options.tol_id = id_tol;
 
+                        let stage = start_root_stage(rank, "construct RSRS state");
                         let mut rsrs_algo: Rsrs<Self::Item> =
                             Rsrs::new(&tree, self.test_params.rsrs_params.clone(), dim);
+                        finish_root_stage(rank, "construct RSRS state", stage);
 
                         let domain = std::rc::Rc::clone(&operator.domain());
                         let range = std::rc::Rc::clone(&operator.range());
 
+                        let stage = start_root_stage(rank, "run RSRS factorization");
                         let mut rsrs_factors = rsrs_algo.run(operator.r());
+                        finish_root_stage(rank, "run RSRS factorization", stage);
 
+                        let stage = start_root_stage(rank, "build RSRS operator");
                         let mut rsrs_operator =
                             RsrsOperator::from_local_spaces(&mut rsrs_factors, domain, range);
+                        finish_root_stage(rank, "build RSRS operator", stage);
                         let transpose_matches_apply = transpose_matches_apply(
                             &self.test_params.scenario_params.structured_operator_type,
                         );
                         match self.output_options.solve {
                             Solve::True(tol) => {
+                                let label = format!(
+                                    "solve with RSRS preconditioner ({} rhs, tol={:.3e})",
+                                    rhs.len(),
+                                    tol
+                                );
+                                let stage = start_root_stage(rank, &label);
                                 rsrs_operator.inv(true);
                                 let (its, rel_err, sols) =
                                     solve_prec_system(&operator, &rsrs_operator, &rhs, tol);
                                 rsrs_operator.inv(false);
+                                finish_root_stage(rank, &label, stage);
                                 solves.prec = Some(its);
                                 solves.rel_err_prec = Some(rel_err);
                                 solves.sols_prec = Some(sols);
@@ -707,6 +532,7 @@ macro_rules! implement_test_framework {
 
                         match self.output_options.results_output {
                             Results::All => {
+                                let stage = start_root_stage(rank, "save error statistics");
                                 save_error_stats(
                                     &operator,
                                     &mut rsrs_operator,
@@ -720,21 +546,32 @@ macro_rules! implement_test_framework {
                                         .symmetry
                                         .complex_symmetric_val::<Self::Item>(),
                                 );
+                                finish_root_stage(rank, "save error statistics", stage);
+                                let stage = start_root_stage(rank, "save time statistics");
                                 save_time_stats(&rsrs_algo, id_tol, &path_str);
+                                finish_root_stage(rank, "save time statistics", stage);
+                                let stage = start_root_stage(rank, "save rank statistics");
                                 save_rank_stats(&rsrs_algo, id_tol, &path_str);
+                                finish_root_stage(rank, "save rank statistics", stage);
                                 if self.output_options.plot {
+                                    let stage = start_root_stage(rank, "render time piechart");
                                     time_piechart(id_tol.into(), &path_str);
+                                    finish_root_stage(rank, "render time piechart", stage);
                                 }
 
                                 if self.output_options.factors_cn {
+                                    let stage =
+                                        start_root_stage(rank, "save factor condition numbers");
                                     let cn: ConditionNumberOutput<$scalar> =
                                         ConditionNumberOutput::new(
                                             rsrs_operator.get_condition_numbers(),
                                         );
                                     cn.save(&path_str, id_tol);
+                                    finish_root_stage(rank, "save factor condition numbers", stage);
                                 }
 
                                 if self.output_options.dense_errors {
+                                    let stage = start_root_stage(rank, "compute dense/block errors");
                                     let mut dense_structured_operator =
                                         rlst_dynamic_array2!($scalar, [dim, dim]);
                                     let domain = std::rc::Rc::clone(&operator.domain());
@@ -757,9 +594,11 @@ macro_rules! implement_test_framework {
                                         num::NumCast::from(id_tol).unwrap(),
                                         path_str.as_str(),
                                     );
+                                    finish_root_stage(rank, "compute dense/block errors", stage);
                                 }
                             }
                             Results::Rank => {
+                                let stage = start_root_stage(rank, "save error statistics");
                                 save_error_stats(
                                     &operator,
                                     &mut rsrs_operator,
@@ -773,14 +612,20 @@ macro_rules! implement_test_framework {
                                         .symmetry
                                         .complex_symmetric_val::<Self::Item>(),
                                 );
+                                finish_root_stage(rank, "save error statistics", stage);
+                                let stage = start_root_stage(rank, "save rank statistics");
                                 save_rank_stats(&rsrs_algo, id_tol, &path_str);
+                                finish_root_stage(rank, "save rank statistics", stage);
 
                                 if self.output_options.factors_cn {
+                                    let stage =
+                                        start_root_stage(rank, "save factor condition numbers");
                                     let cn: ConditionNumberOutput<$scalar> =
                                         ConditionNumberOutput::new(
                                             rsrs_operator.get_condition_numbers(),
                                         );
                                     cn.save(&path_str, id_tol);
+                                    finish_root_stage(rank, "save factor condition numbers", stage);
                                 }
                             }
                             Results::Time => {
@@ -792,18 +637,25 @@ macro_rules! implement_test_framework {
                                     id_tol,
                                     &path_str,
                                 );*/
+                                let stage = start_root_stage(rank, "save time statistics");
                                 save_time_stats(&rsrs_algo, id_tol, &path_str);
+                                finish_root_stage(rank, "save time statistics", stage);
 
                                 if self.output_options.factors_cn {
+                                    let stage =
+                                        start_root_stage(rank, "save factor condition numbers");
                                     let cn: ConditionNumberOutput<$scalar> =
                                         ConditionNumberOutput::new(
                                             rsrs_operator.get_condition_numbers(),
                                         );
                                     cn.save(&path_str, id_tol);
+                                    finish_root_stage(rank, "save factor condition numbers", stage);
                                 }
 
                                 if self.output_options.plot {
+                                    let stage = start_root_stage(rank, "render time piechart");
                                     time_piechart(id_tol.into(), &path_str);
+                                    finish_root_stage(rank, "render time piechart", stage);
                                 }
                             }
                         }
@@ -929,7 +781,18 @@ macro_rules! implement_distributed_test_framework {
 
                     let dim = points.len();
 
-                    println!("{} degrees of freedom", dim);
+                    log_root(
+                        rank,
+                        &format!(
+                            "distributed scenario start: out_dir='{}', sample_dir='{}', load_samples={}, save_samples={}, init_samples={}",
+                            self.test_params.get_test_dir(dim_num),
+                            sample_storage_dir(&self.test_params.get_test_dir(dim_num)).display(),
+                            self.test_params.rsrs_params.sketching.load_samples,
+                            self.test_params.rsrs_params.sketching.save_samples,
+                            self.test_params.rsrs_params.sketching.initial_num_samples,
+                        ),
+                    );
+                    log_root(rank, &format!("{dim} local degrees of freedom"));
 
                     let mut solves = Solves {
                         no_prec: None,
@@ -943,7 +806,14 @@ macro_rules! implement_distributed_test_framework {
 
                     match self.output_options.solve {
                         Solve::True(tol) => {
+                                let label = format!(
+                                    "solve without preconditioner ({} rhs, tol={:.3e})",
+                                    rhs.len(),
+                                    tol
+                                );
+                                let stage = start_root_stage(rank, &label);
                                 let (its, rel_err, sols) = solve_system(&operator, &rhs, tol);
+                                finish_root_stage(rank, &label, stage);
                                 solves.no_prec = Some(its);
                                 solves.rel_err_no_prec = Some(rel_err);
                                 solves.sols_no_prec = Some(sols);
@@ -955,29 +825,19 @@ macro_rules! implement_distributed_test_framework {
                     let preferred_sampling_dir = sample_storage_dir(&path_str);
                     self.test_params.rsrs_params.sketching.sample_storage_dir =
                         Some(preferred_sampling_dir.to_string_lossy().into_owned());
-                    let _ = clear_sampling_seed_dir(&path_str);
-                    let has_presaved_sketches = sampling_has_presaved_sketches(&path_str);
-                    if self.test_params.rsrs_params.sketching.load_samples && has_presaved_sketches
-                    {
-                        let _ = snapshot_sampling_dir(&path_str);
-                    }
 
                     for &id_tol in self.test_params.scenario_params.id_tols.iter() {
-                        if self.test_params.rsrs_params.sketching.load_samples {
-                            if has_presaved_sketches {
-                                let _ = restore_sampling_seed_dir(&path_str);
-                            } else {
-                                let _ = clear_sampling_dir(&path_str);
-                            }
-                        }
-
                         let max_leaf_points = default_max_leaf_points(
                             id_tol.to_f64().unwrap(),
                             &self.test_params.scenario_params.geometry_type,
                         );
 
+                        let label =
+                            format!("build octree for id_tol={} (max_leaf_points={})", id_tol, max_leaf_points);
+                        let stage = start_root_stage(rank, &label);
                         let tree: Octree<'_, SimpleCommunicator> =
                             Octree::new(&points, self.test_params.scenario_params.max_tree_depth, max_leaf_points, &comm);
+                        finish_root_stage(rank, &label, stage);
                         let global_number_of_points: usize = tree.global_number_of_points();
                         let global_max_level: usize = tree.global_max_level();
 
@@ -1004,9 +864,13 @@ macro_rules! implement_distributed_test_framework {
 
                         self.test_params.rsrs_params.id_options.tol_id = id_tol;
 
+                        let stage = start_root_stage(rank, "construct RSRS state");
                         let mut rsrs_algo: Rsrs<Self::Item> =
                             Rsrs::new(&tree, self.test_params.rsrs_params.clone(), dim);
+                        finish_root_stage(rank, "construct RSRS state", stage);
+                        let stage = start_root_stage(rank, "build RSRS operator");
                         let mut rsrs_operator = rsrs_algo.get_rsrs_operator(operator.r());
+                        finish_root_stage(rank, "build RSRS operator", stage);
                         let transpose_matches_apply = transpose_matches_apply(
                             &self.test_params.scenario_params.structured_operator_type,
                         );
@@ -1015,9 +879,16 @@ macro_rules! implement_distributed_test_framework {
 
                         match self.output_options.solve {
                             Solve::True(tol) => {
+                                let label = format!(
+                                    "solve with RSRS preconditioner ({} rhs, tol={:.3e})",
+                                    rhs.len(),
+                                    tol
+                                );
+                                let stage = start_root_stage(rank, &label);
                                 rsrs_operator.inv(true);
                                 let (its, rel_err, sols) = solve_prec_system(&operator, &rsrs_operator, &rhs, tol);
                                 rsrs_operator.inv(false);
+                                finish_root_stage(rank, &label, stage);
                                 solves.prec = Some(its);
                                 solves.rel_err_prec = Some(rel_err);
                                 solves.sols_prec = Some(sols);
@@ -1027,6 +898,7 @@ macro_rules! implement_distributed_test_framework {
 
                         match self.output_options.results_output {
                             Results::All => {
+                                let stage = start_root_stage(rank, "save error statistics");
                                 save_error_stats(
                                     &operator,
                                     &mut rsrs_operator,
@@ -1040,15 +912,25 @@ macro_rules! implement_distributed_test_framework {
                                         .symmetry
                                         .complex_symmetric_val::<Self::Item>(),
                                 );
+                                finish_root_stage(rank, "save error statistics", stage);
+                                let stage = start_root_stage(rank, "save time statistics");
                                 save_time_stats(&rsrs_algo, id_tol, &path_str);
+                                finish_root_stage(rank, "save time statistics", stage);
+                                let stage = start_root_stage(rank, "save rank statistics");
                                 save_rank_stats(&rsrs_algo, id_tol, &path_str);
+                                finish_root_stage(rank, "save rank statistics", stage);
                                 if self.output_options.plot {
+                                    let stage = start_root_stage(rank, "render time piechart");
                                     time_piechart(id_tol.into(), &path_str);
+                                    finish_root_stage(rank, "render time piechart", stage);
                                 }
 
                                 if self.output_options.factors_cn{
+                                    let stage =
+                                        start_root_stage(rank, "save factor condition numbers");
                                     let cn: ConditionNumberOutput<$scalar> = ConditionNumberOutput::new(rsrs_operator.get_condition_numbers());
                                     cn.save(&path_str, id_tol);
+                                    finish_root_stage(rank, "save factor condition numbers", stage);
                                 }
 
                                 if self.output_options.dense_errors {
@@ -1077,6 +959,7 @@ macro_rules! implement_distributed_test_framework {
                                 }
                             }
                             Results::Rank => {
+                                let stage = start_root_stage(rank, "save error statistics");
                                 save_error_stats(
                                     &operator,
                                     &mut rsrs_operator,
@@ -1090,10 +973,16 @@ macro_rules! implement_distributed_test_framework {
                                         .symmetry
                                         .complex_symmetric_val::<Self::Item>(),
                                 );
+                                finish_root_stage(rank, "save error statistics", stage);
+                                let stage = start_root_stage(rank, "save rank statistics");
                                 save_rank_stats(&rsrs_algo, id_tol, &path_str);
+                                finish_root_stage(rank, "save rank statistics", stage);
                                 if self.output_options.factors_cn{
+                                    let stage =
+                                        start_root_stage(rank, "save factor condition numbers");
                                     let cn: ConditionNumberOutput<$scalar> = ConditionNumberOutput::new(rsrs_operator.get_condition_numbers());
                                     cn.save(&path_str, id_tol);
+                                    finish_root_stage(rank, "save factor condition numbers", stage);
                                 }
                             }
                             Results::Time => {
@@ -1105,15 +994,22 @@ macro_rules! implement_distributed_test_framework {
                                     id_tol,
                                     &path_str,
                                 );*/
+                                let stage = start_root_stage(rank, "save time statistics");
                                 save_time_stats(&rsrs_algo, id_tol, &path_str);
+                                finish_root_stage(rank, "save time statistics", stage);
 
                                 if self.output_options.factors_cn{
+                                    let stage =
+                                        start_root_stage(rank, "save factor condition numbers");
                                     let cn: ConditionNumberOutput<$scalar> = ConditionNumberOutput::new(rsrs_operator.get_condition_numbers());
                                     cn.save(&path_str, id_tol);
+                                    finish_root_stage(rank, "save factor condition numbers", stage);
                                 }
 
                                 if self.output_options.plot {
+                                    let stage = start_root_stage(rank, "render time piechart");
                                     time_piechart(id_tol.into(), &path_str);
+                                    finish_root_stage(rank, "render time piechart", stage);
                                 }
                             }
                         }

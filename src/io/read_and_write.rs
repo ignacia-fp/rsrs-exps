@@ -25,7 +25,7 @@ use rlst::{
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::io::Write;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use std::{
     fs::{self, File},
     io::Read,
@@ -33,6 +33,18 @@ use std::{
 };
 
 type Real<T> = <T as rlst::RlstScalar>::Real;
+
+fn start_save_stage(label: &str) -> Instant {
+    println!("[rsrs-exps][save] {label}...");
+    Instant::now()
+}
+
+fn finish_save_stage(label: &str, start: Instant) {
+    println!(
+        "[rsrs-exps][save] {label} done in {:.3}s",
+        start.elapsed().as_secs_f64()
+    );
+}
 
 #[derive(Serialize, Clone)]
 pub struct Solves<Item: RlstScalar> {
@@ -491,6 +503,10 @@ pub(crate) fn save_error_stats<
     IdOperator<Item, Space>: rlst::AsApply,
     IdOperator<Item, Space>: OperatorBase<Domain = Space, Range = Space>,
 {
+    println!(
+        "[rsrs-exps][save] save_error_stats start: tol={:e}, path='{}'",
+        tol, path_str
+    );
     fs::create_dir_all(Path::new(&path_str)).unwrap();
     let string_tol = format!("{:e}", tol);
     let mut stats_path = path_str.to_string();
@@ -498,37 +514,49 @@ pub(crate) fn save_error_stats<
     stats_path.push_str(&string_tol);
     stats_path.push_str(".json");
     let mut solves = solves;
+    let stage = start_save_stage("write solve-vector sidecar");
     solves.vectors_file = save_solve_vectors(&solves, tol, path_str);
+    finish_save_stage("write solve-vector sidecar", stage);
 
     rsrs_operator.inv(false);
     let tol_eigs = <Space::F as RlstScalar>::Real::from_f64(1e-10).unwrap();
+    let stage = start_save_stage("application error estimate (non-inverse)");
     let (app_err_left, app_err_right) =
         rsrs_error_estimator(structured_operator_op, rsrs_operator, 10, false);
+    finish_save_stage("application error estimate (non-inverse)", stage);
     let approx_transpose_matches_apply = transpose_matches_apply && !complex_symmetric_rsrs;
+    let stage = start_save_stage("frobenius norm comparison (non-inverse)");
     let (norm_fro_error, norm_fro_operator) =
         frobenius_diff_and_reference_norm(structured_operator_op, rsrs_operator);
+    finish_save_stage("frobenius norm comparison (non-inverse)", stage);
 
     let diff = DiffOperator(structured_operator_op.r(), rsrs_operator.r());
     let normal = NormalOperator {
         op: diff.r(),
         transpose_matches_apply: approx_transpose_matches_apply,
     };
+    let stage = start_save_stage("largest singular value of operator difference");
     let mut eigs1 = Eigs::new(normal.r(), tol_eigs, None, None, None);
     let (sigma_1, _) = eigs1.run(None, 1, None, false);
+    finish_save_stage("largest singular value of operator difference", stage);
 
     let normal_structured = NormalOperator {
         op: structured_operator_op.r(),
         transpose_matches_apply,
     };
+    let stage = start_save_stage("largest singular value of original operator");
     let mut eigs2 = Eigs::new(normal_structured.r(), tol_eigs, None, None, None);
     let (sigma_2, _) = eigs2.run(None, 1, None, false);
+    finish_save_stage("largest singular value of original operator", stage);
 
     let normal_rsrs = NormalOperator {
         op: rsrs_operator.r(),
         transpose_matches_apply: approx_transpose_matches_apply,
     };
+    let stage = start_save_stage("largest singular value of RSRS operator");
     let mut eigs3 = Eigs::new(normal_rsrs.r(), tol_eigs, None, None, None);
     let (c_1, _) = eigs3.run(None, 1, None, false);
+    finish_save_stage("largest singular value of RSRS operator", stage);
 
     let norm_2_error = sigma_1[0].abs().sqrt() / sigma_2[0].abs().sqrt();
 
@@ -539,29 +567,39 @@ pub(crate) fn save_error_stats<
     let id_op = IdOperator::new(domain, range);
 
     let prod1 = rsrs_operator.r().product(structured_operator_op.r());
+    let stage = start_save_stage("frobenius norm comparison (inverse mode)");
     let (norm_fro_error_inv, _) = frobenius_diff_and_reference_norm(&id_op, &prod1);
+    finish_save_stage("frobenius norm comparison (inverse mode)", stage);
     let diff = DiffOperator(prod1.r(), id_op.r());
     let normal = NormalOperator {
         op: diff.r(),
         transpose_matches_apply: approx_transpose_matches_apply,
     };
 
+    let stage = start_save_stage("largest singular value of inverse residual");
     let mut eigs1 = Eigs::new(normal.r(), tol_eigs, None, None, None);
     let (sigma_1, _) = eigs1.run(None, 1, None, false);
+    finish_save_stage("largest singular value of inverse residual", stage);
 
     let normal_rsrs = NormalOperator {
         op: rsrs_operator.r(),
         transpose_matches_apply: approx_transpose_matches_apply,
     };
+    let stage = start_save_stage("largest singular value of inverse RSRS operator");
     let mut eigs2 = Eigs::new(normal_rsrs.r(), tol_eigs, None, None, None);
     let (c_2, _) = eigs2.run(None, 1, None, false);
+    finish_save_stage("largest singular value of inverse RSRS operator", stage);
 
     let norm_2_error_inv = sigma_1[0].abs().sqrt();
 
     let condition_number = c_2[0].abs().sqrt() * c_1[0].abs().sqrt();
 
-    let (app_inv_err_left, app_inv_err_right) =
-        rsrs_error_estimator(structured_operator_op, rsrs_operator, 10, true);
+    let (app_inv_err_left, app_inv_err_right) = {
+        let stage = start_save_stage("application error estimate (inverse)");
+        let res = rsrs_error_estimator(structured_operator_op, rsrs_operator, 10, true);
+        finish_save_stage("application error estimate (inverse)", stage);
+        res
+    };
 
     let mut sol = SamplingSpace::zero(structured_operator_op.r().domain());
 
@@ -572,6 +610,7 @@ pub(crate) fn save_error_stats<
             .sampling(&mut sol, rng, SampleType::RealStandardNormal);
     });
 
+    let stage = start_save_stage("sampled solve error check");
     let rhs = structured_operator_op.apply(sol.r(), TransMode::NoTrans);
 
     let mut sol_app = rsrs_operator.apply(rhs, TransMode::NoTrans);
@@ -579,6 +618,7 @@ pub(crate) fn save_error_stats<
     sol_app.sub_inplace(sol.r());
 
     let solve_error = sol_app.norm() / sol.norm();
+    finish_save_stage("sampled solve error check", stage);
 
     let stats = ErrorStatsOutput::<Item> {
         app_inv_err_left,
@@ -598,9 +638,12 @@ pub(crate) fn save_error_stats<
         solves,
     };
 
+    let stage = start_save_stage("serialize and write error_stats json");
     let json_string = serde_json::to_string_pretty(&stats).expect("Failed to serialize");
     let mut file = File::create(stats_path).unwrap();
     file.write_all(json_string.as_bytes()).unwrap();
+    finish_save_stage("serialize and write error_stats json", stage);
+    println!("[rsrs-exps][save] save_error_stats finished");
 }
 
 pub fn save_rank_stats<Item: RlstScalar + MatrixInverse + MatrixPseudoInverse + MatrixId>(

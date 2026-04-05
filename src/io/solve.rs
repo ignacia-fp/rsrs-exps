@@ -5,6 +5,7 @@ use rlst::{
     dense::{linalg::lu::MatrixLu, tools::RandScalar},
     prelude::*,
 };
+use std::time::Instant;
 
 const GMRES_RESTART: usize = 20;
 const GMRES_MAX_ITER: usize = 5000;
@@ -35,9 +36,23 @@ where
     let mut res_vec = Vec::with_capacity(rhs_list.len());
     let mut res_norm_vec = Vec::with_capacity(rhs_list.len());
     let mut sols_vec = Vec::with_capacity(rhs_list.len());
+    println!(
+        "[rsrs-exps][solve] starting unpreconditioned GMRES: rhs_count={}, dim={}, tol={:.3e}, restart={}, max_iter={}",
+        rhs_list.len(),
+        dim,
+        tol,
+        GMRES_RESTART,
+        GMRES_MAX_ITER
+    );
 
-    for rhs in rhs_list.iter() {
+    for (rhs_idx, rhs) in rhs_list.iter().enumerate() {
         let mut residuals = Vec::new();
+        let stage = Instant::now();
+        println!(
+            "[rsrs-exps][solve] rhs {}/{}: unpreconditioned GMRES start",
+            rhs_idx + 1,
+            rhs_list.len()
+        );
 
         let gmres: GmresIteration<
             '_,                                                         // Lifetime
@@ -60,6 +75,13 @@ where
         diff -= target_op.apply(sol.r(), TransMode::NoTrans);
         let rel_norm = diff.norm() / rhs.norm();
         println!("Rel norm: {}", rel_norm);
+        println!(
+            "[rsrs-exps][solve] rhs {}/{}: unpreconditioned GMRES done in {:.3}s with {} recorded residual(s)",
+            rhs_idx + 1,
+            rhs_list.len(),
+            stage.elapsed().as_secs_f64(),
+            residuals.len()
+        );
 
         res_vec.push(residuals);
         res_norm_vec.push(rel_norm);
@@ -71,6 +93,7 @@ where
         sols_vec.push(sol_vec.data().to_vec());
     }
 
+    println!("[rsrs-exps][solve] unpreconditioned GMRES finished");
     (res_vec, res_norm_vec, sols_vec)
 }
 
@@ -102,9 +125,23 @@ where
     let mut res_vec = Vec::with_capacity(rhs_list.len());
     let mut res_norm_vec = Vec::with_capacity(rhs_list.len());
     let mut sols_vec = Vec::with_capacity(rhs_list.len());
+    println!(
+        "[rsrs-exps][solve] starting preconditioned GMRES: rhs_count={}, dim={}, tol={:.3e}, restart={}, max_iter={}",
+        rhs_list.len(),
+        dim,
+        tol,
+        GMRES_RESTART,
+        GMRES_MAX_ITER
+    );
 
-    for rhs in rhs_list.iter() {
+    for (rhs_idx, rhs) in rhs_list.iter().enumerate() {
         let mut residuals = Vec::new();
+        let stage = Instant::now();
+        println!(
+            "[rsrs-exps][solve] rhs {}/{}: preconditioned GMRES start",
+            rhs_idx + 1,
+            rhs_list.len()
+        );
 
         let gmres: GmresIteration<
             '_,                                                         // lifetime
@@ -128,6 +165,13 @@ where
         diff -= target_op.apply(sol.r(), TransMode::NoTrans);
         let rel_norm = diff.norm() / rhs.norm();
         println!("Rel norm: {}", rel_norm);
+        println!(
+            "[rsrs-exps][solve] rhs {}/{}: preconditioned GMRES done in {:.3}s with {} recorded residual(s)",
+            rhs_idx + 1,
+            rhs_list.len(),
+            stage.elapsed().as_secs_f64(),
+            residuals.len()
+        );
 
         res_vec.push(residuals);
         res_norm_vec.push(rel_norm);
@@ -139,5 +183,6 @@ where
         sols_vec.push(sol_vec.data().to_vec());
     }
 
+    println!("[rsrs-exps][solve] preconditioned GMRES finished");
     (res_vec, res_norm_vec, sols_vec)
 }

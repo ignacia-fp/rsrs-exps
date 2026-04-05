@@ -121,28 +121,7 @@ def _maybe_generate_samples(
         else:
             n = int(n)
 
-    if op is None:
-        test_mat = np.ones((n, 1))
-        t0 = time.perf_counter()
-        apply(nonsym, test_mat)
-        t_test = time.perf_counter() - t0
-        print(f"sampling test: {t_test:.3f}s")
-        t0 = time.perf_counter()
-        apply(nonsym, test_mat)
-        t_test = time.perf_counter() - t0
-        print(f"sampling test 2: {t_test:.3f}s")
-        t_total0 = time.perf_counter()
-    else: 
-        test_mat = np.ones((n, 1))
-        t0 = time.perf_counter()
-        apply(op, test_mat)
-        t_test = time.perf_counter() - t0
-        print(f"sampling test: {t_test:.3f}s")
-        t0 = time.perf_counter()
-        apply(op, test_mat)
-        t_test = time.perf_counter() - t0
-        print(f"sampling test 2: {t_test:.3f}s")
-        t_total0 = time.perf_counter()
+    t_total0 = time.perf_counter()
 
     y_test = f"{prefix_y}_test_file"
     y_sk   = f"{prefix_y}_sketch_file"
@@ -162,6 +141,26 @@ def _maybe_generate_samples(
             f"nothing to do. (count={t_count:.3f}s, total={t_total:.3f}s)"
         )
         return
+
+    test_mat = np.ones((n, 1))
+    if op is None:
+        t0 = time.perf_counter()
+        apply(nonsym, test_mat)
+        t_test = time.perf_counter() - t0
+        print(f"sampling test: {t_test:.3f}s")
+        t0 = time.perf_counter()
+        apply(nonsym, test_mat)
+        t_test = time.perf_counter() - t0
+        print(f"sampling test 2: {t_test:.3f}s")
+    else:
+        t0 = time.perf_counter()
+        apply(op, test_mat)
+        t_test = time.perf_counter() - t0
+        print(f"sampling test: {t_test:.3f}s")
+        t0 = time.perf_counter()
+        apply(op, test_mat)
+        t_test = time.perf_counter() - t0
+        print(f"sampling test 2: {t_test:.3f}s")
 
     n_add = init_samples - m_old
     print(f"[sampling] have {m_old}, target {init_samples} -> appending {n_add} samples")
@@ -1471,15 +1470,26 @@ class BemppClMaxwellEfie(BaseStructuredOperator):
             self.domain = bempp_cl.api.function_space(self.grid, "RWG", 0)
             self.dual_to_range = self.domain
             self.range = bempp_cl.api.function_space(self.grid, "SNC", 0)
+            t0 = time.perf_counter()
+            print("[operator] assembling Maxwell EFIE weak form...")
             self.mat = bempp_cl.api.operators.boundary.maxwell.electric_field(
                 self.domain, self.dual_to_range, self.range, kappa, assembler = self.assembler
             ).weak_form()
+            print(f"[operator] assembled Maxwell EFIE weak form in {time.perf_counter() - t0:.3f}s")
             self.n_points = self.mat.shape[0]
-            #if self.assembler == "dense":
+            t0 = time.perf_counter()
+            print(f"[sampling] ensuring {self.init_samples} stored sample(s) for {self.operator_type}")
             _maybe_generate_samples(self.mat, self.mat, self.precision, self.n_points, self.init_samples, transposable = False)
+            print(f"[sampling] sample preparation finished in {time.perf_counter() - t0:.3f}s")
             self.rhs_data_type = self.mat.dtype
             if n_sources > 0:
+                t0 = time.perf_counter()
+                print(f"[rhs] requesting {self.n_sources} RHS vector(s) for {self.operator_type}")
                 self.rhs = self.get_rhs(n_sources=self.n_sources)
+                print(
+                    f"[rhs] stored {len(self.rhs)} RHS vector(s) for {self.operator_type} "
+                    f"in {time.perf_counter() - t0:.3f}s"
+                )
         except Exception as e:
             print("Error initializing BemppClMaxwellEfie:", e)
             raise
