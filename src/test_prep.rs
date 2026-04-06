@@ -547,7 +547,16 @@ macro_rules! implement_test_framework {
                         let range = std::rc::Rc::clone(&operator.range());
 
                         let stage = start_root_stage(rank, "run RSRS factorization");
-                        let mut rsrs_factors = rsrs_algo.run(operator.r());
+                        let mut rsrs_factors = if let Some(seed) =
+                            self.test_params.rsrs_params.sketching.run_seed
+                        {
+                            if rank == 0 {
+                                println!("[rsrs-exps] using deterministic RSRS seed: {seed}");
+                            }
+                            rsrs_algo.run_with_seed(operator.r(), seed)
+                        } else {
+                            rsrs_algo.run(operator.r())
+                        };
                         finish_root_stage(rank, "run RSRS factorization", stage);
 
                         let stage = start_root_stage(rank, "build RSRS operator");

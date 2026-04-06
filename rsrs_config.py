@@ -92,6 +92,7 @@ class RSRSBenchmarkConfig:
         load_samples: bool = True,
         num_threads: int = 32,
         min_num_samples: int = 0,
+        run_seed: int | None = None,
         symmetry: int = 0,
         flush_factors: bool = False,
         store_far: bool = False,
@@ -368,6 +369,7 @@ class RSRSBenchmarkConfig:
         self.op_shift = op_shift
         self.fact_type = fact_type
         self.min_num_samples = min_num_samples
+        self.run_seed = run_seed
         self.assembler_index = assembler
         self.symmetry_index = symmetry
 
@@ -471,6 +473,7 @@ class RSRSBenchmarkConfig:
             "oversampling_diag_blocks": self.oversampling_diag,  ## Oversampling used when extracting diagonal blocks when RSRS finishes
             "min_num_samples": self.min_num_samples,
             "initial_num_samples": self.initial_num_samples,  ## Initial num samples: useful only when sampling is done in parallel way (not active yet)
+            "run_seed": self.run_seed,
             "shift": stab(self.op_shift),
             "null_method": self.null_methods[self.null_method_index],
             "qr_method": qr_method(self.rrqr_keys[self.rrqr_index], value=self.f),

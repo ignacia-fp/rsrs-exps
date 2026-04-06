@@ -21,9 +21,8 @@ use rlst::{
     prelude::*,
 };
 use serde::{Deserialize, Serialize};
-use std::cell::RefCell;
 use std::io::Write;
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::Instant;
 use std::{
     fs::{self, File},
     io::Read,
@@ -34,6 +33,18 @@ type Real<T> = <T as rlst::RlstScalar>::Real;
 const POWER_ITERATIONS: usize = 20;
 const FROBENIUS_ESTIMATION_SAMPLES: usize = 20;
 const ADJOINT_CHECK_SAMPLES: usize = 8;
+const APP_ERR_LEFT_SEED: u64 = 0xA001_E110_0000_0001;
+const APP_ERR_RIGHT_SEED: u64 = 0xA001_E110_0000_0002;
+const ADJOINT_CHECK_SEED: u64 = 0xA31D_0C11_5EED_1234;
+const SELF_ADJOINT_CHECK_SEED: u64 = 0x5E1F_AD10_1A15_0001;
+const FROB_FORWARD_SEED: u64 = 0xF20B_0000_0000_0001;
+const FROB_INVERSE_SEED: u64 = 0xF20B_0000_0000_0002;
+const POWER_DIFF_SEED: u64 = 0x5000_0000_0000_0001;
+const POWER_STRUCTURED_SEED: u64 = 0x5000_0000_0000_0002;
+const POWER_RSRS_SEED: u64 = 0x5000_0000_0000_0003;
+const POWER_INV_DIFF_SEED: u64 = 0x5000_0000_0000_0004;
+const POWER_INV_RSRS_SEED: u64 = 0x5000_0000_0000_0005;
+const SOLVE_CHECK_SEED: u64 = 0x501E_0000_0000_0001;
 
 fn start_save_stage(label: &str) -> Instant {
     println!("[rsrs-exps][save] {label}...");
@@ -68,6 +79,7 @@ pub struct ErrorStatsOutput<Item: RlstScalar> {
     app_err_left: Real<Item>,
     app_err_right: Real<Item>,
     adjoint_consistency_error: Real<Item>,
+    self_adjoint_apply_error: Real<Item>,
     norm_fro_error: Real<Item>,
     norm_fro_error_inv: Real<Item>,
     norm_fro_operator: Real<Item>,
@@ -364,29 +376,6 @@ pub fn save_time_stats<Item: RlstScalar + MatrixInverse + MatrixPseudoInverse + 
     file.write_all(json_string.as_bytes()).unwrap();
 }
 
-thread_local! {
-    static THREAD_RNG: RefCell<ChaCha8Rng> = RefCell::new(init_rng());
-}
-
-fn init_rng() -> ChaCha8Rng {
-    let time_seed = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    let seed = (time_seed as u64).wrapping_mul(0x9E3779B97F4A7C15); // or add thread ID if needed
-    ChaCha8Rng::seed_from_u64(seed)
-}
-
-pub fn with_thread_rng<F, R>(f: F) -> R
-where
-    F: FnOnce(&mut ChaCha8Rng) -> R,
-{
-    THREAD_RNG.with(|rng_cell| {
-        let mut rng = rng_cell.borrow_mut();
-        f(&mut rng)
-    })
-}
-
 fn estimate_normal_operator_norm_sq<
     Item: RlstScalar + RandScalar,
     Space: SamplingSpace<F = Item>,
@@ -394,6 +383,7 @@ fn estimate_normal_operator_norm_sq<
 >(
     operator: &OpImpl,
     iterations: usize,
+    seed: u64,
 ) -> Real<Item>
 where
     StandardNormal: Distribution<Real<Item>>,
@@ -402,11 +392,10 @@ where
     <<Space as rlst::LinearSpace>::E as rlst::ElementImpl>::Space: InnerProductSpace,
 {
     let mut iterate = SamplingSpace::zero(operator.domain());
-    with_thread_rng(|rng| {
-        operator
-            .domain()
-            .sampling(&mut iterate, rng, SampleType::RealStandardNormal);
-    });
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    operator
+        .domain()
+        .sampling(&mut iterate, &mut rng, SampleType::RealStandardNormal);
 
     let mut iterate_norm = iterate.norm();
     if iterate_norm == num::Zero::zero() {
@@ -450,18 +439,17 @@ where
     <<Space as rlst::LinearSpace>::E as rlst::ElementImpl>::Space: InnerProductSpace,
 {
     let mut max_rel = 0.0f64;
+    let mut rng = ChaCha8Rng::seed_from_u64(ADJOINT_CHECK_SEED);
 
     for _ in 0..sample_size.max(1) {
         let mut x = SamplingSpace::zero(operator.range());
         let mut y = SamplingSpace::zero(operator.domain());
-        with_thread_rng(|rng| {
-            operator
-                .range()
-                .sampling(&mut x, rng, SampleType::StandardNormal);
-            operator
-                .domain()
-                .sampling(&mut y, rng, SampleType::StandardNormal);
-        });
+        operator
+            .range()
+            .sampling(&mut x, &mut rng, SampleType::StandardNormal);
+        operator
+            .domain()
+            .sampling(&mut y, &mut rng, SampleType::StandardNormal);
 
         let ay = operator.apply(y.r(), TransMode::NoTrans);
         let a_star_x = operator.apply(x.r(), TransMode::ConjTrans);
@@ -474,6 +462,40 @@ where
         let defect_abs: f64 = NumCast::from((lhs - rhs).abs()).unwrap();
         let denom = lhs_abs.max(rhs_abs).max(1.0e-14);
         max_rel = max_rel.max(defect_abs / denom);
+    }
+
+    Real::<Item>::from_f64(max_rel).unwrap()
+}
+
+fn estimate_self_adjoint_apply_error<
+    Item: RlstScalar + RandScalar,
+    Space: SamplingSpace<F = Item>,
+    OpImpl: AsApply<Domain = Space, Range = Space>,
+>(
+    operator: &OpImpl,
+    sample_size: usize,
+) -> Real<Item>
+where
+    StandardNormal: Distribution<Real<Item>>,
+    Standard: Distribution<Real<Item>>,
+    <Item as rlst::RlstScalar>::Real: RandScalar,
+    <<Space as rlst::LinearSpace>::E as rlst::ElementImpl>::Space: InnerProductSpace,
+{
+    let mut max_rel = 0.0f64;
+    let mut rng = ChaCha8Rng::seed_from_u64(SELF_ADJOINT_CHECK_SEED);
+
+    for _ in 0..sample_size.max(1) {
+        let mut x = SamplingSpace::zero(operator.domain());
+        operator
+            .domain()
+            .sampling(&mut x, &mut rng, SampleType::StandardNormal);
+
+        let mut ax = operator.apply(x.r(), TransMode::NoTrans);
+        let a_star_x = operator.apply(x.r(), TransMode::ConjTrans);
+        let denom: f64 = NumCast::from(ax.inner_product(ax.r()).abs().sqrt()).unwrap();
+        ax.sub_inplace(a_star_x.r());
+        let defect: f64 = NumCast::from(ax.inner_product(ax.r()).abs().sqrt()).unwrap();
+        max_rel = max_rel.max(defect / denom.max(1.0e-14));
     }
 
     Real::<Item>::from_f64(max_rel).unwrap()
@@ -647,13 +669,23 @@ pub(crate) fn save_error_stats<
 
     rsrs_operator.inv(false);
     let stage = start_save_stage("application error estimate (non-inverse)");
-    let (app_err_left, app_err_right) =
-        rsrs_error_estimator(structured_operator_op, rsrs_operator, 10, false);
+    let (app_err_left, app_err_right) = rsrs_error_estimator(
+        structured_operator_op,
+        rsrs_operator,
+        10,
+        false,
+        APP_ERR_LEFT_SEED,
+        APP_ERR_RIGHT_SEED,
+    );
     finish_save_stage("application error estimate (non-inverse)", stage);
     let stage = start_save_stage("adjoint consistency estimate");
     let adjoint_consistency_error =
         estimate_adjoint_consistency_error(rsrs_operator, ADJOINT_CHECK_SAMPLES);
     finish_save_stage("adjoint consistency estimate", stage);
+    let stage = start_save_stage("self-adjoint apply estimate");
+    let self_adjoint_apply_error =
+        estimate_self_adjoint_apply_error(rsrs_operator, ADJOINT_CHECK_SAMPLES);
+    finish_save_stage("self-adjoint apply estimate", stage);
     // Treat the approximation and error operators as general operators for norm
     // estimation, even when the target operator is symmetric. The RSRS
     // approximation is not guaranteed to preserve symmetry exactly.
@@ -663,6 +695,7 @@ pub(crate) fn save_error_stats<
         structured_operator_op,
         rsrs_operator,
         FROBENIUS_ESTIMATION_SAMPLES,
+        FROB_FORWARD_SEED,
     );
     finish_save_stage("frobenius norm comparison (non-inverse)", stage);
 
@@ -672,7 +705,8 @@ pub(crate) fn save_error_stats<
         transpose_matches_apply: approx_transpose_matches_apply,
     };
     let stage = start_save_stage("largest singular value of operator difference");
-    let sigma_1: Real<Item> = estimate_normal_operator_norm_sq(&normal.r(), POWER_ITERATIONS);
+    let sigma_1: Real<Item> =
+        estimate_normal_operator_norm_sq(&normal.r(), POWER_ITERATIONS, POWER_DIFF_SEED);
     finish_save_stage("largest singular value of operator difference", stage);
 
     let normal_structured = NormalOperator {
@@ -680,8 +714,11 @@ pub(crate) fn save_error_stats<
         transpose_matches_apply,
     };
     let stage = start_save_stage("largest singular value of original operator");
-    let sigma_2: Real<Item> =
-        estimate_normal_operator_norm_sq(&normal_structured.r(), POWER_ITERATIONS);
+    let sigma_2: Real<Item> = estimate_normal_operator_norm_sq(
+        &normal_structured.r(),
+        POWER_ITERATIONS,
+        POWER_STRUCTURED_SEED,
+    );
     finish_save_stage("largest singular value of original operator", stage);
 
     let normal_rsrs = NormalOperator {
@@ -689,7 +726,8 @@ pub(crate) fn save_error_stats<
         transpose_matches_apply: approx_transpose_matches_apply,
     };
     let stage = start_save_stage("largest singular value of RSRS operator");
-    let c_1: Real<Item> = estimate_normal_operator_norm_sq(&normal_rsrs.r(), POWER_ITERATIONS);
+    let c_1: Real<Item> =
+        estimate_normal_operator_norm_sq(&normal_rsrs.r(), POWER_ITERATIONS, POWER_RSRS_SEED);
     finish_save_stage("largest singular value of RSRS operator", stage);
 
     let norm_2_error = sigma_1.abs().sqrt() / sigma_2.abs().sqrt();
@@ -703,7 +741,7 @@ pub(crate) fn save_error_stats<
     let prod1 = rsrs_operator.r().product(structured_operator_op.r());
     let stage = start_save_stage("frobenius norm comparison (inverse mode)");
     let (norm_fro_error_inv, _) =
-        frobenius_diff_and_reference_norm(&id_op, &prod1, FROBENIUS_ESTIMATION_SAMPLES);
+        frobenius_diff_and_reference_norm(&id_op, &prod1, FROBENIUS_ESTIMATION_SAMPLES, FROB_INVERSE_SEED);
     finish_save_stage("frobenius norm comparison (inverse mode)", stage);
     let diff = DiffOperator(prod1.r(), id_op.r());
     let normal = NormalOperator {
@@ -712,7 +750,8 @@ pub(crate) fn save_error_stats<
     };
 
     let stage = start_save_stage("largest singular value of inverse residual");
-    let sigma_1: Real<Item> = estimate_normal_operator_norm_sq(&normal.r(), POWER_ITERATIONS);
+    let sigma_1: Real<Item> =
+        estimate_normal_operator_norm_sq(&normal.r(), POWER_ITERATIONS, POWER_INV_DIFF_SEED);
     finish_save_stage("largest singular value of inverse residual", stage);
 
     let normal_rsrs = NormalOperator {
@@ -720,7 +759,8 @@ pub(crate) fn save_error_stats<
         transpose_matches_apply: approx_transpose_matches_apply,
     };
     let stage = start_save_stage("largest singular value of inverse RSRS operator");
-    let c_2: Real<Item> = estimate_normal_operator_norm_sq(&normal_rsrs.r(), POWER_ITERATIONS);
+    let c_2: Real<Item> =
+        estimate_normal_operator_norm_sq(&normal_rsrs.r(), POWER_ITERATIONS, POWER_INV_RSRS_SEED);
     finish_save_stage("largest singular value of inverse RSRS operator", stage);
 
     let norm_2_error_inv = sigma_1.abs().sqrt();
@@ -729,19 +769,25 @@ pub(crate) fn save_error_stats<
 
     let (app_inv_err_left, app_inv_err_right) = {
         let stage = start_save_stage("application error estimate (inverse)");
-        let res = rsrs_error_estimator(structured_operator_op, rsrs_operator, 10, true);
+        let res = rsrs_error_estimator(
+            structured_operator_op,
+            rsrs_operator,
+            10,
+            true,
+            APP_ERR_LEFT_SEED ^ 0x100,
+            APP_ERR_RIGHT_SEED ^ 0x100,
+        );
         finish_save_stage("application error estimate (inverse)", stage);
         res
     };
 
     let mut sol = SamplingSpace::zero(structured_operator_op.r().domain());
 
-    with_thread_rng(|rng| {
-        structured_operator_op
-            .r()
-            .domain()
-            .sampling(&mut sol, rng, SampleType::RealStandardNormal);
-    });
+    let mut solve_rng = ChaCha8Rng::seed_from_u64(SOLVE_CHECK_SEED);
+    structured_operator_op
+        .r()
+        .domain()
+        .sampling(&mut sol, &mut solve_rng, SampleType::RealStandardNormal);
 
     let stage = start_save_stage("sampled solve error check");
     let rhs = structured_operator_op.apply(sol.r(), TransMode::NoTrans);
@@ -759,6 +805,7 @@ pub(crate) fn save_error_stats<
         app_err_left,
         app_err_right,
         adjoint_consistency_error,
+        self_adjoint_apply_error,
         cond_rsrs_estimate: condition_number,
         norm_fro_error,
         norm_fro_error_inv,
@@ -1106,7 +1153,7 @@ mod tests {
             transpose_matches_apply: false,
         };
 
-        let estimated_norm_sq = estimate_normal_operator_norm_sq(&normal.r(), 40);
+        let estimated_norm_sq = estimate_normal_operator_norm_sq(&normal.r(), 40, 12345);
         let estimated_norm: f64 = NumCast::from(estimated_norm_sq.sqrt()).unwrap();
         let rel_err = (estimated_norm - exact_norm).abs() / exact_norm;
 

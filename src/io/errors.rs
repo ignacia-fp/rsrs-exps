@@ -10,6 +10,8 @@ use bempp_rsrs::utils::data_ins_ext::{ExtInsType, Extraction, MatrixExtraction};
 use mpi::traits::Communicator;
 use mpi::traits::Equivalence;
 use num::{FromPrimitive, NumCast};
+use rand::SeedableRng;
+use rand_chacha::ChaCha8Rng;
 use rand_distr::{Distribution, Standard, StandardNormal};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use rlst::{
@@ -356,6 +358,7 @@ where
 fn _gen_sample_frame<Item: RlstScalar + RandScalar, Space: SamplingSpace<F = Item>>(
     sample_size: usize,
     space: Rc<Space>,
+    seed: u64,
 ) -> VectorFrame<<Space as rlst::LinearSpace>::E>
 where
     StandardNormal: Distribution<Item::Real>,
@@ -363,7 +366,7 @@ where
     <Item as rlst::RlstScalar>::Real: RandScalar,
 {
     let mut frame = VectorFrame::default();
-    let mut rng: rand::rngs::StdRng = rand::SeedableRng::from_entropy();
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
 
     for _ in 0..sample_size {
         let mut sample_vec = SamplingSpace::zero(space.clone());
@@ -376,6 +379,7 @@ where
 fn _gen_real_gaussian_sample_frame<Item: RlstScalar + RandScalar, Space: SamplingSpace<F = Item>>(
     sample_size: usize,
     space: Rc<Space>,
+    seed: u64,
 ) -> VectorFrame<<Space as rlst::LinearSpace>::E>
 where
     StandardNormal: Distribution<Item::Real>,
@@ -383,7 +387,7 @@ where
     <Item as rlst::RlstScalar>::Real: RandScalar,
 {
     let mut frame = VectorFrame::default();
-    let mut rng: rand::rngs::StdRng = rand::SeedableRng::from_entropy();
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
 
     for _ in 0..sample_size {
         let mut sample_vec = SamplingSpace::zero(space.clone());
@@ -435,6 +439,7 @@ pub fn app_error_right<
     rsrs_op: &OpImpl2,
     sample_size: usize,
     inv: bool,
+    seed: u64,
 ) -> Real<Item>
 where
     StandardNormal: Distribution<Item::Real>,
@@ -448,7 +453,7 @@ where
     let trans_mode = TransMode::Trans;
 
     let mut sample_frame = VectorFrame::default();
-    let mut rng: rand::rngs::StdRng = rand::SeedableRng::from_entropy();
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
     let space = target_op.range();
 
     for _ in 0..sample_size {
@@ -514,6 +519,7 @@ pub fn app_error_left<
     rsrs_op: &OpImpl2,
     sample_size: usize,
     inv: bool,
+    seed: u64,
 ) -> Real<Item>
 where
     StandardNormal: Distribution<Item::Real>,
@@ -527,7 +533,7 @@ where
     let trans_mode = TransMode::NoTrans;
 
     let mut sample_frame = VectorFrame::default();
-    let mut rng: rand::rngs::StdRng = rand::SeedableRng::from_entropy();
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
     let space = target_op.domain();
 
     for _ in 0..sample_size {
@@ -593,6 +599,8 @@ pub fn rsrs_error_estimator<
     rsrs_operator: &OpImpl2,
     sample_size: usize,
     inv: bool,
+    left_seed: u64,
+    right_seed: u64,
 ) -> (Real<Item>, Real<Item>)
 where
     StandardNormal: Distribution<Item::Real>,
@@ -603,9 +611,9 @@ where
     TriangularMatrix<Item>: TriangularOperations<Item = Item>,
     <<Space as rlst::LinearSpace>::E as rlst::ElementImpl>::Space: rlst::InnerProductSpace,
 {
-    let app_err_left = app_error_left(target_op, rsrs_operator, sample_size, inv);
+    let app_err_left = app_error_left(target_op, rsrs_operator, sample_size, inv, left_seed);
 
-    let app_err_right = app_error_right(target_op, rsrs_operator, sample_size, inv);
+    let app_err_right = app_error_right(target_op, rsrs_operator, sample_size, inv, right_seed);
 
     (app_err_left, app_err_right)
 }
@@ -619,6 +627,7 @@ pub fn frobenius_diff_and_reference_norm<
     reference_op: &OpRef,
     approx_op: &OpApprox,
     sample_size: usize,
+    seed: u64,
 ) -> (Real<Item>, Real<Item>)
 where
     Item: RandScalar
@@ -637,7 +646,7 @@ where
     TriangularMatrix<Item>: TriangularOperations<Item = Item>,
 {
     let sample_size = sample_size.max(1);
-    let sample_frame = _gen_real_gaussian_sample_frame(sample_size, reference_op.domain());
+    let sample_frame = _gen_real_gaussian_sample_frame(sample_size, reference_op.domain(), seed);
     let reference_frame = mul_op(reference_op, &sample_frame, TransMode::NoTrans);
     let mut approx_frame = mul_op(approx_op, &sample_frame, TransMode::NoTrans);
 
@@ -1432,8 +1441,8 @@ mod tests {
         let target = DenseMatrixOperator::new(copy_array2(&matrix));
         let mut rsrs_like = ToggleInverseOperator::new(matrix, inverse);
 
-        let left_err = app_error_left(&target, &rsrs_like, 8, false);
-        let right_err = app_error_right(&target, &rsrs_like, 8, false);
+        let left_err = app_error_left(&target, &rsrs_like, 8, false, 1);
+        let right_err = app_error_right(&target, &rsrs_like, 8, false, 2);
         let left_err: f64 = NumCast::from(left_err).unwrap();
         let right_err: f64 = NumCast::from(right_err).unwrap();
 
@@ -1441,8 +1450,8 @@ mod tests {
         assert!(right_err <= 1.0e-12, "right error too large: {right_err}");
 
         rsrs_like.inv(true);
-        let left_inv_err = app_error_left(&target, &rsrs_like, 8, true);
-        let right_inv_err = app_error_right(&target, &rsrs_like, 8, true);
+        let left_inv_err = app_error_left(&target, &rsrs_like, 8, true, 3);
+        let right_inv_err = app_error_right(&target, &rsrs_like, 8, true, 4);
         let left_inv_err: f64 = NumCast::from(left_inv_err).unwrap();
         let right_inv_err: f64 = NumCast::from(right_inv_err).unwrap();
 
@@ -1458,7 +1467,7 @@ mod tests {
         rsrs_like.inv(false);
         let exact_target_fro = (6.0f64).sqrt();
         let (rel_fro_error, norm_fro_target) =
-            frobenius_diff_and_reference_norm(&target, &rsrs_like, 1024);
+            frobenius_diff_and_reference_norm(&target, &rsrs_like, 1024, 5);
         let rel_fro_error: f64 = NumCast::from(rel_fro_error).unwrap();
         let norm_fro_target: f64 = NumCast::from(norm_fro_target).unwrap();
         let target_fro_rel_err = (norm_fro_target - exact_target_fro).abs() / exact_target_fro;
@@ -1476,7 +1485,7 @@ mod tests {
         let product = rsrs_like.r().product(target.r());
         let id_op = IdOperator::new(target.domain(), target.range());
         let (rel_fro_inverse_error, norm_fro_identity) =
-            frobenius_diff_and_reference_norm(&id_op, &product, 1024);
+            frobenius_diff_and_reference_norm(&id_op, &product, 1024, 6);
         let rel_fro_inverse_error: f64 = NumCast::from(rel_fro_inverse_error).unwrap();
         let norm_fro_identity: f64 = NumCast::from(norm_fro_identity).unwrap();
         let exact_identity_fro = (2.0f64).sqrt();
@@ -1533,7 +1542,7 @@ mod tests {
         let zero_op = DenseMatrixOperator::new(zero);
 
         let (rel_fro_error, estimated_fro_norm) =
-            frobenius_diff_and_reference_norm(&target, &zero_op, 1024);
+            frobenius_diff_and_reference_norm(&target, &zero_op, 1024, 7);
         let rel_fro_error: f64 = NumCast::from(rel_fro_error).unwrap();
         let estimated_fro_norm: f64 = NumCast::from(estimated_fro_norm).unwrap();
         let exact_fro_norm = exact_frobenius_norm_complex(&matrix);
