@@ -172,6 +172,19 @@ def main() -> int:
         if value is None or value >= threshold:
             failures.append(f"{key} expected < {threshold} got {value}")
 
+    norm_2_error = metrics.get("norm_2_error")
+    norm_fro_error = metrics.get("norm_fro_error")
+    if norm_2_error is None or norm_fro_error is None:
+        failures.append(
+            "expected both norm_2_error and norm_fro_error to be present "
+            f"got norm_2_error={norm_2_error}, norm_fro_error={norm_fro_error}"
+        )
+    elif norm_2_error > norm_fro_error:
+        failures.append(
+            "expected norm_2_error <= norm_fro_error "
+            f"got norm_2_error={norm_2_error} > norm_fro_error={norm_fro_error}"
+        )
+
     if failures:
         print(f"{args.suite_name} ({args.run_id}) failed:", file=sys.stderr)
         for failure in failures:

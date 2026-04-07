@@ -154,7 +154,7 @@ Real nonsymmetric perturbed & \texttt{NoSymm} &
 $5.1845{\times}10^{7}$ & $1.8230{\times}10^{-7}$ & $6.6715{\times}10^{-7}$ &
 $7.6885{\times}10^{-14}$ & $6.5396{\times}10^{-13}$ & $1.7199{\times}10^{-3}$ \\
 Complex symmetric perturbed & \texttt{Symmetric} &
-$6.1650{\times}10^{5}$ & $1.8288{\times}10^{-5}$ & $6.5870{\times}10^{-7}$ &
+$6.1650{\times}10^{5}$ & \fail{$1.8288{\times}10^{-5}$} & $6.5870{\times}10^{-7}$ &
 $1.6388{\times}10^{-14}$ & $6.9111{\times}10^{-14}$ & $9.8468{\times}10^{-5}$ \\
 Complex nonsymmetric perturbed & \texttt{NoSymm} &
 $1.1036{\times}10^{6}$ & \fail{$2.1452{\times}10^{16}$} & \fail{$1.4810{\times}10^{16}$} &
@@ -164,10 +164,9 @@ $5.6176{\times}10^{-14}$ & \fail{$1.8260{\times}10^{-1}$} & \fail{$1.7886{\times
 }
 \end{center}
 
-\noindent Orange cells indicate the metrics that fail the regression thresholds
-or show the remaining large-error behavior. In the highlighted failing cases,
-the relative 2-norm estimate is larger than the relative Frobenius norm
-estimate.
+\noindent Orange cells indicate the metrics that fail the regression thresholds,
+show the remaining large-error behavior, or violate the consistency check
+$\text{rel. 2-norm} \le \text{rel. Fro.}$.
 
 \section*{Complex Nonsymmetric Split Check}
 

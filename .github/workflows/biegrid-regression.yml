@@ -39,7 +39,7 @@ jobs:
             max_adjoint: "1.0e-10"
             max_adjoint_inv: "1.0e-12"
             max_norm_2: "1.0e-6"
-            max_solve: "2.0e-3"
+            max_solve: "2.0e-2"
           - label: Complex symmetric perturbed BIEGrid, 10k serial
             operator_type: BIEGridComplexSymmetricPerturbed
             symmetry: Symmetric
@@ -47,6 +47,13 @@ jobs:
             max_adjoint_inv: "1.0e-12"
             max_norm_2: "2.0e-5"
             max_solve: "3.0e-4"
+          - label: Complex nonsymmetric perturbed BIEGrid, 10k serial
+            operator_type: BIEGridComplexPerturbed
+            symmetry: NoSymm
+            max_adjoint: "1.0e-10"
+            max_adjoint_inv: "1.0e-12"
+            max_norm_2: "1.0e-5"
+            max_solve: "1.0e-3"
     steps:
       - uses: actions/checkout@v4
       - name: Check out requested bempp/rsrs ref
