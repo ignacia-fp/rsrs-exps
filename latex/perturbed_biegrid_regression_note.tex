@@ -1,0 +1,189 @@
+\documentclass[11pt]{article}
+\usepackage[margin=0.75in]{geometry}
+\usepackage{amsmath}
+\usepackage{array}
+\usepackage[table]{xcolor}
+\usepackage{graphicx}
+\usepackage{hyperref}
+
+\title{Perturbed BIEGrid RSRS Regression Changelog}
+\author{}
+\date{\today}
+
+\newcommand{\ip}[2]{\left\langle #1, #2 \right\rangle}
+\newcommand{\fail}[1]{\cellcolor{orange!30}{#1}}
+\newcommand{\ok}[1]{#1}
+
+\begin{document}
+\maketitle
+
+\section*{Setup}
+
+All runs below are serial 10k BIEGrid RSRS checks: mesh width \texttt{0.01},
+10201 points, fixed rank \texttt{k = 40}, oversampling \texttt{p = 40}, and
+\texttt{tot\_num\_samples = 1520}. The RSRS sampling seed, perturbation seed,
+and error diagnostic seeds are fixed. Seeding initializes the random number
+generator at the start of a run; it does not reuse the same sample vector
+repeatedly. Each draw advances the generator, and repeating the run with the
+same seed reproduces the same sample sequence.
+
+The adjoint check is
+\[
+    \ip{Ax}{y} \approx \ip{x}{A^*y}.
+\]
+It is applied to the RSRS approximation and to the inverse/preconditioner path.
+When this check fails, the relative 2-norm estimate can become larger than the
+relative Frobenius norm estimate.
+
+\section*{Perturbed Operator}
+
+Let $A_0$ denote the unperturbed real symmetric BIEGrid operator. The perturbed
+operators have the form $A = A_0 + \Delta$. The vectors $u$ and $v$ are
+deterministic random vectors generated from perturbation seed \texttt{12345} and
+normalized to have 2-norm one. The perturbation scale is denoted by $s$. For
+real perturbations, $\alpha = s$. For complex perturbations,
+$\alpha = s(1+2i)/\sqrt{5}$, so $|\alpha| = s$.
+
+For nonsymmetric perturbations,
+\[
+    \Delta = \alpha u v^*,\qquad
+    \Delta x = \alpha u (v^* x),\qquad
+    \Delta^* x = \overline{\alpha}\, v (u^* x).
+\]
+For real data, $v^* = v^T$ and $\overline{\alpha} = \alpha$. For the real
+symmetric variant, $v = u$. For the complex symmetric variant,
+\[
+    \Delta = \alpha u \overline{u}^*,\qquad
+    \Delta x = \alpha u (\overline{u}^* x),\qquad
+    \Delta^* x = \overline{\alpha}\,\overline{u}(u^* x).
+\]
+The exact perturbed operator tests compare these \texttt{matvec} and
+\texttt{rmatvec} routes against the explicitly assembled dense matrix and its
+transpose/adjoint. These exact operator adjoint checks pass at roundoff level;
+the failures below are for the RSRS approximation and inverse.
+
+\section*{Change}
+
+The old results use \texttt{bempp/rsrs} commit \texttt{4a2fcb2} with
+$s=3{\times}10^{-3}$. The new results use commit \texttt{12a0c28} with
+$s=10^{-2}$. The algorithmic changes described below are changes to
+\texttt{bempp/rsrs}.
+
+The change separates the treatment of local LU factors used for near-field
+updates from the diagonal LU factors used in the final block diagonal solve.
+Let the local pivot block be $X_{RR}$, and let its partial-pivoted LU factorization be
+$P X_{RR} = L U$. Partial pivoting is row pivoting, so the algebra for applying
+$X_{RR}^{-1}$ on the left is not equivalent to applying the same triangular
+factors from the right or in an adjoint path. For near-field LU updates, the
+pivoted solve is now evaluated during extraction to form dense rectangular
+blocks such as
+\[
+    G_{RN} = X_{RR}^{-1} X_{RN}, \qquad
+    G_{NR} = X_{NR} X_{RR}^{-1},
+\]
+and the resulting update blocks are stored directly. For diagonal LU factors,
+the unfactorized pivot block $X_{RR}$ is stored alongside the LU factorization,
+so non-inverse transpose/adjoint application can use $X_{RR}^*$ directly rather
+than applying row-pivoted triangular factors in an incompatible orientation.
+
+This does not add a second rectangular near-field block: the precomputed update
+block replaces the previously stored rectangular block, and the square LU factor
+for that near-field update is no longer stored. The storage increase is in the
+diagonal LU factors, which retain both the unfactorized pivot block $X_{RR}$ and
+the LU factorization.
+
+\section*{Old Results: \texttt{4a2fcb2}, $s=3{\times}10^{-3}$}
+
+\begin{center}
+\scriptsize
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{>{\raggedright\arraybackslash}p{1.55in}
+                >{\raggedright\arraybackslash}p{0.7in}
+                >{\raggedleft\arraybackslash}p{0.75in}
+                >{\raggedleft\arraybackslash}p{0.75in}
+                >{\raggedleft\arraybackslash}p{0.75in}
+                >{\raggedleft\arraybackslash}p{0.75in}
+                >{\raggedleft\arraybackslash}p{0.75in}
+                >{\raggedleft\arraybackslash}p{0.75in}}
+\hline
+Case & RSRS symmetry & $\mathrm{cond}_2(A)$ & rel. 2-norm & rel. Fro. & adjoint check & inverse adjoint & solve error \\
+\hline
+Unperturbed BIEGrid & \texttt{Symmetric} &
+$1.5176{\times}10^{4}$ & $9.3268{\times}10^{-8}$ & $1.7279{\times}10^{-7}$ &
+$1.6369{\times}10^{-14}$ & $4.4149{\times}10^{-14}$ & $1.2546{\times}10^{-5}$ \\
+Real symmetric perturbed & \texttt{Symmetric} &
+$1.5176{\times}10^{4}$ & \fail{$7.2546{\times}10^{-6}$} & $3.3677{\times}10^{-7}$ &
+\fail{$1.7151$} & \fail{$1.2221$} & $2.1916{\times}10^{-5}$ \\
+Real nonsymmetric perturbed & \texttt{NoSymm} &
+$2.4671{\times}10^{6}$ & $2.2110{\times}10^{-7}$ & $6.6145{\times}10^{-7}$ &
+$7.8270{\times}10^{-15}$ & $2.3497{\times}10^{-13}$ & $9.8832{\times}10^{-5}$ \\
+Complex symmetric perturbed & \texttt{Symmetric} &
+$5.2077{\times}10^{5}$ & \fail{$1.1939{\times}10^{-5}$} & $6.8507{\times}10^{-7}$ &
+\fail{$4.3644{\times}10^{-1}$} & \fail{$1.2251$} & $1.3907{\times}10^{-4}$ \\
+Complex nonsymmetric perturbed & \texttt{NoSymm} &
+$9.2613{\times}10^{5}$ & \fail{$8.0830{\times}10^{20}$} & \fail{$1.3552{\times}10^{14}$} &
+\fail{$1.0000$} & \fail{$1.0000$} & \fail{$2.2829{\times}10^{17}$} \\
+\hline
+\end{tabular}
+}
+\end{center}
+
+\section*{New Results: \texttt{12a0c28}, $s=10^{-2}$}
+
+\begin{center}
+\scriptsize
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{>{\raggedright\arraybackslash}p{1.55in}
+                >{\raggedright\arraybackslash}p{0.7in}
+                >{\raggedleft\arraybackslash}p{0.75in}
+                >{\raggedleft\arraybackslash}p{0.75in}
+                >{\raggedleft\arraybackslash}p{0.75in}
+                >{\raggedleft\arraybackslash}p{0.75in}
+                >{\raggedleft\arraybackslash}p{0.75in}
+                >{\raggedleft\arraybackslash}p{0.75in}}
+\hline
+Case & RSRS symmetry & $\mathrm{cond}_2(A)$ & rel. 2-norm & rel. Fro. & adjoint check & inverse adjoint & solve error \\
+\hline
+Unperturbed BIEGrid & \texttt{Symmetric} &
+$1.5176{\times}10^{4}$ & $7.0224{\times}10^{-8}$ & $1.7457{\times}10^{-7}$ &
+$4.5513{\times}10^{-14}$ & $3.1644{\times}10^{-14}$ & $1.4197{\times}10^{-5}$ \\
+Real symmetric perturbed & \texttt{Symmetric} &
+$1.5176{\times}10^{4}$ & $1.3203{\times}10^{-7}$ & $4.4119{\times}10^{-7}$ &
+$2.2423{\times}10^{-13}$ & $5.5531{\times}10^{-14}$ & $2.8875{\times}10^{-5}$ \\
+Real nonsymmetric perturbed & \texttt{NoSymm} &
+$5.1845{\times}10^{7}$ & $1.8230{\times}10^{-7}$ & $6.6715{\times}10^{-7}$ &
+$7.6885{\times}10^{-14}$ & $6.5396{\times}10^{-13}$ & $1.7199{\times}10^{-3}$ \\
+Complex symmetric perturbed & \texttt{Symmetric} &
+$6.1650{\times}10^{5}$ & $1.8288{\times}10^{-5}$ & $6.5870{\times}10^{-7}$ &
+$1.6388{\times}10^{-14}$ & $6.9111{\times}10^{-14}$ & $9.8468{\times}10^{-5}$ \\
+Complex nonsymmetric perturbed & \texttt{NoSymm} &
+$1.1036{\times}10^{6}$ & \fail{$2.1452{\times}10^{16}$} & \fail{$1.4810{\times}10^{16}$} &
+$5.6176{\times}10^{-14}$ & \fail{$1.8260{\times}10^{-1}$} & \fail{$1.7886{\times}10^{18}$} \\
+\hline
+\end{tabular}
+}
+\end{center}
+
+\noindent Orange cells indicate the metrics that fail the regression thresholds
+or show the remaining large-error behavior. In the highlighted failing cases,
+the relative 2-norm estimate is larger than the relative Frobenius norm
+estimate.
+
+\section*{Complex Nonsymmetric Split Check}
+
+The complex nonsymmetric perturbed case still fails as a combined complex
+problem. As a diagnostic, the corresponding real and imaginary component
+problems were run separately as real problems at $s=10^{-2}$. Both pass the
+apply and adjoint checks:
+\[
+\begin{array}{lrrrr}
+\hline
+\text{case} & \text{rel. 2-norm} & \text{rel. Fro.} & \text{adjoint check} & \text{solve error}\\
+\hline
+\text{real part} & 5.2073{\times}10^{-7} & 2.1513{\times}10^{-6} & 7.4251{\times}10^{-14} & 5.6595{\times}10^{-4}\\
+\text{imaginary part} & 5.5817{\times}10^{-7} & 2.2066{\times}10^{-6} & 3.7260{\times}10^{-14} & 5.8883{\times}10^{-3}\\
+\hline
+\end{array}
+\]
+
+\end{document}

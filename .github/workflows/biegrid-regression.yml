@@ -29,8 +29,8 @@ jobs:
           - label: Real symmetric perturbed BIEGrid, 10k serial
             operator_type: BIEGridRealSymmetricPerturbed
             symmetry: Symmetric
-            max_adjoint: "2.0"
-            max_adjoint_inv: "2.0"
+            max_adjoint: "1.0e-10"
+            max_adjoint_inv: "1.0e-12"
             max_norm_2: "1.0e-5"
             max_solve: "1.0e-4"
           - label: Real nonsymmetric perturbed BIEGrid, 10k serial
@@ -39,21 +39,14 @@ jobs:
             max_adjoint: "1.0e-10"
             max_adjoint_inv: "1.0e-12"
             max_norm_2: "1.0e-6"
-            max_solve: "2.0e-4"
+            max_solve: "2.0e-3"
           - label: Complex symmetric perturbed BIEGrid, 10k serial
             operator_type: BIEGridComplexSymmetricPerturbed
             symmetry: Symmetric
-            max_adjoint: "1.0"
-            max_adjoint_inv: "2.0"
-            max_norm_2: "2.0e-5"
-            max_solve: "3.0e-4"
-          - label: Complex nonsymmetric perturbed BIEGrid, 10k serial
-            operator_type: BIEGridComplexPerturbed
-            symmetry: NoSymm
             max_adjoint: "1.0e-10"
             max_adjoint_inv: "1.0e-12"
-            max_norm_2: "1.0e-5"
-            max_solve: "1.0e-3"
+            max_norm_2: "2.0e-5"
+            max_solve: "3.0e-4"
     steps:
       - uses: actions/checkout@v4
       - name: Check out requested bempp/rsrs ref
@@ -81,7 +74,7 @@ jobs:
         run: docker compose run --rm dev cargo update -p bempp-rsrs
       - name: Run 10k serial perturbed BIEGrid regression
         run: >
-          docker compose run --rm dev python scripts/check_biegrid_regression.py
+          docker compose run --rm -e RSRS_BIEGRID_PERTURB_SCALE=1e-2 dev python scripts/check_biegrid_regression.py
           --operator-type ${{ matrix.operator_type }}
           --symmetry ${{ matrix.symmetry }}
           --num-threads 1

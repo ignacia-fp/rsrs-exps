@@ -1902,6 +1902,8 @@ def _biegrid_perturbed_mv_trans(self, v):
 
 def _biegrid_perturbed_dense(self):
     if self._perturbation_dense is None:
+        from .bie_grid import perturbation_dense_matrix
+
         base_dtype = np.float64 if self.scalar_type == 'real' else np.complex128
         base_dense = np.asarray(self._experiment.Amat, dtype=base_dtype)
         delta = perturbation_dense_matrix(
