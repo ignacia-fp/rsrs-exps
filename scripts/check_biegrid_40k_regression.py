@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import argparse
 import json
 import os
 import subprocess
@@ -8,18 +9,7 @@ from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-ERROR_STATS = REPO_ROOT / (
-    "results/"
-    "square_BIEGrid_precision_double_mesh_width_5.03e-3_od_10_0.00_num_threads_4/"
-    "rsrs_null_Projection_toln_1e-16_os_40_osdiag_40_initsam_0_mrnk_1_mlvl_1_"
-    "Symmetric_rpick_Min_next_LuLstSq_tolextn_1e-16_db_ext_LuLstSq_tol_lstsq_1e-16_rrqr/"
-    "error_stats_4e1.json"
-)
 
-STRUCTURED_OPERATOR_ARGS = {
-    "structured_operator_type": "BIEGrid",
-    "precision": "Double",
-}
 TEST_GEOMETRY_ARGS = {
     "id_tols": [40],
     "dim_args": [{"MeshWidth": 0.005025125628140704}],
@@ -33,7 +23,6 @@ RSRS_ARGS = {
     "oversampling_diag_blocks": 40,
     "min_num_samples": 0,
     "initial_num_samples": 0,
-    "run_seed": 12345,
     "shift": {"type": "False"},
     "null_method": "Projection",
     "qr_method": "RRQR",
@@ -52,7 +41,7 @@ RSRS_ARGS = {
     "fact_type": "Joint",
     "save_samples": False,
     "load_samples": False,
-    "num_threads": 4,
+    "num_threads": 1,
     "flush_factors": False,
     "store_far": False,
     "symmetric": None,
@@ -65,15 +54,46 @@ OUTPUT_ARGS = {
     "results_output": "All",
 }
 
-THRESHOLDS = {
-    "tot_num_samples": 1520,
-    "adjoint_consistency_error": 1.0e-6,
-    "norm_2_error": 5.0e-6,
-    "solve_error": 2.0e-3,
-}
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--operator-type", default="BIEGrid")
+    parser.add_argument("--symmetry", default="Symmetric")
+    parser.add_argument("--num-threads", type=int, default=1)
+    parser.add_argument("--mesh-width", type=float, default=0.005025125628140704)
+    parser.add_argument("--perturb-scale", type=float, default=None)
+    parser.add_argument("--suite-name", default="BIEGrid 40k regression")
+    parser.add_argument("--run-id", default="run")
+    parser.add_argument("--save-samples", action="store_true")
+    parser.add_argument("--load-samples", action="store_true")
+    parser.add_argument("--expected-samples", type=int, default=None)
+    parser.add_argument("--max-adjoint-consistency-error", type=float, default=1.0e-6)
+    parser.add_argument("--max-adjoint-consistency-error-inv", type=float, default=None)
+    parser.add_argument("--max-norm-2-error", type=float, default=5.0e-6)
+    parser.add_argument("--max-norm-fro-error", type=float, default=None)
+    parser.add_argument("--max-solve-error", type=float, default=2.0e-3)
+    return parser.parse_args()
+
+
+def mesh_width_slug(mesh_width: float) -> str:
+    base, exp = f"{mesh_width:.2e}".split("e")
+    exp = str(int(exp))
+    return f"{base}e{exp}"
+
+
+def error_stats_path(operator_type: str, symmetry: str, mesh_width: float, num_threads: int) -> Path:
+    mesh_width_str = mesh_width_slug(mesh_width)
+    return REPO_ROOT / (
+        "results/"
+        f"square_{operator_type}_precision_double_mesh_width_{mesh_width_str}_od_10_0.00_num_threads_{num_threads}/"
+        "rsrs_null_Projection_toln_1e-16_os_40_osdiag_40_initsam_0_mrnk_1_mlvl_1_"
+        f"{symmetry}_rpick_Min_next_LuLstSq_tolextn_1e-16_db_ext_LuLstSq_tol_lstsq_1e-16_rrqr/"
+        "error_stats_4e1.json"
+    )
 
 
 def main() -> int:
+    args = parse_args()
     start_time = time.time()
     env = os.environ.copy()
     env.update(
@@ -90,54 +110,81 @@ def main() -> int:
         }
     )
     env.pop("RAYON_NUM_THREADS", None)
+    env["RAYON_NUM_THREADS"] = str(args.num_threads)
+    env["RSRS_RUN_SEED"] = "12345"
+    if args.perturb_scale is not None:
+        env["RSRS_BIEGRID_PERTURB_SCALE"] = f"{args.perturb_scale:.17g}"
+
+    test_geometry_args = dict(TEST_GEOMETRY_ARGS)
+    test_geometry_args["dim_args"] = [{"MeshWidth": args.mesh_width}]
+    rsrs_args = dict(RSRS_ARGS)
+    rsrs_args["num_threads"] = args.num_threads
+    rsrs_args["symmetry"] = args.symmetry
+    rsrs_args["save_samples"] = args.save_samples
+    rsrs_args["load_samples"] = args.load_samples
+    structured_operator_args = {
+        "structured_operator_type": args.operator_type,
+        "precision": "Double",
+    }
+    error_stats = error_stats_path(args.operator_type, args.symmetry, args.mesh_width, args.num_threads)
 
     command = [
         "cargo",
         "run",
         "--release",
-        json.dumps(STRUCTURED_OPERATOR_ARGS),
-        json.dumps(TEST_GEOMETRY_ARGS),
-        json.dumps(RSRS_ARGS),
+        json.dumps(structured_operator_args),
+        json.dumps(test_geometry_args),
+        json.dumps(rsrs_args),
         json.dumps(OUTPUT_ARGS),
     ]
     subprocess.run(command, cwd=REPO_ROOT, env=env, check=True)
 
-    if not ERROR_STATS.exists():
-        raise FileNotFoundError(f"Missing regression output: {ERROR_STATS}")
-    if ERROR_STATS.stat().st_mtime + 1.0 < start_time:
-        raise RuntimeError(f"Regression output was not refreshed: {ERROR_STATS}")
+    if not error_stats.exists():
+        raise FileNotFoundError(f"Missing regression output: {error_stats}")
+    if error_stats.stat().st_mtime + 1.0 < start_time:
+        raise RuntimeError(f"Regression output was not refreshed: {error_stats}")
 
-    metrics = json.loads(ERROR_STATS.read_text())
+    metrics = json.loads(error_stats.read_text())
 
-    print("BIEGrid 40k regression metrics:")
+    print(f"{args.suite_name} ({args.run_id}) metrics:")
     for key in (
         "tot_num_samples",
         "norm_2_error",
         "norm_fro_error",
         "adjoint_consistency_error",
+        "adjoint_consistency_error_inv",
         "self_adjoint_apply_error",
         "solve_error",
     ):
         print(f"  {key} = {metrics.get(key)}")
 
     failures = []
-    if metrics.get("tot_num_samples") != THRESHOLDS["tot_num_samples"]:
+    if args.expected_samples is not None and metrics.get("tot_num_samples") != args.expected_samples:
         failures.append(
-            f"tot_num_samples expected {THRESHOLDS['tot_num_samples']} "
+            f"tot_num_samples expected {args.expected_samples} "
             f"got {metrics.get('tot_num_samples')}"
         )
-    for key in ("adjoint_consistency_error", "norm_2_error", "solve_error"):
+    metric_thresholds = {
+        "adjoint_consistency_error": args.max_adjoint_consistency_error,
+        "adjoint_consistency_error_inv": args.max_adjoint_consistency_error_inv,
+        "norm_2_error": args.max_norm_2_error,
+        "norm_fro_error": args.max_norm_fro_error,
+        "solve_error": args.max_solve_error,
+    }
+    for key, threshold in metric_thresholds.items():
+        if threshold is None:
+            continue
         value = metrics.get(key)
-        if value is None or value >= THRESHOLDS[key]:
-            failures.append(f"{key} expected < {THRESHOLDS[key]} got {value}")
+        if value is None or value >= threshold:
+            failures.append(f"{key} expected < {threshold} got {value}")
 
     if failures:
-        print("Regression check failed:", file=sys.stderr)
+        print(f"{args.suite_name} ({args.run_id}) failed:", file=sys.stderr)
         for failure in failures:
             print(f"  - {failure}", file=sys.stderr)
         return 1
 
-    print("Regression check passed.")
+    print(f"{args.suite_name} ({args.run_id}) passed.")
     return 0
 
 

@@ -367,7 +367,6 @@ fn run_case(
         16,
         0,
         0,
-        None,
         Shift::False,
         NullMethod::Projection,
         RankRevealingQrType::RRQR,

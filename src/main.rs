@@ -18,7 +18,7 @@ fn extract_operator_types(python_code: &str) -> HashMap<String, String> {
 
     // Only accept 'real' or 'complex' to avoid false matches
     let scalar_type_regex =
-        Regex::new(r#"self\.scalar_type\s*=\s*['"](real|complex)['"]"#).unwrap();
+        Regex::new(r#"(?:self\.)?scalar_type\s*=\s*['"](real|complex)['"]"#).unwrap();
 
     let mut current_class: Option<String> = None;
 

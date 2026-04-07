@@ -6,13 +6,129 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      rsrs_ref:
+        description: "Optional bempp/rsrs ref to test"
+        required: false
+        type: string
+      rsrs_repository:
+        description: "Optional bempp/rsrs repository override"
+        required: false
+        default: "bempp/rsrs"
+        type: string
 
 jobs:
-  biegrid-40k:
-    name: Seeded 40k BIEGrid regression
+  biegrid-40k-serial:
+    name: Seeded 40k BIEGrid regression (serial)
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
-      - name: Run seeded 40k BIEGrid regression
-        run: docker compose run --rm dev python scripts/check_biegrid_40k_regression.py
+      - name: Check out requested bempp/rsrs ref
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.rsrs_ref != '' }}
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.rsrs_repository }}
+          ref: ${{ inputs.rsrs_ref }}
+          path: bempp-rsrs-src
+      - name: Point rsrs-exps at dispatched bempp/rsrs checkout
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.rsrs_ref != '' }}
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          cargo_toml = Path("Cargo.toml")
+          text = cargo_toml.read_text()
+          old = 'bempp-rsrs = { git = "https://github.com/bempp/rsrs.git", branch = "enable_symm" }'
+          new = 'bempp-rsrs = { path = "bempp-rsrs-src" }'
+          if old not in text:
+              raise SystemExit("Could not find bempp-rsrs dependency line to patch")
+          cargo_toml.write_text(text.replace(old, new))
+          PY
+      - name: Refresh bempp/rsrs lockfile for dispatched checkout
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.rsrs_ref != '' }}
+        run: docker compose run --rm dev cargo update -p bempp-rsrs
+      - name: Run perturbed BIEGrid apply/adjoint tests
+        run: docker compose run --rm dev cargo test --release --test biegrid_perturbed_operator
+      - name: Run seeded 40k BIEGrid serial regression
+        run: docker compose run --rm dev python scripts/check_biegrid_40k_regression.py --num-threads 1 --expected-samples 1520 --suite-name "BIEGrid 40k serial regression" --run-id serial
+
+  biegrid-10k-parallel-saved-samples:
+    name: Seeded 10k BIEGrid regression (parallel, saved samples)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check out requested bempp/rsrs ref
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.rsrs_ref != '' }}
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.rsrs_repository }}
+          ref: ${{ inputs.rsrs_ref }}
+          path: bempp-rsrs-src
+      - name: Point rsrs-exps at dispatched bempp/rsrs checkout
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.rsrs_ref != '' }}
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          cargo_toml = Path("Cargo.toml")
+          text = cargo_toml.read_text()
+          old = 'bempp-rsrs = { git = "https://github.com/bempp/rsrs.git", branch = "enable_symm" }'
+          new = 'bempp-rsrs = { path = "bempp-rsrs-src" }'
+          if old not in text:
+              raise SystemExit("Could not find bempp-rsrs dependency line to patch")
+          cargo_toml.write_text(text.replace(old, new))
+          PY
+      - name: Refresh bempp/rsrs lockfile for dispatched checkout
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.rsrs_ref != '' }}
+        run: docker compose run --rm dev cargo update -p bempp-rsrs
+      - name: Run perturbed BIEGrid apply/adjoint tests
+        run: docker compose run --rm dev cargo test --release --test biegrid_perturbed_operator
+      - name: Prepare saved 10k BIEGrid samples
+        run: docker compose run --rm dev python scripts/check_biegrid_40k_regression.py --num-threads 4 --mesh-width 0.01 --save-samples --expected-samples 1520 --suite-name "BIEGrid 10k saved-sample prep" --run-id prep --max-adjoint-consistency-error 2.0 --max-norm-2-error 1.0 --max-solve-error 1.0
+      - name: Run three seeded 10k BIEGrid parallel regressions from saved samples
+        run: |
+          set -euo pipefail
+          for run_id in 1 2 3; do
+            docker compose run --rm dev python scripts/check_biegrid_40k_regression.py --num-threads 4 --mesh-width 0.01 --load-samples --suite-name "BIEGrid 10k parallel saved-sample regression" --run-id "run-${run_id}"
+          done
+
+  biegrid-10k-perturbed-serial:
+    name: Seeded 10k perturbed BIEGrid regressions (serial)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check out requested bempp/rsrs ref
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.rsrs_ref != '' }}
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.rsrs_repository }}
+          ref: ${{ inputs.rsrs_ref }}
+          path: bempp-rsrs-src
+      - name: Point rsrs-exps at dispatched bempp/rsrs checkout
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.rsrs_ref != '' }}
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          cargo_toml = Path("Cargo.toml")
+          text = cargo_toml.read_text()
+          old = 'bempp-rsrs = { git = "https://github.com/bempp/rsrs.git", branch = "enable_symm" }'
+          new = 'bempp-rsrs = { path = "bempp-rsrs-src" }'
+          if old not in text:
+              raise SystemExit("Could not find bempp-rsrs dependency line to patch")
+          cargo_toml.write_text(text.replace(old, new))
+          PY
+      - name: Refresh bempp/rsrs lockfile for dispatched checkout
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.rsrs_ref != '' }}
+        run: docker compose run --rm dev cargo update -p bempp-rsrs
+      - name: Run real symmetric perturbed serial regression
+        run: docker compose run --rm dev python scripts/check_biegrid_40k_regression.py --operator-type BIEGridRealSymmetricPerturbed --symmetry Symmetric --num-threads 1 --mesh-width 0.01 --expected-samples 1520 --suite-name "BIEGridRealSymmetricPerturbed 10k serial regression" --run-id serial --max-adjoint-consistency-error 2.0 --max-adjoint-consistency-error-inv 2.0 --max-norm-2-error 1.0e-5 --max-norm-fro-error 1.0e-6 --max-solve-error 1.0e-4
+      - name: Run real nonsymmetric perturbed serial regression
+        run: docker compose run --rm dev python scripts/check_biegrid_40k_regression.py --operator-type BIEGridRealPerturbed --symmetry NoSymm --num-threads 1 --mesh-width 0.01 --expected-samples 1520 --suite-name "BIEGridRealPerturbed 10k serial regression" --run-id serial --max-adjoint-consistency-error 1.0e-10 --max-adjoint-consistency-error-inv 1.0e-12 --max-norm-2-error 1.0e-6 --max-norm-fro-error 1.0e-6 --max-solve-error 2.0e-4
+      - name: Run complex symmetric perturbed serial regression
+        run: docker compose run --rm dev python scripts/check_biegrid_40k_regression.py --operator-type BIEGridComplexSymmetricPerturbed --symmetry Symmetric --num-threads 1 --mesh-width 0.01 --expected-samples 1520 --suite-name "BIEGridComplexSymmetricPerturbed 10k serial regression" --run-id serial --max-adjoint-consistency-error 1.0 --max-adjoint-consistency-error-inv 2.0 --max-norm-2-error 2.0e-5 --max-norm-fro-error 1.0e-6 --max-solve-error 3.0e-4
+      # This currently serves as a diagnostic guard only: the exact operator
+      # adjoint test passes, but RSRS quality for the complex nonsymmetric
+      # perturbation is known to be poor.
+      - name: Run complex nonsymmetric perturbed serial diagnostic
+        run: docker compose run --rm dev python scripts/check_biegrid_40k_regression.py --operator-type BIEGridComplexPerturbed --symmetry NoSymm --num-threads 1 --mesh-width 0.01 --expected-samples 1520 --suite-name "BIEGridComplexPerturbed 10k serial diagnostic" --run-id serial --max-adjoint-consistency-error 2.0 --max-adjoint-consistency-error-inv 2.0 --max-norm-2-error 1.0e22 --max-norm-fro-error 1.0e15 --max-solve-error 1.0e18

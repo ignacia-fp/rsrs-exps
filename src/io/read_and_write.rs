@@ -36,6 +36,7 @@ const ADJOINT_CHECK_SAMPLES: usize = 8;
 const APP_ERR_LEFT_SEED: u64 = 0xA001_E110_0000_0001;
 const APP_ERR_RIGHT_SEED: u64 = 0xA001_E110_0000_0002;
 const ADJOINT_CHECK_SEED: u64 = 0xA31D_0C11_5EED_1234;
+const INV_ADJOINT_CHECK_SEED: u64 = 0xA31D_0C11_5EED_5678;
 const SELF_ADJOINT_CHECK_SEED: u64 = 0x5E1F_AD10_1A15_0001;
 const FROB_FORWARD_SEED: u64 = 0xF20B_0000_0000_0001;
 const FROB_INVERSE_SEED: u64 = 0xF20B_0000_0000_0002;
@@ -79,6 +80,7 @@ pub struct ErrorStatsOutput<Item: RlstScalar> {
     app_err_left: Real<Item>,
     app_err_right: Real<Item>,
     adjoint_consistency_error: Real<Item>,
+    adjoint_consistency_error_inv: Real<Item>,
     self_adjoint_apply_error: Real<Item>,
     norm_fro_error: Real<Item>,
     norm_fro_error_inv: Real<Item>,
@@ -431,6 +433,7 @@ fn estimate_adjoint_consistency_error<
 >(
     operator: &OpImpl,
     sample_size: usize,
+    seed: u64,
 ) -> Real<Item>
 where
     StandardNormal: Distribution<Real<Item>>,
@@ -439,7 +442,7 @@ where
     <<Space as rlst::LinearSpace>::E as rlst::ElementImpl>::Space: InnerProductSpace,
 {
     let mut max_rel = 0.0f64;
-    let mut rng = ChaCha8Rng::seed_from_u64(ADJOINT_CHECK_SEED);
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
 
     for _ in 0..sample_size.max(1) {
         let mut x = SamplingSpace::zero(operator.range());
@@ -679,8 +682,11 @@ pub(crate) fn save_error_stats<
     );
     finish_save_stage("application error estimate (non-inverse)", stage);
     let stage = start_save_stage("adjoint consistency estimate");
-    let adjoint_consistency_error =
-        estimate_adjoint_consistency_error(rsrs_operator, ADJOINT_CHECK_SAMPLES);
+    let adjoint_consistency_error = estimate_adjoint_consistency_error(
+        rsrs_operator,
+        ADJOINT_CHECK_SAMPLES,
+        ADJOINT_CHECK_SEED,
+    );
     finish_save_stage("adjoint consistency estimate", stage);
     let stage = start_save_stage("self-adjoint apply estimate");
     let self_adjoint_apply_error =
@@ -733,6 +739,13 @@ pub(crate) fn save_error_stats<
     let norm_2_error = sigma_1.abs().sqrt() / sigma_2.abs().sqrt();
 
     rsrs_operator.inv(true);
+    let stage = start_save_stage("inverse adjoint consistency estimate");
+    let adjoint_consistency_error_inv = estimate_adjoint_consistency_error(
+        rsrs_operator,
+        ADJOINT_CHECK_SAMPLES,
+        INV_ADJOINT_CHECK_SEED,
+    );
+    finish_save_stage("inverse adjoint consistency estimate", stage);
 
     let domain = std::rc::Rc::clone(&structured_operator_op.domain());
     let range = std::rc::Rc::clone(&structured_operator_op.range());
@@ -740,8 +753,12 @@ pub(crate) fn save_error_stats<
 
     let prod1 = rsrs_operator.r().product(structured_operator_op.r());
     let stage = start_save_stage("frobenius norm comparison (inverse mode)");
-    let (norm_fro_error_inv, _) =
-        frobenius_diff_and_reference_norm(&id_op, &prod1, FROBENIUS_ESTIMATION_SAMPLES, FROB_INVERSE_SEED);
+    let (norm_fro_error_inv, _) = frobenius_diff_and_reference_norm(
+        &id_op,
+        &prod1,
+        FROBENIUS_ESTIMATION_SAMPLES,
+        FROB_INVERSE_SEED,
+    );
     finish_save_stage("frobenius norm comparison (inverse mode)", stage);
     let diff = DiffOperator(prod1.r(), id_op.r());
     let normal = NormalOperator {
@@ -784,10 +801,11 @@ pub(crate) fn save_error_stats<
     let mut sol = SamplingSpace::zero(structured_operator_op.r().domain());
 
     let mut solve_rng = ChaCha8Rng::seed_from_u64(SOLVE_CHECK_SEED);
-    structured_operator_op
-        .r()
-        .domain()
-        .sampling(&mut sol, &mut solve_rng, SampleType::RealStandardNormal);
+    structured_operator_op.r().domain().sampling(
+        &mut sol,
+        &mut solve_rng,
+        SampleType::RealStandardNormal,
+    );
 
     let stage = start_save_stage("sampled solve error check");
     let rhs = structured_operator_op.apply(sol.r(), TransMode::NoTrans);
@@ -805,6 +823,7 @@ pub(crate) fn save_error_stats<
         app_err_left,
         app_err_right,
         adjoint_consistency_error,
+        adjoint_consistency_error_inv,
         self_adjoint_apply_error,
         cond_rsrs_estimate: condition_number,
         norm_fro_error,
@@ -1132,8 +1151,12 @@ mod tests {
         populate_complex_test_matrix(&mut matrix);
 
         let op = DenseMatrixOperator::new(matrix);
-        let adjoint_error: f64 =
-            NumCast::from(estimate_adjoint_consistency_error(&op, 32)).unwrap();
+        let adjoint_error: f64 = NumCast::from(estimate_adjoint_consistency_error(
+            &op,
+            32,
+            ADJOINT_CHECK_SEED,
+        ))
+        .unwrap();
 
         assert!(
             adjoint_error <= 1.0e-12,

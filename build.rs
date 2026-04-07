@@ -22,7 +22,7 @@ fn generate_operator_enum(python_file: &str, output_file: &str) {
     writeln!(
         file,
         "#[derive(Clone, strum_macros::AsRefStr, strum_macros::EnumString, Debug, serde::Deserialize)]
-    pub enum StructuredOperatorType {{"
+pub enum StructuredOperatorType {{"
     )
     .unwrap();
     for name in class_names.lines() {
