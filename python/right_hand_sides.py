@@ -160,7 +160,8 @@ def right_hand_side(operator, problem_type, n_sources=1):
         'BasicStructuredOperator', 'KiFMMLaplaceOperator', 'KiFMMHelmholtzOperator',
         'KiFMMLaplaceOperatorV', 'BemppClLaplaceSingleLayerCPID',
         'BemppClLaplaceSingleLayerCPIDP1', 'BemppClHelmholtzSingleLayerCPID',
-        'BIEGrid',
+        'BIEGrid', 'BIEGridRealPerturbed', 'BIEGridRealSymmetricPerturbed', 'BIEGridComplexPerturbed',
+        'BIEGridComplexSymmetricPerturbed',
     }
 
     # ---------------------------------------------------------------------

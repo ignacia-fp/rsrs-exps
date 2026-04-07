@@ -23,4 +23,8 @@ pub enum StructuredOperatorType {
     BemppClBurtonMiller,
     BemppClHelmholtzCombined,
     BIEGrid,
+    BIEGridComplexPerturbed,
+    BIEGridRealPerturbed,
+    BIEGridRealSymmetricPerturbed,
+    BIEGridComplexSymmetricPerturbed,
 }

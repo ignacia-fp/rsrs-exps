@@ -11,7 +11,7 @@ from scipy.sparse.linalg import eigsh  # (still imported; some users keep it aro
 from scipy.sparse.linalg import LinearOperator
 
 from .geometry import get_geometry, get_barycenters, get_edges_centres
-from .righ_hand_sides import right_hand_side
+from .right_hand_sides import right_hand_side
 
 from kifmm_py import (
     KiFmm,
@@ -1888,3 +1888,237 @@ class BIEGrid(BaseStructuredOperator):
 
     def get_rhs(self, n_sources=1):
         return right_hand_side(self, None, n_sources)
+
+
+def _biegrid_perturbed_mv(self, v):
+    arr = np.asarray(v, dtype=self.rhs_data_type)
+    return np.asarray(self.mat @ arr, dtype=self.rhs_data_type).reshape(-1)
+
+
+def _biegrid_perturbed_mv_trans(self, v):
+    arr = np.asarray(v, dtype=self.rhs_data_type)
+    return np.asarray(self.mat_T.rmatvec(arr), dtype=self.rhs_data_type).reshape(-1)
+
+
+def _biegrid_perturbed_dense(self):
+    if self._perturbation_dense is None:
+        base_dtype = np.float64 if self.scalar_type == 'real' else np.complex128
+        base_dense = np.asarray(self._experiment.Amat, dtype=base_dtype)
+        delta = perturbation_dense_matrix(
+            self.n_points,
+            self._perturbation,
+            symmetry_mode=self._perturbation_symmetry_mode,
+        )
+        if self.scalar_type == 'real':
+            delta = np.asarray(delta.real, dtype=base_dtype)
+        self._perturbation_dense = base_dense + delta
+    return np.asarray(self._perturbation_dense, dtype=self.rhs_data_type)
+
+
+def _biegrid_perturbed_rhs(self, n_sources=1):
+    return right_hand_side(self, None, n_sources)
+
+
+def _biegrid_perturbed_init(self, dim_param, kappa, geometry_type, precision, n_sources=1, init_samples=0, assembler='fmm'):
+    try:
+        _init_biegrid_perturbed(
+            self,
+            dim_param,
+            kappa,
+            geometry_type,
+            precision,
+            n_sources,
+            init_samples,
+            assembler,
+            operator_type=type(self).__name__,
+            scalar_type=self.scalar_type,
+            perturbation_family=self.perturbation_family,
+            symmetry_mode=self.perturbation_symmetry_mode,
+        )
+    except Exception as e:
+        print(f"Error initializing {type(self).__name__}:", e)
+        raise
+
+
+class BIEGridComplexPerturbed(BaseStructuredOperator):
+    scalar_type = 'complex'
+    perturbation_family = 'complex'
+    perturbation_symmetry_mode = 'none'
+    __init__ = _biegrid_perturbed_init
+    mv = _biegrid_perturbed_mv
+    mv_trans = _biegrid_perturbed_mv_trans
+    dense = property(_biegrid_perturbed_dense)
+    get_rhs = _biegrid_perturbed_rhs
+
+
+class BIEGridRealPerturbed(BaseStructuredOperator):
+    scalar_type = 'real'
+    perturbation_family = 'real'
+    perturbation_symmetry_mode = 'none'
+    __init__ = _biegrid_perturbed_init
+    mv = _biegrid_perturbed_mv
+    mv_trans = _biegrid_perturbed_mv_trans
+    dense = property(_biegrid_perturbed_dense)
+    get_rhs = _biegrid_perturbed_rhs
+
+
+class BIEGridRealSymmetricPerturbed(BaseStructuredOperator):
+    scalar_type = 'real'
+    perturbation_family = 'real'
+    perturbation_symmetry_mode = 'real_symmetric'
+    __init__ = _biegrid_perturbed_init
+    mv = _biegrid_perturbed_mv
+    mv_trans = _biegrid_perturbed_mv_trans
+    dense = property(_biegrid_perturbed_dense)
+    get_rhs = _biegrid_perturbed_rhs
+
+
+class BIEGridComplexSymmetricPerturbed(BaseStructuredOperator):
+    scalar_type = 'complex'
+    perturbation_family = 'complex'
+    perturbation_symmetry_mode = 'complex_symmetric'
+    __init__ = _biegrid_perturbed_init
+    mv = _biegrid_perturbed_mv
+    mv_trans = _biegrid_perturbed_mv_trans
+    dense = property(_biegrid_perturbed_dense)
+    get_rhs = _biegrid_perturbed_rhs
+
+
+def _init_biegrid_perturbed(
+    instance,
+    dim_param,
+    kappa,
+    geometry_type,
+    precision,
+    n_sources,
+    init_samples,
+    assembler,
+    *,
+    operator_type,
+    scalar_type,
+    perturbation_family,
+    symmetry_mode,
+):
+    from .bie_grid import (
+        BIEGrid as _BIEGridExperiment,
+        build_rank_one_box_perturbations,
+        build_real_rank_one_box_perturbations,
+        filter_perturbation_terms,
+        make_complex_wrapped_operator,
+        make_real_wrapped_operator,
+    )
+
+    ndim_map = {
+        'square': 2,
+        'cube': 3,
+    }
+    ndim = ndim_map.get(str(geometry_type).lower())
+    if ndim is None:
+        raise ValueError(f"{operator_type} only supports geometry_type 'square' (2D) or 'cube' (3D).")
+
+    if dim_param <= 0:
+        raise ValueError(f"{operator_type} expects dim_param to be positive.")
+
+    if dim_param < 1:
+        reciprocal_h = 1.0 / float(dim_param)
+        cells_per_axis = int(np.rint(reciprocal_h))
+    else:
+        cells_per_axis = int(round(dim_param))
+    cells_per_axis = max(cells_per_axis, 4)
+    requested_n = cells_per_axis ** ndim
+
+    instance.init_samples = init_samples
+    instance.precision = precision
+    instance.n_sources = n_sources
+    instance.kappa = kappa
+    instance.assembler = assembler.lower()
+    instance.dim_param = dim_param
+    instance.cells_per_axis = cells_per_axis
+    instance.scalar_type = scalar_type
+    instance.operator_type = operator_type
+    instance.form = 'none'
+    instance.grid = None
+    instance.mat = None
+    instance.mat_T = None
+    instance.rhs = None
+    instance.rhs_data_type = None
+    instance._perturbation_symmetry_mode = symmetry_mode
+
+    instance._experiment = _BIEGridExperiment(requested_n, ndim)
+    instance._base_real_operator = instance._experiment.fast_apply_op
+
+    raw_points = np.asarray(instance._experiment.XX, dtype=np.float64)
+    if raw_points.ndim != 2:
+        raise ValueError(f"Unexpected BIEGrid point array shape: {raw_points.shape}")
+
+    if raw_points.shape[1] == 2:
+        zeros = np.zeros((raw_points.shape[0], 1), dtype=np.float64)
+        points = np.hstack((raw_points, zeros))
+    elif raw_points.shape[1] == 3:
+        points = raw_points
+    else:
+        raise ValueError(f"BIEGrid points must have 2 or 3 coordinates, got {raw_points.shape[1]}")
+
+    instance.points = np.require(points, dtype=np.float64, requirements=['C', 'A', 'O'])
+    instance.n_points = instance.points.shape[0]
+    if scalar_type == 'real':
+        instance.rhs_data_type = np.float32 if instance.precision == 'single' else np.float64
+    else:
+        instance.rhs_data_type = np.complex64 if instance.precision == 'single' else np.complex128
+
+    perturbation_scale = float(os.environ.get("RSRS_BIEGRID_PERTURB_SCALE", "3e-3"))
+    perturbation_seed = int(os.environ.get("RSRS_BIEGRID_PERTURB_SEED", "12345"))
+    perturbation_mode = os.environ.get("RSRS_BIEGRID_PERTURB_MODE", "both")
+
+    if perturbation_family == 'real':
+        perturbation = build_real_rank_one_box_perturbations(
+            instance.n_points,
+            ndim,
+            scale=perturbation_scale,
+            seed=perturbation_seed,
+        )
+    else:
+        perturbation = build_rank_one_box_perturbations(
+            instance.n_points,
+            ndim,
+            scale=perturbation_scale,
+            seed=perturbation_seed,
+        )
+
+    instance._perturbation = filter_perturbation_terms(perturbation, perturbation_mode)
+    instance.perturbation_box_size = int(instance._perturbation["box_indices"].size)
+    instance.perturbation_term_count = len(instance._perturbation["terms"])
+    active_labels = ",".join(term["label"] for term in instance._perturbation["terms"])
+    print(
+        f"{operator_type}: using deterministic global rank-1 perturbation "
+        f"with dim={instance.perturbation_box_size}, terms={instance.perturbation_term_count}, "
+        f"labels={active_labels}, scale={perturbation_scale:.3e}, seed={perturbation_seed}"
+    )
+
+    if scalar_type == 'real':
+        instance.mat = make_real_wrapped_operator(
+            instance._base_real_operator,
+            instance.n_points,
+            perturbation=instance._perturbation,
+            symmetry_mode=symmetry_mode,
+        )
+    else:
+        instance.mat = make_complex_wrapped_operator(
+            instance._base_real_operator,
+            instance.n_points,
+            perturbation=instance._perturbation,
+            symmetry_mode=symmetry_mode,
+        )
+    instance.mat_T = instance.mat
+
+    if instance.init_samples > 0:
+        _maybe_generate_samples(
+            instance.mat,
+            instance.mat_T,
+            instance.precision,
+            instance.n_points,
+            instance.init_samples,
+        )
+
+    instance._perturbation_dense = None
+    instance.rhs = instance.get_rhs(n_sources=instance.n_sources)

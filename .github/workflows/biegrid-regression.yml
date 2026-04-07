@@ -1,0 +1,95 @@
+name: Perturbed BIEGrid Regressions
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      rsrs_ref:
+        description: "Optional bempp/rsrs ref to test"
+        required: false
+        type: string
+      rsrs_repository:
+        description: "Optional bempp/rsrs repository override"
+        required: false
+        default: "bempp/rsrs"
+        type: string
+
+jobs:
+  perturbed-biegrid-10k:
+    name: ${{ matrix.label }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Real symmetric perturbed BIEGrid, 10k serial
+            operator_type: BIEGridRealSymmetricPerturbed
+            symmetry: Symmetric
+            max_adjoint: "2.0"
+            max_adjoint_inv: "2.0"
+            max_norm_2: "1.0e-5"
+            max_solve: "1.0e-4"
+          - label: Real nonsymmetric perturbed BIEGrid, 10k serial
+            operator_type: BIEGridRealPerturbed
+            symmetry: NoSymm
+            max_adjoint: "1.0e-10"
+            max_adjoint_inv: "1.0e-12"
+            max_norm_2: "1.0e-6"
+            max_solve: "2.0e-4"
+          - label: Complex symmetric perturbed BIEGrid, 10k serial
+            operator_type: BIEGridComplexSymmetricPerturbed
+            symmetry: Symmetric
+            max_adjoint: "1.0"
+            max_adjoint_inv: "2.0"
+            max_norm_2: "2.0e-5"
+            max_solve: "3.0e-4"
+          - label: Complex nonsymmetric perturbed BIEGrid, 10k serial
+            operator_type: BIEGridComplexPerturbed
+            symmetry: NoSymm
+            max_adjoint: "1.0e-10"
+            max_adjoint_inv: "1.0e-12"
+            max_norm_2: "1.0e-5"
+            max_solve: "1.0e-3"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check out requested bempp/rsrs ref
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.rsrs_ref != '' }}
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.rsrs_repository }}
+          ref: ${{ inputs.rsrs_ref }}
+          path: bempp-rsrs-src
+      - name: Point rsrs-exps at dispatched bempp/rsrs checkout
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.rsrs_ref != '' }}
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          cargo_toml = Path("Cargo.toml")
+          text = cargo_toml.read_text()
+          old = 'bempp-rsrs = { git = "https://github.com/bempp/rsrs.git", branch = "enable_symm" }'
+          new = 'bempp-rsrs = { path = "bempp-rsrs-src" }'
+          if old not in text:
+              raise SystemExit("Could not find bempp-rsrs dependency line to patch")
+          cargo_toml.write_text(text.replace(old, new))
+          PY
+      - name: Refresh bempp/rsrs lockfile for dispatched checkout
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.rsrs_ref != '' }}
+        run: docker compose run --rm dev cargo update -p bempp-rsrs
+      - name: Run 10k serial perturbed BIEGrid regression
+        run: >
+          docker compose run --rm dev python scripts/check_biegrid_regression.py
+          --operator-type ${{ matrix.operator_type }}
+          --symmetry ${{ matrix.symmetry }}
+          --num-threads 1
+          --mesh-width 0.01
+          --expected-samples 1520
+          --suite-name "${{ matrix.label }}"
+          --run-id serial
+          --max-adjoint-consistency-error ${{ matrix.max_adjoint }}
+          --max-adjoint-consistency-error-inv ${{ matrix.max_adjoint_inv }}
+          --max-norm-2-error ${{ matrix.max_norm_2 }}
+          --max-solve-error ${{ matrix.max_solve }}

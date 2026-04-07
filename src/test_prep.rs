@@ -129,6 +129,12 @@ fn finish_root_stage(rank: i32, label: &str, start: Instant) {
     }
 }
 
+fn configured_run_seed() -> Option<u64> {
+    std::env::var("RSRS_RUN_SEED")
+        .ok()
+        .and_then(|seed| seed.parse::<u64>().ok())
+}
+
 fn default_max_leaf_points(id_tol: f64, geometry_type: &GeometryType) -> usize {
     if id_tol < 1.0 {
         return 50;
@@ -547,9 +553,7 @@ macro_rules! implement_test_framework {
                         let range = std::rc::Rc::clone(&operator.range());
 
                         let stage = start_root_stage(rank, "run RSRS factorization");
-                        let mut rsrs_factors = if let Some(seed) =
-                            self.test_params.rsrs_params.sketching.run_seed
-                        {
+                        let mut rsrs_factors = if let Some(seed) = configured_run_seed() {
                             if rank == 0 {
                                 println!("[rsrs-exps] using deterministic RSRS seed: {seed}");
                             }
