@@ -239,7 +239,7 @@ dependencies = [
 [[package]]
 name = "bempp-rsrs"
 version = "0.0.1-dev"
-source = "git+https://github.com/bempp/rsrs.git?branch=enable_symm#12a0c28dee9bbe61f4fa5b16fb2134d5e1de7b46"
+source = "git+https://github.com/bempp/rsrs.git?branch=enable_symm#3379255fc64c2974a0cd80612f33980374e75401"
 dependencies = [
  "bempp-octree",
  "cbindgen 0.29.2",
@@ -2791,7 +2791,7 @@ checksum = "dc897dd8d9e8bd1ed8cdad82b5966c3e0ecae09fb1907d58efaa013543185d0a"
 [[package]]
 name = "rlst"
 version = "0.2.1"
-source = "git+https://github.com/ignacia-fp/rlst.git?branch=extend_abstract_operator#7b9feb376e9e15be1e2800f8f45b1df2918fc6df"
+source = "git+https://github.com/ignacia-fp/rlst.git?branch=extend_abstract_operator#c606b02ce66f5d27c2a1cb11a3cda12eb176220f"
 dependencies = [
  "arpack-ng-sys",
  "bempp-distributed-tools",
@@ -2821,7 +2821,7 @@ dependencies = [
 [[package]]
 name = "rlst-proc-macro"
 version = "0.2.1"
-source = "git+https://github.com/ignacia-fp/rlst.git?branch=extend_abstract_operator#7b9feb376e9e15be1e2800f8f45b1df2918fc6df"
+source = "git+https://github.com/ignacia-fp/rlst.git?branch=extend_abstract_operator#c606b02ce66f5d27c2a1cb11a3cda12eb176220f"
 dependencies = [
  "darling",
  "quote",
@@ -3598,7 +3598,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
