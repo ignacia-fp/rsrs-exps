@@ -65,7 +65,7 @@ where
                 residuals.push(res);
                 println!("res: {}, {:?}", residuals.len(), res);
             })
-            .set_tol(tol)
+            .set_tol(Item::real(tol))
             .set_restart(GMRES_RESTART)
             .set_max_iter(GMRES_MAX_ITER);
 
@@ -154,7 +154,7 @@ where
                 residuals.push(res);
                 println!("res: {}, {:?}", residuals.len(), res);
             })
-            .set_tol(tol)
+            .set_tol(Item::real(tol))
             .set_max_iter(GMRES_MAX_ITER)
             .set_restart(GMRES_RESTART)
             .set_preconditioner(rsrs_operator.r());

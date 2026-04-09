@@ -618,6 +618,63 @@ where
     (app_err_left, app_err_right)
 }
 
+pub fn frobenius_diff_and_reference_norm_with_mode<
+    Item: RlstScalar,
+    Space: SamplingSpace<F = Item> + IndexableSpace,
+    OpRef: AsApply<Domain = Space, Range = Space>,
+    OpApprox: AsApply<Domain = Space, Range = Space>,
+>(
+    reference_op: &OpRef,
+    approx_op: &OpApprox,
+    sample_size: usize,
+    seed: u64,
+    trans_mode: TransMode,
+) -> (Real<Item>, Real<Item>)
+where
+    Item: RandScalar
+        + MatrixInverse
+        + MatrixId
+        + MatrixIdNoSkel
+        + MatrixPseudoInverse
+        + MatrixLu
+        + MatrixQr,
+    StandardNormal: Distribution<Item::Real>,
+    Standard: Distribution<Item::Real>,
+    <Item as rlst::RlstScalar>::Real: RandScalar,
+    <<Space as rlst::LinearSpace>::E as rlst::ElementImpl>::Space: rlst::InnerProductSpace,
+    LuDecomposition<Item, BaseArray<Item, VectorContainer<Item>, 2>>:
+        MatrixLuDecomposition<Item = Item>,
+    TriangularMatrix<Item>: TriangularOperations<Item = Item>,
+{
+    let sample_size = sample_size.max(1);
+    let sample_frame = _gen_real_gaussian_sample_frame(sample_size, reference_op.domain(), seed);
+    let reference_frame = mul_op(reference_op, &sample_frame, trans_mode);
+    let mut approx_frame = mul_op(approx_op, &sample_frame, trans_mode);
+
+    let mut reference_sq = 0.0f64;
+    let mut diff_sq = 0.0f64;
+    let sample_scale = (sample_size as f64).sqrt();
+
+    for (reference_col, approx_col) in reference_frame.iter().zip(approx_frame.iter_mut()) {
+        approx_col.sub_inplace(reference_col.r());
+
+        let reference_norm: f64 = NumCast::from(reference_col.norm()).unwrap();
+        let diff_norm: f64 = NumCast::from(approx_col.norm()).unwrap();
+
+        reference_sq += reference_norm * reference_norm;
+        diff_sq += diff_norm * diff_norm;
+    }
+
+    let reference_fro = reference_sq.sqrt() / sample_scale;
+    let diff_fro = diff_sq.sqrt() / sample_scale;
+    let rel_diff = diff_fro / reference_fro.max(1.0e-14);
+
+    (
+        Real::<Item>::from_f64(rel_diff).unwrap(),
+        Real::<Item>::from_f64(reference_fro).unwrap(),
+    )
+}
+
 pub fn frobenius_diff_and_reference_norm<
     Item: RlstScalar,
     Space: SamplingSpace<F = Item> + IndexableSpace,
@@ -645,32 +702,12 @@ where
         MatrixLuDecomposition<Item = Item>,
     TriangularMatrix<Item>: TriangularOperations<Item = Item>,
 {
-    let sample_size = sample_size.max(1);
-    let sample_frame = _gen_real_gaussian_sample_frame(sample_size, reference_op.domain(), seed);
-    let reference_frame = mul_op(reference_op, &sample_frame, TransMode::NoTrans);
-    let mut approx_frame = mul_op(approx_op, &sample_frame, TransMode::NoTrans);
-
-    let mut reference_sq = 0.0f64;
-    let mut diff_sq = 0.0f64;
-    let sample_scale = (sample_size as f64).sqrt();
-
-    for (reference_col, approx_col) in reference_frame.iter().zip(approx_frame.iter_mut()) {
-        approx_col.sub_inplace(reference_col.r());
-
-        let reference_norm: f64 = NumCast::from(reference_col.norm()).unwrap();
-        let diff_norm: f64 = NumCast::from(approx_col.norm()).unwrap();
-
-        reference_sq += reference_norm * reference_norm;
-        diff_sq += diff_norm * diff_norm;
-    }
-
-    let reference_fro = reference_sq.sqrt() / sample_scale;
-    let diff_fro = diff_sq.sqrt() / sample_scale;
-    let rel_diff = diff_fro / reference_fro.max(1.0e-14);
-
-    (
-        Real::<Item>::from_f64(rel_diff).unwrap(),
-        Real::<Item>::from_f64(reference_fro).unwrap(),
+    frobenius_diff_and_reference_norm_with_mode(
+        reference_op,
+        approx_op,
+        sample_size,
+        seed,
+        TransMode::NoTrans,
     )
 }
 

@@ -715,17 +715,26 @@ impl<Item: RlstScalar, Op: StructuredOperatorImpl<Item> + Shape<2>> AsApply
         mut y: Element<ContainerOut>,
         trans_mode: TransMode,
     ) {
+        let x_view = x.imp().view();
+        let x_data = x_view.data();
+        let mut y_view = y.imp_mut().view_mut();
+        let y_data = y_view.data_mut();
         match trans_mode {
             TransMode::NoTrans => {
-                self.op
-                    .mv(x.imp().view().data(), y.imp_mut().view_mut().data_mut());
+                self.op.mv(x_data, y_data);
             }
             TransMode::Trans => {
-                self.op
-                    .mv_trans(x.imp().view().data(), y.imp_mut().view_mut().data_mut());
+                self.op.mv_trans(x_data, y_data);
             }
-            TransMode::ConjNoTrans | TransMode::ConjTrans => {
-                panic!("Conjugate transpose modes not supported for multiplication.")
+            TransMode::ConjNoTrans => {
+                let input = x_data.iter().map(|value| value.conj()).collect::<Vec<_>>();
+                self.op.mv(&input, y_data);
+                y_data.iter_mut().for_each(|value| *value = value.conj());
+            }
+            TransMode::ConjTrans => {
+                let input = x_data.iter().map(|value| value.conj()).collect::<Vec<_>>();
+                self.op.mv_trans(&input, y_data);
+                y_data.iter_mut().for_each(|value| *value = value.conj());
             }
         }
     }

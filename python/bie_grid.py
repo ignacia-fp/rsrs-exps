@@ -211,9 +211,41 @@ def make_complex_wrapped_operator(base_op, n_points, perturbation=None, symmetry
 
         return out
 
+    def _transpose_perturb(x_mat):
+        out = np.zeros((n_points, x_mat.shape[1]), dtype=np.complex128)
+        if perturbation is None:
+            return out
+
+        box = perturbation["box_indices"]
+        for term in perturbation["terms"]:
+            target = term["target_indices"]
+            left = term["left"]
+            right = term["right"]
+            alpha = term["alpha"]
+
+            if symmetry_mode == "complex_symmetric":
+                coeff = left @ x_mat[box, :]
+                out[box, :] += alpha * np.outer(left, coeff)
+            else:
+                coeff = left @ x_mat[box, :]
+                out[target, :] += alpha * np.outer(np.conjugate(right), coeff)
+
+            if symmetry_mode == "hermitian":
+                coeff_t = right @ x_mat[target, :]
+                out[box, :] += np.conjugate(alpha) * np.outer(np.conjugate(left), coeff_t)
+
+        return out
+
     def _apply(x):
         is_vector, x_mat = _normalize_input(x)
         result = _base_apply(x_mat) + _forward_perturb(x_mat)
+        if is_vector:
+            return result.reshape(n_points,)
+        return result
+
+    def _apply_transpose(x):
+        is_vector, x_mat = _normalize_input(x)
+        result = _base_apply(x_mat) + _transpose_perturb(x_mat)
         if is_vector:
             return result.reshape(n_points,)
         return result
@@ -225,7 +257,7 @@ def make_complex_wrapped_operator(base_op, n_points, perturbation=None, symmetry
             return result.reshape(n_points,)
         return result
 
-    return LinearOperator(
+    forward_op = LinearOperator(
         shape=(n_points, n_points),
         dtype=np.complex128,
         matvec=_apply,
@@ -233,6 +265,17 @@ def make_complex_wrapped_operator(base_op, n_points, perturbation=None, symmetry
         matmat=_apply,
         rmatmat=_apply_adjoint,
     )
+
+    transpose_op = LinearOperator(
+        shape=(n_points, n_points),
+        dtype=np.complex128,
+        matvec=_apply_transpose,
+        rmatvec=_apply,
+        matmat=_apply_transpose,
+        rmatmat=_apply,
+    )
+
+    return forward_op, transpose_op
 
 
 def make_real_wrapped_operator(base_op, n_points, perturbation=None, symmetry_mode="none"):

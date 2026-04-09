@@ -15,7 +15,10 @@ use rand_chacha::ChaCha8Rng;
 use rand_distr::{Distribution, Standard, StandardNormal};
 use rlst::{
     dense::{
-        linalg::{interpolative_decomposition::MatrixIdNoSkel, lu::MatrixLu},
+        linalg::{
+            interpolative_decomposition::MatrixIdNoSkel, lu::MatrixLu,
+            naupd::NonSymmetricArnoldiUpdate, neupd::NonSymmetricArnoldiExtract,
+        },
         tools::RandScalar,
     },
     prelude::*,
@@ -30,7 +33,7 @@ use std::{
 };
 
 type Real<T> = <T as rlst::RlstScalar>::Real;
-const POWER_ITERATIONS: usize = 20;
+const EIGS_TOL: f64 = 1.0e-10;
 const FROBENIUS_ESTIMATION_SAMPLES: usize = 20;
 const ADJOINT_CHECK_SAMPLES: usize = 8;
 const APP_ERR_LEFT_SEED: u64 = 0xA001_E110_0000_0001;
@@ -40,11 +43,6 @@ const INV_ADJOINT_CHECK_SEED: u64 = 0xA31D_0C11_5EED_5678;
 const SELF_ADJOINT_CHECK_SEED: u64 = 0x5E1F_AD10_1A15_0001;
 const FROB_FORWARD_SEED: u64 = 0xF20B_0000_0000_0001;
 const FROB_INVERSE_SEED: u64 = 0xF20B_0000_0000_0002;
-const POWER_DIFF_SEED: u64 = 0x5000_0000_0000_0001;
-const POWER_STRUCTURED_SEED: u64 = 0x5000_0000_0000_0002;
-const POWER_RSRS_SEED: u64 = 0x5000_0000_0000_0003;
-const POWER_INV_DIFF_SEED: u64 = 0x5000_0000_0000_0004;
-const POWER_INV_RSRS_SEED: u64 = 0x5000_0000_0000_0005;
 const SOLVE_CHECK_SEED: u64 = 0x501E_0000_0000_0001;
 
 fn start_save_stage(label: &str) -> Instant {
@@ -378,54 +376,6 @@ pub fn save_time_stats<Item: RlstScalar + MatrixInverse + MatrixPseudoInverse + 
     file.write_all(json_string.as_bytes()).unwrap();
 }
 
-fn estimate_normal_operator_norm_sq<
-    Item: RlstScalar + RandScalar,
-    Space: SamplingSpace<F = Item>,
-    OpImpl: AsApply<Domain = Space, Range = Space>,
->(
-    operator: &OpImpl,
-    iterations: usize,
-    seed: u64,
-) -> Real<Item>
-where
-    StandardNormal: Distribution<Real<Item>>,
-    Standard: Distribution<Real<Item>>,
-    <Item as rlst::RlstScalar>::Real: RandScalar,
-    <<Space as rlst::LinearSpace>::E as rlst::ElementImpl>::Space: InnerProductSpace,
-{
-    let mut iterate = SamplingSpace::zero(operator.domain());
-    let mut rng = ChaCha8Rng::seed_from_u64(seed);
-    operator
-        .domain()
-        .sampling(&mut iterate, &mut rng, SampleType::RealStandardNormal);
-
-    let mut iterate_norm = iterate.norm();
-    if iterate_norm == num::Zero::zero() {
-        return num::Zero::zero();
-    }
-    let inv_norm: Real<Item> = <Real<Item> as num::One>::one() / iterate_norm;
-    iterate.scale_inplace(Item::from_real(inv_norm));
-
-    let mut estimate = num::Zero::zero();
-    for _ in 0..iterations {
-        let next = operator.apply(iterate.r(), TransMode::NoTrans);
-        estimate = next.norm();
-        if estimate == num::Zero::zero() {
-            return num::Zero::zero();
-        }
-
-        iterate = operator.domain().clone_vec(&next);
-        iterate_norm = iterate.norm();
-        if iterate_norm == num::Zero::zero() {
-            return num::Zero::zero();
-        }
-        let inv_norm: Real<Item> = <Real<Item> as num::One>::one() / iterate_norm;
-        iterate.scale_inplace(Item::from_real(inv_norm));
-    }
-
-    estimate
-}
-
 fn estimate_adjoint_consistency_error<
     Item: RlstScalar + RandScalar,
     Space: SamplingSpace<F = Item>,
@@ -651,6 +601,7 @@ pub(crate) fn save_error_stats<
     TriangularMatrix<Item>: TriangularOperations<Item = Item>,
     <Item as rlst::RlstScalar>::Real: RandScalar,
     Item: SolveVectorArchive<Item>,
+    Item: NonSymmetricArnoldiUpdate + NonSymmetricArnoldiExtract,
     <<Space as rlst::LinearSpace>::E as rlst::ElementImpl>::Space: InnerProductSpace,
     IdOperator<Item, Space>: rlst::AsApply,
     IdOperator<Item, Space>: OperatorBase<Domain = Space, Range = Space>,
@@ -671,6 +622,7 @@ pub(crate) fn save_error_stats<
     finish_save_stage("write solve-vector sidecar", stage);
 
     rsrs_operator.inv(false);
+    let tol_eigs = <Space::F as RlstScalar>::Real::from_f64(EIGS_TOL).unwrap();
     let stage = start_save_stage("application error estimate (non-inverse)");
     let (app_err_left, app_err_right) = rsrs_error_estimator(
         structured_operator_op,
@@ -711,8 +663,8 @@ pub(crate) fn save_error_stats<
         transpose_matches_apply: approx_transpose_matches_apply,
     };
     let stage = start_save_stage("largest singular value of operator difference");
-    let sigma_1: Real<Item> =
-        estimate_normal_operator_norm_sq(&normal.r(), POWER_ITERATIONS, POWER_DIFF_SEED);
+    let mut eigs1 = Eigs::new(normal.r(), tol_eigs, None, None, None);
+    let (sigma_1, _) = eigs1.run(None, 1, None, false);
     finish_save_stage("largest singular value of operator difference", stage);
 
     let normal_structured = NormalOperator {
@@ -720,11 +672,8 @@ pub(crate) fn save_error_stats<
         transpose_matches_apply,
     };
     let stage = start_save_stage("largest singular value of original operator");
-    let sigma_2: Real<Item> = estimate_normal_operator_norm_sq(
-        &normal_structured.r(),
-        POWER_ITERATIONS,
-        POWER_STRUCTURED_SEED,
-    );
+    let mut eigs2 = Eigs::new(normal_structured.r(), tol_eigs, None, None, None);
+    let (sigma_2, _) = eigs2.run(None, 1, None, false);
     finish_save_stage("largest singular value of original operator", stage);
 
     let normal_rsrs = NormalOperator {
@@ -732,11 +681,11 @@ pub(crate) fn save_error_stats<
         transpose_matches_apply: approx_transpose_matches_apply,
     };
     let stage = start_save_stage("largest singular value of RSRS operator");
-    let c_1: Real<Item> =
-        estimate_normal_operator_norm_sq(&normal_rsrs.r(), POWER_ITERATIONS, POWER_RSRS_SEED);
+    let mut eigs3 = Eigs::new(normal_rsrs.r(), tol_eigs, None, None, None);
+    let (c_1, _) = eigs3.run(None, 1, None, false);
     finish_save_stage("largest singular value of RSRS operator", stage);
 
-    let norm_2_error = sigma_1.abs().sqrt() / sigma_2.abs().sqrt();
+    let norm_2_error = sigma_1[0].abs().sqrt() / sigma_2[0].abs().sqrt();
 
     rsrs_operator.inv(true);
     let stage = start_save_stage("inverse adjoint consistency estimate");
@@ -767,8 +716,8 @@ pub(crate) fn save_error_stats<
     };
 
     let stage = start_save_stage("largest singular value of inverse residual");
-    let sigma_1: Real<Item> =
-        estimate_normal_operator_norm_sq(&normal.r(), POWER_ITERATIONS, POWER_INV_DIFF_SEED);
+    let mut eigs1 = Eigs::new(normal.r(), tol_eigs, None, None, None);
+    let (sigma_1, _) = eigs1.run(None, 1, None, false);
     finish_save_stage("largest singular value of inverse residual", stage);
 
     let normal_rsrs = NormalOperator {
@@ -776,13 +725,13 @@ pub(crate) fn save_error_stats<
         transpose_matches_apply: approx_transpose_matches_apply,
     };
     let stage = start_save_stage("largest singular value of inverse RSRS operator");
-    let c_2: Real<Item> =
-        estimate_normal_operator_norm_sq(&normal_rsrs.r(), POWER_ITERATIONS, POWER_INV_RSRS_SEED);
+    let mut eigs2 = Eigs::new(normal_rsrs.r(), tol_eigs, None, None, None);
+    let (c_2, _) = eigs2.run(None, 1, None, false);
     finish_save_stage("largest singular value of inverse RSRS operator", stage);
 
-    let norm_2_error_inv = sigma_1.abs().sqrt();
+    let norm_2_error_inv = sigma_1[0].abs().sqrt();
 
-    let condition_number = c_2.abs().sqrt() * c_1.abs().sqrt();
+    let condition_number = c_2[0].abs().sqrt() * c_1[0].abs().sqrt();
 
     let (app_inv_err_left, app_inv_err_right) = {
         let stage = start_save_stage("application error estimate (inverse)");
@@ -829,7 +778,7 @@ pub(crate) fn save_error_stats<
         norm_fro_error,
         norm_fro_error_inv,
         norm_fro_operator,
-        norm_2_operator: sigma_2.abs().sqrt(),
+        norm_2_operator: sigma_2[0].abs().sqrt(),
         norm_2_error,
         norm_2_error_inv,
         solve_error,
@@ -1165,7 +1114,7 @@ mod tests {
     }
 
     #[test]
-    fn power_iteration_normal_estimator_matches_dense_spectral_norm() {
+    fn eigs_normal_estimator_matches_dense_spectral_norm() {
         let mut matrix = rlst_dynamic_array2!(Complex<f64>, [10, 10]);
         populate_complex_test_matrix(&mut matrix);
 
@@ -1176,13 +1125,15 @@ mod tests {
             transpose_matches_apply: false,
         };
 
-        let estimated_norm_sq = estimate_normal_operator_norm_sq(&normal.r(), 40, 12345);
-        let estimated_norm: f64 = NumCast::from(estimated_norm_sq.sqrt()).unwrap();
+        let tol_eigs = 1.0e-10;
+        let mut eigs = Eigs::new(normal.r(), tol_eigs, None, None, None);
+        let (sigma, _) = eigs.run(None, 1, None, false);
+        let estimated_norm: f64 = NumCast::from(sigma[0].abs().sqrt()).unwrap();
         let rel_err = (estimated_norm - exact_norm).abs() / exact_norm;
 
         assert!(
-            rel_err <= 0.05,
-            "power-iteration 2-norm estimate too far from exact: estimated={estimated_norm}, exact={exact_norm}, rel_err={rel_err}"
+            rel_err <= 1.0e-8,
+            "eigs 2-norm estimate too far from exact: estimated={estimated_norm}, exact={exact_norm}, rel_err={rel_err}"
         );
     }
 }

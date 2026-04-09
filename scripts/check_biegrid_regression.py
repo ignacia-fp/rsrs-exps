@@ -23,13 +23,14 @@ RSRS_ARGS = {
     "oversampling_diag_blocks": 40,
     "min_num_samples": 0,
     "initial_num_samples": 0,
+    "fixed_rank_sampling_mode": "PerLevel",
     "shift": {"type": "False"},
     "null_method": "Projection",
     "qr_method": "RRQR",
     "near_block_extraction_method": "LuLstSq",
     "diag_block_extraction_method": "LuLstSq",
-    "lu_pivot_method": {"type": "Lu", "value": 0},
-    "diag_pivot_method": {"type": "Lu", "value": 0},
+    "lu_pivot_method": {"type": "LuHybrid", "value": 0},
+    "diag_pivot_method": {"type": "LuHybrid", "value": 0},
     "tol_null": 1e-16,
     "tol_id": 40,
     "tol_ext_near": 1e-16,
@@ -84,7 +85,7 @@ def error_stats_path(operator_type: str, symmetry: str, mesh_width: float, num_t
     return REPO_ROOT / (
         "results/"
         f"square_{operator_type}_precision_double_mesh_width_{mesh_width_str}_od_10_0.00_num_threads_{num_threads}/"
-        "rsrs_null_Projection_toln_1e-16_os_40_osdiag_40_initsam_0_mrnk_1_mlvl_1_"
+        "rsrs_null_Projection_toln_1e-16_os_40_osdiag_40_initsam_0_fsamp_PerLevel_mrnk_1_mlvl_1_"
         f"{symmetry}_rpick_Min_next_LuLstSq_tolextn_1e-16_db_ext_LuLstSq_tol_lstsq_1e-16_rrqr/"
         "error_stats_4e1.json"
     )

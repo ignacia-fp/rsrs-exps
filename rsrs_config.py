@@ -35,7 +35,7 @@ def rust_float_format(x: float, precision: int = 2) -> str:
     return s
 
 def pivot_method(kind, value=0.0):
-    if kind == "Lu":
+    if kind == "Lu" or kind == "LuHybrid":
         return {"type": kind, "value": value}
     else:
         return {"type": kind}
@@ -73,7 +73,7 @@ class RSRSBenchmarkConfig:
         results_output: int = 0,
         null_method: int = 0,
         block_extraction_method: int = 0,
-        pivot_method: int = 0,
+        pivot_method: int = 2,
         rrqr: int = 0,
         rank_picking: int = 0,
         min_rank: int = 1,
@@ -92,6 +92,7 @@ class RSRSBenchmarkConfig:
         load_samples: bool = True,
         num_threads: int = 32,
         min_num_samples: int = 0,
+        fixed_rank_sampling_mode: int = 0,
         run_seed: int | None = None,
         symmetry: int = 0,
         flush_factors: bool = False,
@@ -230,6 +231,7 @@ class RSRSBenchmarkConfig:
             Index selecting pivot strategy for LU or matrix inversion:
             0: "Lu"
             1: "DirectInversion"
+            2: "LuHybrid" (default)
 
         rank_picking : int, optional
             Index selecting fixed-rank merging strategy when combining blocks:
@@ -239,6 +241,11 @@ class RSRSBenchmarkConfig:
             3: "Mid" — use median skeleton size
             4: "DoubleMin" — use double the minimum rank of previous level
             5: "Tol" — use the defined tolerance as rank
+
+        fixed_rank_sampling_mode : int, optional
+            Index selecting how fixed-rank sampling budgets are applied across levels:
+            0: "PerLevel" — keep the predicted total budget, but adapt active samples by level
+            1: "Constant" — keep the same sample and active budget on every level
 
         min_rank: int, optional,
             Minimum rank that a block should have to be processed for RSRS.
@@ -336,7 +343,10 @@ class RSRSBenchmarkConfig:
         self.block_extraction_methods = ["LuLstSq", "Svd"]
 
         # Way to compute the pivot or the inverse of a squared matrix.
-        self.pivot_methods = ["Lu", "DirectInversion"]
+        self.pivot_methods = ["Lu", "DirectInversion", "LuHybrid"]
+
+        # Fixed-rank sample-budget strategy.
+        self.fixed_rank_sampling_modes = ["PerLevel", "Constant"]
 
         # Rank picking strategy:
         self.rank_pickings = ["Min", ## After the leaf level, when merging boxes, it looks for the smallest skeleton size and assigns it as the new box's fixed rank.
@@ -363,6 +373,7 @@ class RSRSBenchmarkConfig:
         self.block_extraction_method_index = block_extraction_method
         self.pivot_method_index = pivot_method
         self.rank_picking_index = rank_picking
+        self.fixed_rank_sampling_mode_index = fixed_rank_sampling_mode
         self.rrqr_index = rrqr
         self.lu_stab = lu_stab
         self.diag_stab = diag_stab
@@ -473,6 +484,7 @@ class RSRSBenchmarkConfig:
             "oversampling_diag_blocks": self.oversampling_diag,  ## Oversampling used when extracting diagonal blocks when RSRS finishes
             "min_num_samples": self.min_num_samples,
             "initial_num_samples": self.initial_num_samples,  ## Initial num samples: useful only when sampling is done in parallel way (not active yet)
+            "fixed_rank_sampling_mode": self.fixed_rank_sampling_modes[self.fixed_rank_sampling_mode_index],
             "run_seed": self.run_seed,
             "shift": stab(self.op_shift),
             "null_method": self.null_methods[self.null_method_index],
@@ -691,6 +703,7 @@ class RSRSBenchmarkConfig:
                 f"_os_{args['oversampling']}"
                 f"_osdiag_{args['oversampling_diag_blocks']}"
                 f"_initsam_{args['initial_num_samples']}"
+                f"_fsamp_{args['fixed_rank_sampling_mode']}"
                 f"_mrnk_{args['min_rank']}"
                 f"_mlvl_{args['min_level']}"
                 f"_herm_{camel_to_snake(str(args[sym]))}"
@@ -708,6 +721,7 @@ class RSRSBenchmarkConfig:
                 f"_os_{args['oversampling']}"
                 f"_osdiag_{args['oversampling_diag_blocks']}"
                 f"_initsam_{args['initial_num_samples']}"
+                f"_fsamp_{args['fixed_rank_sampling_mode']}"
                 f"_stabilised_{sci_no_padding(self.op_shift)}"
                 f"_mrnk_{args['min_rank']}"
                 f"_mlvl_{args['min_level']}"

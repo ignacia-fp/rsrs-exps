@@ -1897,7 +1897,31 @@ def _biegrid_perturbed_mv(self, v):
 
 def _biegrid_perturbed_mv_trans(self, v):
     arr = np.asarray(v, dtype=self.rhs_data_type)
-    return np.asarray(self.mat_T.rmatvec(arr), dtype=self.rhs_data_type).reshape(-1)
+    return np.asarray(apply(self.mat_T, arr), dtype=self.rhs_data_type).reshape(-1)
+
+
+def _make_real_transpose_operator(forward_op, n_points):
+    def _apply_transpose(x):
+        x = np.asarray(x, dtype=np.float64)
+        is_vector = x.ndim == 1
+        x_mat = x.reshape(n_points, 1) if is_vector else x
+        cols = [
+            np.asarray(forward_op.rmatvec(x_mat[:, i]), dtype=np.float64).reshape(-1)
+            for i in range(x_mat.shape[1])
+        ]
+        result = np.column_stack(cols)
+        if is_vector:
+            return result.reshape(n_points,)
+        return result
+
+    return LinearOperator(
+        shape=(n_points, n_points),
+        dtype=np.float64,
+        matvec=_apply_transpose,
+        rmatvec=lambda x: apply(forward_op, x),
+        matmat=_apply_transpose,
+        rmatmat=lambda x: apply(forward_op, x),
+    )
 
 
 def _biegrid_perturbed_dense(self):
@@ -2104,14 +2128,14 @@ def _init_biegrid_perturbed(
             perturbation=instance._perturbation,
             symmetry_mode=symmetry_mode,
         )
+        instance.mat_T = _make_real_transpose_operator(instance.mat, instance.n_points)
     else:
-        instance.mat = make_complex_wrapped_operator(
+        instance.mat, instance.mat_T = make_complex_wrapped_operator(
             instance._base_real_operator,
             instance.n_points,
             perturbation=instance._perturbation,
             symmetry_mode=symmetry_mode,
         )
-    instance.mat_T = instance.mat
 
     if instance.init_samples > 0:
         _maybe_generate_samples(
