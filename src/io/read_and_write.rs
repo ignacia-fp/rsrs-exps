@@ -73,6 +73,7 @@ pub struct Solves<Item: RlstScalar> {
 
 #[derive(Serialize)]
 pub struct ErrorStatsOutput<Item: RlstScalar> {
+    dim: usize,
     app_inv_err_left: Real<Item>,
     app_inv_err_right: Real<Item>,
     app_err_left: Real<Item>,
@@ -81,10 +82,10 @@ pub struct ErrorStatsOutput<Item: RlstScalar> {
     adjoint_consistency_error_inv: Real<Item>,
     self_adjoint_apply_error: Real<Item>,
     norm_fro_error: Real<Item>,
-    norm_fro_error_inv: Real<Item>,
+    errsolve_fro: Real<Item>,
     norm_fro_operator: Real<Item>,
     norm_2_error: Real<Item>,
-    norm_2_error_inv: Real<Item>,
+    errsolve_2: Real<Item>,
     norm_2_operator: Real<Item>,
     solve_error: Real<Item>,
     cond_rsrs_estimate: Real<Item>,
@@ -729,7 +730,9 @@ pub(crate) fn save_error_stats<
     let (c_2, _) = eigs2.run(None, 1, None, false);
     finish_save_stage("largest singular value of inverse RSRS operator", stage);
 
-    let norm_2_error_inv = sigma_1[0].abs().sqrt();
+    let errsolve_2 = sigma_1[0].abs().sqrt();
+    let errsolve_fro = norm_fro_error_inv
+        * Real::<Item>::from_f64((rsrs_data.stats.dim as f64).sqrt()).unwrap();
 
     let condition_number = c_2[0].abs().sqrt() * c_1[0].abs().sqrt();
 
@@ -767,6 +770,7 @@ pub(crate) fn save_error_stats<
     finish_save_stage("sampled solve error check", stage);
 
     let stats = ErrorStatsOutput::<Item> {
+        dim: rsrs_data.stats.dim,
         app_inv_err_left,
         app_inv_err_right,
         app_err_left,
@@ -776,11 +780,11 @@ pub(crate) fn save_error_stats<
         self_adjoint_apply_error,
         cond_rsrs_estimate: condition_number,
         norm_fro_error,
-        norm_fro_error_inv,
+        errsolve_fro,
         norm_fro_operator,
         norm_2_operator: sigma_2[0].abs().sqrt(),
         norm_2_error,
-        norm_2_error_inv,
+        errsolve_2,
         solve_error,
         tot_num_samples: rsrs_data.y_data.num_samples,
         residual_size: rsrs_data.stats.residual_size,

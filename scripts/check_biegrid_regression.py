@@ -144,9 +144,12 @@ def main() -> int:
 
     print(f"{args.suite_name} ({args.run_id}) metrics:")
     for key in (
+        "dim",
         "tot_num_samples",
         "norm_2_error",
         "norm_fro_error",
+        "errsolve_2",
+        "errsolve_fro",
         "adjoint_consistency_error",
         "adjoint_consistency_error_inv",
         "self_adjoint_apply_error",
@@ -180,10 +183,18 @@ def main() -> int:
             "expected both norm_2_error and norm_fro_error to be present "
             f"got norm_2_error={norm_2_error}, norm_fro_error={norm_fro_error}"
         )
-    elif norm_2_error > norm_fro_error:
+
+    errsolve_2 = metrics.get("errsolve_2")
+    errsolve_fro = metrics.get("errsolve_fro")
+    if errsolve_2 is None or errsolve_fro is None:
         failures.append(
-            "expected norm_2_error <= norm_fro_error "
-            f"got norm_2_error={norm_2_error} > norm_fro_error={norm_fro_error}"
+            "expected both errsolve_2 and errsolve_fro to be present "
+            f"got errsolve_2={errsolve_2}, errsolve_fro={errsolve_fro}"
+        )
+    elif errsolve_2 > errsolve_fro:
+        failures.append(
+            "expected errsolve_2 <= errsolve_fro "
+            f"got errsolve_2={errsolve_2} > errsolve_fro={errsolve_fro}"
         )
 
     if failures:
