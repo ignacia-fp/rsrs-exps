@@ -797,8 +797,8 @@ class RSRSBenchmarkConfig:
         ----------
         metric_index : int
             The index of the error metric to plot on the y-axis. Must be one of:
-            1 - 'norm_2_error'
-            2 - 'norm_2_error_inv'
+            1 - 'norm_apply_2'
+            2 - 'err_solve_2'
             3 - 'cond_rsrs_estimate'
             4 - 'tot_num_samples'
             5 - 'residual_size'
@@ -812,17 +812,11 @@ class RSRSBenchmarkConfig:
         ValueError
             If `metric_index` is not in the range 1 to 5.
         """
-        metrics = [
-            "norm_2_error",
-            "norm_2_error_inv",
-            "cond_rsrs_estimate",
-            "tot_num_samples",
-            "residual_size"
-        ]
+        metrics = ["norm_apply_2", "err_solve_2", "cond_rsrs_estimate", "tot_num_samples", "residual_size"]
 
         pretty_names = {
-            "norm_2_error": r"$\|A - A_{\mathrm{app}}\|_2 / \|A\|_2$",
-            "norm_2_error_inv": r"$\|A_{\mathrm{app}}^{-1} A - I\|_2$",
+            "norm_apply_2": r"$\|A - A_{\mathrm{app}}\|_2$",
+            "err_solve_2": r"$\|A_{\mathrm{app}}^{-1} A - I\|_2$",
             "cond_rsrs_estimate": r"$\mathrm{cond}(A_{\mathrm{rsrs}})$ estimate",
             "tot_num_samples": "Total Number of Samples",
             "residual_size": "Residual Size"
@@ -2524,10 +2518,10 @@ class RSRSBenchmarkConfig:
         - tolerance
         - avg iterations for no preconditioner
         - avg iterations for RSRS preconditioner
-        - solve_error
+        - solve_error_rhs
         - app_condition_number
-        - norm_2_error
-        - norm_2_error_inv
+        - norm_apply_2
+        - err_solve_2
         - number of RHS solves found in each category
 
         Notes
@@ -2578,10 +2572,10 @@ class RSRSBenchmarkConfig:
                 "avg_iters_prec": avg_prec,
                 "num_rhs_no_prec": n_no_prec,
                 "num_rhs_prec": n_prec,
-                "solve_error": stat.get("solve_error", None),
+                "solve_error_rhs": stat.get("solve_error_rhs", None),
                 "app_condition_number": stat.get("app_condition_number", None),
-                "norm_2_error": stat.get("norm_2_error", None),
-                "norm_2_error_inv": stat.get("norm_2_error_inv", None),
+                "norm_apply_2": stat.get("norm_apply_2", None),
+                "err_solve_2": stat.get("err_solve_2", None),
             }
             rows.append(row)
 

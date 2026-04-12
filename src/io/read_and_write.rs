@@ -1,6 +1,6 @@
 use super::errors::rsrs_error_estimator;
 use crate::io::errors::frobenius_diff_and_reference_norm;
-use crate::io::errors::{DiffOperator, IdOperator, NormalOperator};
+use crate::io::errors::{DiffOperator, IdOperator, NormalOperator, ProductOperator};
 use bempp_rsrs::rsrs::rsrs_cycle::Rsrs;
 use bempp_rsrs::rsrs::rsrs_factors::rsrs_operator::Inv;
 use bempp_rsrs::rsrs::sketch::SampleType;
@@ -81,13 +81,13 @@ pub struct ErrorStatsOutput<Item: RlstScalar> {
     adjoint_consistency_error: Real<Item>,
     adjoint_consistency_error_inv: Real<Item>,
     self_adjoint_apply_error: Real<Item>,
-    norm_fro_error: Real<Item>,
-    errsolve_fro: Real<Item>,
-    norm_fro_operator: Real<Item>,
-    norm_2_error: Real<Item>,
-    errsolve_2: Real<Item>,
-    norm_2_operator: Real<Item>,
-    solve_error: Real<Item>,
+    norm_apply_fro: Real<Item>,
+    err_solve_fro: Real<Item>,
+    norm_a_fro: Real<Item>,
+    norm_apply_2: Real<Item>,
+    err_solve_2: Real<Item>,
+    norm_a_2: Real<Item>,
+    solve_error_rhs: Real<Item>,
     cond_rsrs_estimate: Real<Item>,
     tot_num_samples: usize,
     residual_size: usize,
@@ -686,7 +686,9 @@ pub(crate) fn save_error_stats<
     let (c_1, _) = eigs3.run(None, 1, None, false);
     finish_save_stage("largest singular value of RSRS operator", stage);
 
-    let norm_2_error = sigma_1[0].abs().sqrt() / sigma_2[0].abs().sqrt();
+    let norm_apply_2 = sigma_1[0].abs().sqrt();
+    let norm_a_2 = sigma_2[0].abs().sqrt();
+    let norm_apply_fro = norm_fro_error * norm_fro_operator;
 
     rsrs_operator.inv(true);
     let stage = start_save_stage("inverse adjoint consistency estimate");
@@ -701,7 +703,7 @@ pub(crate) fn save_error_stats<
     let range = std::rc::Rc::clone(&structured_operator_op.range());
     let id_op = IdOperator::new(domain, range);
 
-    let prod1 = rsrs_operator.r().product(structured_operator_op.r());
+    let prod1 = ProductOperator(structured_operator_op.r(), rsrs_operator.r());
     let stage = start_save_stage("frobenius norm comparison (inverse mode)");
     let (norm_fro_error_inv, _) = frobenius_diff_and_reference_norm(
         &id_op,
@@ -730,9 +732,9 @@ pub(crate) fn save_error_stats<
     let (c_2, _) = eigs2.run(None, 1, None, false);
     finish_save_stage("largest singular value of inverse RSRS operator", stage);
 
-    let errsolve_2 = sigma_1[0].abs().sqrt();
-    let errsolve_fro = norm_fro_error_inv
-        * Real::<Item>::from_f64((rsrs_data.stats.dim as f64).sqrt()).unwrap();
+    let err_solve_2 = sigma_1[0].abs().sqrt();
+    let err_solve_fro =
+        norm_fro_error_inv * Real::<Item>::from_f64((rsrs_data.stats.dim as f64).sqrt()).unwrap();
 
     let condition_number = c_2[0].abs().sqrt() * c_1[0].abs().sqrt();
 
@@ -766,7 +768,7 @@ pub(crate) fn save_error_stats<
 
     sol_app.sub_inplace(sol.r());
 
-    let solve_error = sol_app.norm() / sol.norm();
+    let solve_error_rhs = sol_app.norm() / sol.norm();
     finish_save_stage("sampled solve error check", stage);
 
     let stats = ErrorStatsOutput::<Item> {
@@ -779,13 +781,13 @@ pub(crate) fn save_error_stats<
         adjoint_consistency_error_inv,
         self_adjoint_apply_error,
         cond_rsrs_estimate: condition_number,
-        norm_fro_error,
-        errsolve_fro,
-        norm_fro_operator,
-        norm_2_operator: sigma_2[0].abs().sqrt(),
-        norm_2_error,
-        errsolve_2,
-        solve_error,
+        norm_apply_fro,
+        err_solve_fro,
+        norm_a_fro: norm_fro_operator,
+        norm_a_2,
+        norm_apply_2,
+        err_solve_2,
+        solve_error_rhs,
         tot_num_samples: rsrs_data.y_data.num_samples,
         residual_size: rsrs_data.stats.residual_size,
         solves,

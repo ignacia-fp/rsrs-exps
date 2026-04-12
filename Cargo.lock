@@ -239,7 +239,7 @@ dependencies = [
 [[package]]
 name = "bempp-rsrs"
 version = "0.0.1-dev"
-source = "git+https://github.com/bempp/rsrs.git?branch=enable_symm#346bd59286396cd4f51a187b8698ac169f93a91d"
+source = "git+https://github.com/bempp/rsrs.git?branch=enable_symm#07d79e13fd65b28702a74052edbf0bdc29f19575"
 dependencies = [
  "bempp-octree",
  "cbindgen 0.29.2",
@@ -3598,7 +3598,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

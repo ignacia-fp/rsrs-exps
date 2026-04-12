@@ -23,7 +23,7 @@ RSRS_ARGS = {
     "oversampling_diag_blocks": 40,
     "min_num_samples": 0,
     "initial_num_samples": 0,
-    "fixed_rank_sampling_mode": "PerLevel",
+    "fixed_rank_sampling_mode": "Constant",
     "shift": {"type": "False"},
     "null_method": "Projection",
     "qr_method": "RRQR",
@@ -85,7 +85,7 @@ def error_stats_path(operator_type: str, symmetry: str, mesh_width: float, num_t
     return REPO_ROOT / (
         "results/"
         f"square_{operator_type}_precision_double_mesh_width_{mesh_width_str}_od_10_0.00_num_threads_{num_threads}/"
-        "rsrs_null_Projection_toln_1e-16_os_40_osdiag_40_initsam_0_fsamp_PerLevel_mrnk_1_mlvl_1_"
+        "rsrs_null_Projection_toln_1e-16_os_40_osdiag_40_initsam_0_fsamp_Constant_mrnk_1_mlvl_1_"
         f"{symmetry}_rpick_Min_next_LuLstSq_tolextn_1e-16_db_ext_LuLstSq_tol_lstsq_1e-16_rrqr/"
         "error_stats_4e1.json"
     )
@@ -146,14 +146,16 @@ def main() -> int:
     for key in (
         "dim",
         "tot_num_samples",
-        "norm_2_error",
-        "norm_fro_error",
-        "errsolve_2",
-        "errsolve_fro",
+        "norm_apply_2",
+        "norm_apply_fro",
+        "norm_a_2",
+        "norm_a_fro",
+        "err_solve_2",
+        "err_solve_fro",
         "adjoint_consistency_error",
         "adjoint_consistency_error_inv",
         "self_adjoint_apply_error",
-        "solve_error",
+        "solve_error_rhs",
     ):
         print(f"  {key} = {metrics.get(key)}")
 
@@ -166,8 +168,7 @@ def main() -> int:
     metric_thresholds = {
         "adjoint_consistency_error": args.max_adjoint_consistency_error,
         "adjoint_consistency_error_inv": args.max_adjoint_consistency_error_inv,
-        "norm_2_error": args.max_norm_2_error,
-        "solve_error": args.max_solve_error,
+        "solve_error_rhs": args.max_solve_error,
     }
     for key, threshold in metric_thresholds.items():
         if threshold is None:
@@ -176,25 +177,42 @@ def main() -> int:
         if value is None or value >= threshold:
             failures.append(f"{key} expected < {threshold} got {value}")
 
-    norm_2_error = metrics.get("norm_2_error")
-    norm_fro_error = metrics.get("norm_fro_error")
-    if norm_2_error is None or norm_fro_error is None:
+    norm_apply_2 = metrics.get("norm_apply_2")
+    norm_apply_fro = metrics.get("norm_apply_fro")
+    norm_a_2 = metrics.get("norm_a_2")
+    norm_a_fro = metrics.get("norm_a_fro")
+    if norm_apply_2 is None or norm_apply_fro is None or norm_a_2 is None or norm_a_fro is None:
         failures.append(
-            "expected both norm_2_error and norm_fro_error to be present "
-            f"got norm_2_error={norm_2_error}, norm_fro_error={norm_fro_error}"
+            "expected norm_apply_2, norm_apply_fro, norm_a_2, and norm_a_fro to be present "
+            f"got norm_apply_2={norm_apply_2}, norm_apply_fro={norm_apply_fro}, "
+            f"norm_a_2={norm_a_2}, norm_a_fro={norm_a_fro}"
         )
+    else:
+        if norm_apply_2 >= norm_apply_fro:
+            failures.append(
+                "expected norm_apply_2 < norm_apply_fro "
+                f"got norm_apply_2={norm_apply_2} >= norm_apply_fro={norm_apply_fro}"
+            )
+        if norm_a_2 <= 0:
+            failures.append(f"expected norm_a_2 > 0 got {norm_a_2}")
+        elif args.max_norm_2_error is not None:
+            relerr_apply_2 = norm_apply_2 / norm_a_2
+            if relerr_apply_2 >= args.max_norm_2_error:
+                failures.append(
+                    f"relerr_apply_2 expected < {args.max_norm_2_error} got {relerr_apply_2}"
+                )
 
-    errsolve_2 = metrics.get("errsolve_2")
-    errsolve_fro = metrics.get("errsolve_fro")
-    if errsolve_2 is None or errsolve_fro is None:
+    err_solve_2 = metrics.get("err_solve_2")
+    err_solve_fro = metrics.get("err_solve_fro")
+    if err_solve_2 is None or err_solve_fro is None:
         failures.append(
-            "expected both errsolve_2 and errsolve_fro to be present "
-            f"got errsolve_2={errsolve_2}, errsolve_fro={errsolve_fro}"
+            "expected both err_solve_2 and err_solve_fro to be present "
+            f"got err_solve_2={err_solve_2}, err_solve_fro={err_solve_fro}"
         )
-    elif errsolve_2 > errsolve_fro:
+    elif err_solve_2 >= err_solve_fro:
         failures.append(
-            "expected errsolve_2 <= errsolve_fro "
-            f"got errsolve_2={errsolve_2} > errsolve_fro={errsolve_fro}"
+            "expected err_solve_2 < err_solve_fro "
+            f"got err_solve_2={err_solve_2} >= err_solve_fro={err_solve_fro}"
         )
 
     if failures:

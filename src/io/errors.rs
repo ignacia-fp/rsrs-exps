@@ -193,6 +193,13 @@ pub struct DiffOperator<
     Op2: OperatorBase<Domain = Space, Range = Space>,
 >(pub Op1, pub Op2);
 
+pub struct ProductOperator<
+    Item: RlstScalar + RandScalar,
+    Space: SamplingSpace<F = Item> + IndexableSpace,
+    Op1: OperatorBase<Domain = Space, Range = Space>,
+    Op2: OperatorBase<Domain = Space, Range = Space>,
+>(pub Op1, pub Op2);
+
 impl<
         Item: RlstScalar + RandScalar,
         Space: SamplingSpace<F = Item> + IndexableSpace,
@@ -204,6 +211,21 @@ impl<
         let dim_1 = self.0.domain().dimension();
         let dim_2 = self.0.range().dimension();
         write!(f, "Id Operator: [{}x{}]", dim_1, dim_2).unwrap();
+        Ok(())
+    }
+}
+
+impl<
+        Item: RlstScalar + RandScalar,
+        Space: SamplingSpace<F = Item> + IndexableSpace,
+        Op1: OperatorBase<Domain = Space, Range = Space>,
+        Op2: OperatorBase<Domain = Space, Range = Space>,
+    > std::fmt::Debug for ProductOperator<Item, Space, Op1, Op2>
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let dim_1 = self.0.domain().dimension();
+        let dim_2 = self.1.range().dimension();
+        write!(f, "Product Operator: [{}x{}]", dim_1, dim_2).unwrap();
         Ok(())
     }
 }
@@ -224,6 +246,25 @@ impl<
 
     fn range(&self) -> Rc<Self::Range> {
         self.0.range().clone()
+    }
+}
+
+impl<
+        Item: RlstScalar + RandScalar,
+        Space: SamplingSpace<F = Item> + LinearSpace + IndexableSpace,
+        Op1: OperatorBase<Domain = Space, Range = Space>,
+        Op2: OperatorBase<Domain = Space, Range = Space>,
+    > OperatorBase for ProductOperator<Item, Space, Op1, Op2>
+{
+    type Domain = Space;
+    type Range = Space;
+
+    fn domain(&self) -> Rc<Self::Domain> {
+        self.0.domain().clone()
+    }
+
+    fn range(&self) -> Rc<Self::Range> {
+        self.1.range().clone()
     }
 }
 
@@ -275,6 +316,59 @@ where
             .apply_extended(alpha, x.r(), beta, y.r_mut(), trans_mode);
 
         y.r_mut().sub_inplace(y_aux.r());
+    }
+
+    fn apply<ContainerIn: ElementContainer<E = <Self::Domain as LinearSpace>::E>>(
+        &self,
+        x: Element<ContainerIn>,
+        trans_mode: rlst::TransMode,
+    ) -> rlst::operator::ElementType<<Self::Range as LinearSpace>::E> {
+        let mut y = zero_element(self.range());
+        self.apply_extended(
+            <<Self::Range as LinearSpace>::F as num::One>::one(),
+            x,
+            <<Self::Range as LinearSpace>::F as num::Zero>::zero(),
+            y.r_mut(),
+            trans_mode,
+        );
+        y
+    }
+}
+
+impl<
+        Item: RlstScalar + RandScalar,
+        Space: SamplingSpace<F = Item> + LinearSpace + IndexableSpace,
+        Op1: AsApply<Domain = Space, Range = Space>,
+        Op2: AsApply<Domain = Space, Range = Space>,
+    > AsApply for ProductOperator<Item, Space, Op1, Op2>
+where
+    <Item as rlst::RlstScalar>::Real: RandScalar,
+    StandardNormal: Distribution<<Item as rlst::RlstScalar>::Real>,
+    Standard: Distribution<<Item as rlst::RlstScalar>::Real>,
+{
+    fn apply_extended<
+        ContainerIn: ElementContainer<E = <Self::Domain as LinearSpace>::E>,
+        ContainerOut: ElementContainerMut<E = <Self::Range as LinearSpace>::E>,
+    >(
+        &self,
+        alpha: <Self::Range as LinearSpace>::F,
+        x: Element<ContainerIn>,
+        beta: <Self::Range as LinearSpace>::F,
+        y: Element<ContainerOut>,
+        trans_mode: TransMode,
+    ) {
+        match trans_mode {
+            TransMode::NoTrans => self.1.apply_extended(
+                alpha,
+                self.0.apply(x, TransMode::NoTrans),
+                beta,
+                y,
+                TransMode::NoTrans,
+            ),
+            _ => self
+                .0
+                .apply_extended(alpha, self.1.apply(x, trans_mode), beta, y, trans_mode),
+        }
     }
 
     fn apply<ContainerIn: ElementContainer<E = <Self::Domain as LinearSpace>::E>>(
@@ -1519,7 +1613,7 @@ mod tests {
         );
 
         rsrs_like.inv(true);
-        let product = rsrs_like.r().product(target.r());
+        let product = ProductOperator(target.r(), rsrs_like.r());
         let id_op = IdOperator::new(target.domain(), target.range());
         let (rel_fro_inverse_error, norm_fro_identity) =
             frobenius_diff_and_reference_norm(&id_op, &product, 1024, 6);
@@ -1567,6 +1661,64 @@ mod tests {
 
         let err = rel_l2_error(&actual, &expected);
         assert!(err <= 1.0e-12, "normal operator error too large: {err}");
+    }
+
+    #[test]
+    fn product_operator_matches_dense_adjoint_product() {
+        let mut a = rlst_dynamic_array2!(Complex<f64>, [2, 2]);
+        a[[0, 0]] = Complex::new(1.0, 0.5);
+        a[[0, 1]] = Complex::new(-0.25, 1.0);
+        a[[1, 0]] = Complex::new(0.75, -0.5);
+        a[[1, 1]] = Complex::new(2.0, 0.25);
+
+        let mut b = rlst_dynamic_array2!(Complex<f64>, [2, 2]);
+        b[[0, 0]] = Complex::new(0.5, -0.25);
+        b[[0, 1]] = Complex::new(1.25, 0.1);
+        b[[1, 0]] = Complex::new(-0.75, 0.4);
+        b[[1, 1]] = Complex::new(1.5, -0.3);
+
+        let a_op = DenseMatrixOperator::new(copy_array2(&a));
+        let b_op = DenseMatrixOperator::new(copy_array2(&b));
+        let product = ProductOperator(a_op.r(), b_op.r());
+        let x = vec![Complex::new(1.0, -0.5), Complex::new(-0.25, 0.75)];
+
+        let actual = apply_operator(&product, &x, TransMode::ConjTrans);
+        let tmp = apply_operator(
+            &DenseMatrixOperator::new(copy_array2(&b)),
+            &x,
+            TransMode::ConjTrans,
+        );
+        let expected = apply_operator(&DenseMatrixOperator::new(a), &tmp, TransMode::ConjTrans);
+
+        let err = rel_l2_error(&actual, &expected);
+        assert!(err <= 1.0e-12, "product adjoint error too large: {err}");
+    }
+
+    #[test]
+    fn product_operator_matches_dense_transpose_product_real() {
+        let mut a = rlst_dynamic_array2!(f64, [2, 2]);
+        a[[0, 0]] = 1.0;
+        a[[0, 1]] = -0.25;
+        a[[1, 0]] = 0.75;
+        a[[1, 1]] = 2.0;
+
+        let mut b = rlst_dynamic_array2!(f64, [2, 2]);
+        b[[0, 0]] = 0.5;
+        b[[0, 1]] = 1.25;
+        b[[1, 0]] = -0.75;
+        b[[1, 1]] = 1.5;
+
+        let a_op = DenseMatrixOperator::new(copy_array2(&a));
+        let b_op = DenseMatrixOperator::new(copy_array2(&b));
+        let product = ProductOperator(a_op.r(), b_op.r());
+        let x = vec![1.0, -0.25];
+
+        let actual = apply_operator(&product, &x, TransMode::Trans);
+        let tmp = apply_operator(&DenseMatrixOperator::new(copy_array2(&b)), &x, TransMode::Trans);
+        let expected = apply_operator(&DenseMatrixOperator::new(a), &tmp, TransMode::Trans);
+
+        let err = rel_l2_error(&actual, &expected);
+        assert!(err <= 1.0e-12, "product transpose error too large: {err}");
     }
 
     #[test]
