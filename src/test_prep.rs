@@ -608,7 +608,13 @@ macro_rules! implement_test_framework {
                                 );
                                 finish_root_stage(rank, "save error statistics", stage);
                                 let stage = start_root_stage(rank, "save time statistics");
-                                save_time_stats(&rsrs_algo, id_tol, &path_str);
+                                save_time_stats(
+                                    &operator,
+                                    &rsrs_operator,
+                                    &rsrs_algo,
+                                    id_tol,
+                                    &path_str,
+                                );
                                 finish_root_stage(rank, "save time statistics", stage);
                                 let stage = start_root_stage(rank, "save rank statistics");
                                 save_rank_stats(&rsrs_algo, id_tol, &path_str);
@@ -698,7 +704,13 @@ macro_rules! implement_test_framework {
                                     &path_str,
                                 );*/
                                 let stage = start_root_stage(rank, "save time statistics");
-                                save_time_stats(&rsrs_algo, id_tol, &path_str);
+                                save_time_stats(
+                                    &operator,
+                                    &rsrs_operator,
+                                    &rsrs_algo,
+                                    id_tol,
+                                    &path_str,
+                                );
                                 finish_root_stage(rank, "save time statistics", stage);
 
                                 if self.output_options.factors_cn {
@@ -974,7 +986,13 @@ macro_rules! implement_distributed_test_framework {
                                 );
                                 finish_root_stage(rank, "save error statistics", stage);
                                 let stage = start_root_stage(rank, "save time statistics");
-                                save_time_stats(&rsrs_algo, id_tol, &path_str);
+                                save_time_stats(
+                                    &operator,
+                                    &rsrs_operator,
+                                    &rsrs_algo,
+                                    id_tol,
+                                    &path_str,
+                                );
                                 finish_root_stage(rank, "save time statistics", stage);
                                 let stage = start_root_stage(rank, "save rank statistics");
                                 save_rank_stats(&rsrs_algo, id_tol, &path_str);
@@ -1055,7 +1073,13 @@ macro_rules! implement_distributed_test_framework {
                                     &path_str,
                                 );*/
                                 let stage = start_root_stage(rank, "save time statistics");
-                                save_time_stats(&rsrs_algo, id_tol, &path_str);
+                                save_time_stats(
+                                    &operator,
+                                    &rsrs_operator,
+                                    &rsrs_algo,
+                                    id_tol,
+                                    &path_str,
+                                );
                                 finish_root_stage(rank, "save time statistics", stage);
 
                                 if self.output_options.factors_cn{

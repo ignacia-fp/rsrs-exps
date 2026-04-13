@@ -44,6 +44,9 @@ const SELF_ADJOINT_CHECK_SEED: u64 = 0x5E1F_AD10_1A15_0001;
 const FROB_FORWARD_SEED: u64 = 0xF20B_0000_0000_0001;
 const FROB_INVERSE_SEED: u64 = 0xF20B_0000_0000_0002;
 const SOLVE_CHECK_SEED: u64 = 0x501E_0000_0000_0001;
+const MATVEC_BENCHMARK_SAMPLES: usize = 10;
+const STRUCTURED_OPERATOR_MV_BENCH_SEED: u64 = 0x6D56_0000_0000_0001;
+const RSRS_OPERATOR_MV_BENCH_SEED: u64 = 0x6D56_0000_0000_0002;
 
 fn start_save_stage(label: &str) -> Instant {
     println!("[rsrs-exps][save] {label}...");
@@ -156,6 +159,9 @@ struct TimeStatsOutput {
     residual_calculation: u128,
     level_effort: Vec<LevelEffort>,
     mv_avg_time: Vec<u128>,
+    matvec_benchmark_samples: usize,
+    structured_operator_mv_avg_time_ns: u128,
+    rsrs_operator_mv_avg_time_ns: u128,
     run_start_rss_bytes: Option<u64>,
     max_sample_buffer_bytes: u64,
     max_factor_bytes: u64,
@@ -249,6 +255,12 @@ pub struct TimeStatsInput {
     pub sorting_near_field: f64,
     pub residual_calculation: f64,
     #[serde(default)]
+    pub matvec_benchmark_samples: usize,
+    #[serde(default)]
+    pub structured_operator_mv_avg_time_ns: f64,
+    #[serde(default)]
+    pub rsrs_operator_mv_avg_time_ns: f64,
+    #[serde(default)]
     pub run_start_rss_bytes: Option<u64>,
     #[serde(default)]
     pub max_sample_buffer_bytes: u64,
@@ -269,12 +281,54 @@ pub struct ErrorsInput {
     abs_errors: Vec<Vec<f64>>,
 }
 
-pub fn save_time_stats<Item: RlstScalar + MatrixInverse + MatrixPseudoInverse + MatrixId>(
+fn average_apply_time_ns<
+    Item: RlstScalar + RandScalar,
+    Space: SamplingSpace<F = Item>,
+    OpImpl: AsApply<Domain = Space, Range = Space>,
+>(
+    operator: &OpImpl,
+    sample_size: usize,
+    seed: u64,
+) -> u128
+where
+    StandardNormal: Distribution<Real<Item>>,
+    Standard: Distribution<Real<Item>>,
+    <Item as rlst::RlstScalar>::Real: RandScalar,
+{
+    let num_samples = sample_size.max(1);
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    let mut total_time_ns = 0_u128;
+
+    for _ in 0..num_samples {
+        let mut x = SamplingSpace::zero(operator.domain());
+        operator
+            .domain()
+            .sampling(&mut x, &mut rng, SampleType::StandardNormal);
+
+        let start = Instant::now();
+        let y = operator.apply(x.r(), TransMode::NoTrans);
+        total_time_ns += start.elapsed().as_nanos();
+        std::hint::black_box(y);
+    }
+
+    total_time_ns / num_samples as u128
+}
+
+pub fn save_time_stats<
+    Item: RlstScalar + RandScalar + MatrixInverse + MatrixPseudoInverse + MatrixId,
+    Space: SamplingSpace<F = Item>,
+    OpImpl: AsApply<Domain = Space, Range = Space>,
+    OpImpl2: AsApply<Domain = Space, Range = Space>,
+>(
+    structured_operator_op: &OpImpl,
+    rsrs_operator: &OpImpl2,
     rsrs_data: &Rsrs<Item>,
     tol: Real<Item>,
     path_str: &str,
 ) where
-    <Item as RlstScalar>::Real: for<'a> std::iter::Sum<&'a <Item as RlstScalar>::Real>,
+    StandardNormal: Distribution<Real<Item>>,
+    Standard: Distribution<Real<Item>>,
+    <Item as RlstScalar>::Real: RandScalar + for<'a> std::iter::Sum<&'a <Item as RlstScalar>::Real>,
 {
     fs::create_dir_all(Path::new(&path_str)).unwrap();
     let string_tol = format!("{:e}", tol);
@@ -307,6 +361,20 @@ pub fn save_time_stats<Item: RlstScalar + MatrixInverse + MatrixPseudoInverse + 
         .stats
         .total_elapsed_time_wo_sampling
         .saturating_sub(accounted_rsrs_time);
+    let stage = start_save_stage("benchmark structured-operator matvec");
+    let structured_operator_mv_avg_time_ns = average_apply_time_ns(
+        structured_operator_op,
+        MATVEC_BENCHMARK_SAMPLES,
+        STRUCTURED_OPERATOR_MV_BENCH_SEED,
+    );
+    finish_save_stage("benchmark structured-operator matvec", stage);
+    let stage = start_save_stage("benchmark RSRS-operator matvec");
+    let rsrs_operator_mv_avg_time_ns = average_apply_time_ns(
+        rsrs_operator,
+        MATVEC_BENCHMARK_SAMPLES,
+        RSRS_OPERATOR_MV_BENCH_SEED,
+    );
+    finish_save_stage("benchmark RSRS-operator matvec", stage);
 
     let stats = TimeStatsOutput {
         tot_num_samples: rsrs_data.active_samples,
@@ -339,6 +407,9 @@ pub fn save_time_stats<Item: RlstScalar + MatrixInverse + MatrixPseudoInverse + 
         elapsed_time_at_limiting: rsrs_data.stats.limiting_factors.limiting_level.elapsed_time,
         level_effort: rsrs_data.stats.level_effort.clone(),
         mv_avg_time: rsrs_data.stats.mv_avg_time.clone(),
+        matvec_benchmark_samples: MATVEC_BENCHMARK_SAMPLES,
+        structured_operator_mv_avg_time_ns,
+        rsrs_operator_mv_avg_time_ns,
         run_start_rss_bytes: rsrs_data.stats.run_start_rss_bytes,
         max_sample_buffer_bytes: rsrs_data.stats.max_sample_buffer_bytes,
         max_factor_bytes: rsrs_data.stats.max_factor_bytes,
