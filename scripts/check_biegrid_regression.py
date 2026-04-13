@@ -60,6 +60,11 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--operator-type", default="BIEGrid")
     parser.add_argument("--symmetry", default="Symmetric")
+    parser.add_argument(
+        "--fixed-rank-sampling-mode",
+        choices=("PerLevel", "Constant"),
+        default=RSRS_ARGS["fixed_rank_sampling_mode"],
+    )
     parser.add_argument("--num-threads", type=int, default=1)
     parser.add_argument("--mesh-width", type=float, default=0.005025125628140704)
     parser.add_argument("--suite-name", default="BIEGrid regression")
@@ -80,12 +85,19 @@ def mesh_width_slug(mesh_width: float) -> str:
     return f"{base}e{exp}"
 
 
-def error_stats_path(operator_type: str, symmetry: str, mesh_width: float, num_threads: int) -> Path:
+def error_stats_path(
+    operator_type: str,
+    symmetry: str,
+    mesh_width: float,
+    num_threads: int,
+    fixed_rank_sampling_mode: str,
+) -> Path:
     mesh_width_str = mesh_width_slug(mesh_width)
     return REPO_ROOT / (
         "results/"
         f"square_{operator_type}_precision_double_mesh_width_{mesh_width_str}_od_10_0.00_num_threads_{num_threads}/"
-        "rsrs_null_Projection_toln_1e-16_os_40_osdiag_40_initsam_0_fsamp_Constant_mrnk_1_mlvl_1_"
+        "rsrs_null_Projection_toln_1e-16_os_40_osdiag_40_initsam_0_"
+        f"fsamp_{fixed_rank_sampling_mode}_mrnk_1_mlvl_1_"
         f"{symmetry}_rpick_Min_next_LuLstSq_tolextn_1e-16_db_ext_LuLstSq_tol_lstsq_1e-16_rrqr/"
         "error_stats_4e1.json"
     )
@@ -116,13 +128,20 @@ def main() -> int:
     rsrs_args = dict(RSRS_ARGS)
     rsrs_args["num_threads"] = args.num_threads
     rsrs_args["symmetry"] = args.symmetry
+    rsrs_args["fixed_rank_sampling_mode"] = args.fixed_rank_sampling_mode
     rsrs_args["save_samples"] = args.save_samples
     rsrs_args["load_samples"] = args.load_samples
     structured_operator_args = {
         "structured_operator_type": args.operator_type,
         "precision": "Double",
     }
-    error_stats = error_stats_path(args.operator_type, args.symmetry, args.mesh_width, args.num_threads)
+    error_stats = error_stats_path(
+        args.operator_type,
+        args.symmetry,
+        args.mesh_width,
+        args.num_threads,
+        args.fixed_rank_sampling_mode,
+    )
 
     command = [
         "cargo",

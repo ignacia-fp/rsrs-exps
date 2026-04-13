@@ -168,17 +168,21 @@ $5.618{\times}10^{-14}$ & \fail{$1.826{\times}10^{-1}$} & \fail{$1.789{\times}10
 show the remaining large-error behavior, or violate the consistency check
 $\text{rel. 2-norm} \le \text{rel. Fro.}$.
 
-\section*{Current Baseline: \texttt{346bd59}}
+\section*{Current Baseline: \texttt{07d79e1} (Constant Mode)}
 
 The following table records the current clean 10k serial baseline with
-\texttt{bempp/rsrs} commit \texttt{346bd59286396cd4f51a187b8698ac169f93a91d}
-and \texttt{rsrs-exps} commit
-\texttt{d5892ebaadaf34a6e4fb95745547dde957fbe142}. For consistency with the
+\texttt{bempp/rsrs} commit \texttt{07d79e13fd65b28702a74052edbf0bdc29f19575}
+and \texttt{fixed\_rank\_sampling\_mode = Constant}. For consistency with the
 earlier tables, the apply columns below report relative 2-norm and relative
 Frobenius errors,
 \[
 \frac{\|A - A_{\mathrm{app}}\|_2}{\|A\|_2},\quad
 \frac{\|A - A_{\mathrm{app}}\|_F}{\|A\|_F},
+\]
+the solve columns report
+\[
+\texttt{err\_solve\_2} = \|I - A_{\mathrm{app}}^{-1}A\|_2,\quad
+\texttt{err\_solve\_fro} = \|I - A_{\mathrm{app}}^{-1}A\|_F,
 \]
 and the final column \texttt{solve\_error\_rhs} is the sampled solve error from
 solving with a random right hand side.
@@ -193,37 +197,37 @@ solving with a random right hand side.
                 >{\raggedleft\arraybackslash}p{0.8in}
                 >{\raggedleft\arraybackslash}p{0.75in}}
 \hline
-Case & rel. 2-norm & rel. Fro. & adjoint check & inverse adjoint & \texttt{solve\_error\_rhs} \\
+Case & rel. 2-norm & rel. Fro. & \texttt{err\_solve\_2} & \texttt{err\_solve\_fro} & \texttt{solve\_error\_rhs} \\
 \hline
 Unperturbed BIEGrid &
 $5.657{\times}10^{-8}$ &
 $1.579{\times}10^{-7}$ &
-$1.113{\times}10^{-13}$ &
-$9.014{\times}10^{-15}$ &
+$4.171{\times}10^{-4}$ &
+$1.281{\times}10^{-3}$ &
 $1.521{\times}10^{-5}$ \\
 Real symmetric perturbed &
 $1.133{\times}10^{-7}$ &
 $3.919{\times}10^{-7}$ &
-$3.564{\times}10^{-13}$ &
-$5.932{\times}10^{-14}$ &
+$7.913{\times}10^{-4}$ &
+$3.259{\times}10^{-3}$ &
 $3.003{\times}10^{-5}$ \\
 Real nonsymmetric perturbed &
 $1.424{\times}10^{-7}$ &
 $5.971{\times}10^{-7}$ &
-$4.801{\times}10^{-14}$ &
-$3.422{\times}10^{-14}$ &
+$8.667{\times}10^{-1}$ &
+$1.170{\times}10^{0}$ &
 $5.285{\times}10^{-3}$ \\
 Complex symmetric perturbed &
 $2.064{\times}10^{-7}$ &
 $6.587{\times}10^{-7}$ &
-$8.014{\times}10^{-15}$ &
-$1.646{\times}10^{-14}$ &
+$1.181{\times}10^{-2}$ &
+$1.202{\times}10^{-2}$ &
 $9.847{\times}10^{-5}$ \\
 Complex nonsymmetric perturbed &
 $1.613{\times}10^{-7}$ &
 $6.558{\times}10^{-7}$ &
-$1.075{\times}10^{-14}$ &
-$2.613{\times}10^{-14}$ &
+$1.866{\times}10^{-2}$ &
+$1.970{\times}10^{-2}$ &
 $1.806{\times}10^{-4}$ \\
 \hline
 \end{tabular}
