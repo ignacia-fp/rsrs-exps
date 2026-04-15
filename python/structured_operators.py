@@ -35,6 +35,19 @@ def _set_bempp_precision(precision: str) -> None:
     bempp_cl.api.DEFAULT_PRECISION = "single" if precision == "single" else "double"
 
 
+def _normalize_bempp_assembler(assembler: str) -> str:
+    """Map the generic Bempp FMM selector onto the KiFMM backend we ship."""
+    normalized = assembler.lower()
+    if normalized == "fmm":
+        return "kifmm"
+    return normalized
+
+
+def _uses_bempp_fmm(assembler: str) -> bool:
+    """Return true when the selected assembler routes through Bempp FMM."""
+    return _normalize_bempp_assembler(assembler) in {"kifmm", "exafmm"}
+
+
 import time
 import numpy as np
 
@@ -651,7 +664,7 @@ class BaseStructuredOperator(ABC):
             self.operator_type = None
 
             self.rhs_data_type = None
-            self.assembler = assembler.lower()
+            self.assembler = _normalize_bempp_assembler(assembler)
         except Exception as e:
             print("Error initializing BaseStructuredOperator:", e)
             raise
@@ -713,7 +726,7 @@ class BemppClLaplaceSingleLayer(BaseStructuredOperator):
             self.range = bempp_cl.api.function_space(self.grid, "DP", 0)
             self.mat = bempp_cl.api.operators.boundary.laplace.single_layer(
                 self.domain, self.range, self.dual_to_range, assembler=self.assembler).weak_form()
-            _maybe_generate_samples(self.mat, self.mat, self.n_points, self.init_samples)
+            _maybe_generate_samples(self.mat, self.mat, self.precision, self.n_points, self.init_samples)
             self.rhs_data_type = self.mat.dtype
             self.rhs = self.get_rhs(n_sources=self.n_sources)
         except Exception as e:
@@ -929,9 +942,9 @@ class BemppClLaplaceCombined(BaseStructuredOperator):
                 self.domain, self.range, self.dual_to_range, assembler=self.assembler
             ).weak_form()
             self.mat = sl + 0.5 * identity + dl
-            self.mat_T = sl + 0.5 * identity + dl.T
+            self.mat_T = sl.T + 0.5 * identity + dl.T
 
-            _maybe_generate_samples(self.mat, self.mat_T, self.n_points, self.init_samples)
+            _maybe_generate_samples(self.mat, self.mat_T, self.precision, self.n_points, self.init_samples)
             self.rhs_data_type = self.mat.dtype
             self.rhs = self.get_rhs(n_sources=self.n_sources)
         except Exception as e:
@@ -974,13 +987,10 @@ class BemppClLaplaceSecond(BaseStructuredOperator):
             dl = bempp_cl.api.operators.boundary.laplace.double_layer(
                 self.domain, self.range, self.dual_to_range, assembler=self.assembler
             ).weak_form()
-            adl = bempp_cl.api.operators.boundary.laplace.adjoint_double_layer(
-                self.domain, self.range, self.dual_to_range, assembler=self.assembler
-            ).weak_form()
             self.mat = 0.5 * identity + dl
-            self.mat_T = 0.5 * identity + adl
+            self.mat_T = 0.5 * identity + dl.T
             self.rhs_data_type = self.mat.dtype
-            _maybe_generate_samples(self.mat, self.mat_T, self.n_points, self.init_samples)
+            _maybe_generate_samples(self.mat, self.mat_T, self.precision, self.n_points, self.init_samples)
             self.form = 'weak'
             self.rhs = self.get_rhs(n_sources=self.n_sources)
         except Exception as e:
@@ -1044,7 +1054,7 @@ class BemppClLaplaceSingleLayerCP(BaseStructuredOperator):
             self.mat = g_inv * prec * g_inv * single_layer
             self.mat_T = single_layer.T * g_inv * prec.T * g_inv
 
-            _maybe_generate_samples(self.mat, self.mat_T, self.n_points, self.init_samples)
+            _maybe_generate_samples(self.mat, self.mat_T, self.precision, self.n_points, self.init_samples)
             self.rhs_data_type = self.mat.dtype
             self.form = 'strong'
             self.rhs = self.get_rhs(n_sources=self.n_sources)
@@ -1088,7 +1098,7 @@ class BemppClLaplaceSingleLayerMM(BaseStructuredOperator):
                 self.domain, self.range, self.dual_to_range, assembler=self.assembler
             )
             self.mat = sl.strong_form()
-            _maybe_generate_samples(self.mat, self.mat, self.n_points, self.init_samples)
+            _maybe_generate_samples(self.mat, self.mat, self.precision, self.n_points, self.init_samples)
             self.form = 'strong'
             self.rhs_data_type = self.mat.dtype
             self.rhs = self.get_rhs(n_sources=self.n_sources)
@@ -1137,7 +1147,7 @@ class BemppClHelmholtzSingleLayerCP(BaseStructuredOperator):
             g_inv = get_inverse_mass_matrix(self.range, self.dual_to_range)
             self.mat = g_inv * hypersingular * g_inv * single_layer
             self.mat_T = single_layer.T * g_inv * hypersingular.T * g_inv
-            _maybe_generate_samples(self.mat, self.mat_T, self.n_points, self.init_samples)
+            _maybe_generate_samples(self.mat, self.mat_T, self.precision, self.n_points, self.init_samples)
             self.form = 'strong'
             self.rhs_data_type = self.mat.dtype
             self.rhs = self.get_rhs(n_sources=self.n_sources)
@@ -1184,12 +1194,10 @@ class BemppClLaplaceSingleLayerCPID(BaseStructuredOperator):
                 self.domain, self.range, self.dual_to_range, assembler=self.assembler
             ).weak_form()
             g_inv = get_inverse_mass_matrix(self.range, self.dual_to_range)
-            adjoint_double_layer_T = bempp_cl.api.operators.boundary.laplace.double_layer(
-                self.domain, self.range, self.dual_to_range, assembler=self.assembler
-            ).weak_form()
+            adjoint_double_layer_T = adjoint_double_layer.T
             self.mat = g_inv * (0.25 * identity + adjoint_double_layer * g_inv * adjoint_double_layer)
             self.mat_T = (0.25 * identity + adjoint_double_layer_T * g_inv * adjoint_double_layer_T) * g_inv
-            _maybe_generate_samples(self.mat, self.mat_T, self.n_points, self.init_samples)
+            _maybe_generate_samples(self.mat, self.mat_T, self.precision, self.n_points, self.init_samples)
             self.rhs_data_type = self.mat.dtype
             self.rhs = self.get_rhs(n_sources=self.n_sources)
         except Exception as e:
@@ -1228,7 +1236,7 @@ class BemppClLaplaceSingleLayerP1(BaseStructuredOperator):
             self.mat = bempp_cl.api.operators.boundary.laplace.single_layer(
                 self.domain, self.range, self.dual_to_range, assembler=self.assembler
             ).weak_form()
-            _maybe_generate_samples(self.mat, self.mat, self.n_points, self.init_samples)
+            _maybe_generate_samples(self.mat, self.mat, self.precision, self.n_points, self.init_samples)
             self.rhs_data_type = self.mat.dtype
             self.rhs = self.get_rhs(n_sources=self.n_sources)
         except Exception as e:
@@ -1330,7 +1338,7 @@ class BemppClLaplaceCombinedP1(BaseStructuredOperator):
                 ).weak_form()
                 + 0.5 * identity.weak_form()
             )
-            _maybe_generate_samples(self.mat, self.mat, self.n_points, self.init_samples)
+            _maybe_generate_samples(self.mat, self.mat, self.precision, self.n_points, self.init_samples)
             self.rhs_data_type = self.mat.dtype
             self.rhs = self.get_rhs(n_sources=self.n_sources)
         except Exception as e:
@@ -1380,7 +1388,7 @@ class BemppClLaplaceSingleLayerCPIDP1(BaseStructuredOperator):
             adjoint_double_layer_T = adjoint_double_layer.T
             self.mat = g_inv * (0.25 * identity + adjoint_double_layer * g_inv * adjoint_double_layer)
             self.mat_T = (0.25 * identity + adjoint_double_layer_T * g_inv * adjoint_double_layer_T) * g_inv
-            _maybe_generate_samples(self.mat, self.mat_T, self.n_points, self.init_samples)
+            _maybe_generate_samples(self.mat, self.mat_T, self.precision, self.n_points, self.init_samples)
             self.rhs_data_type = self.mat.dtype
             self.rhs = self.get_rhs(n_sources=self.n_sources)
 
@@ -1421,18 +1429,13 @@ class BemppClHelmholtzSingleLayerCPID(BaseStructuredOperator):
             ).weak_form()
 
             adjoint_double_layer = bempp_cl.api.operators.boundary.helmholtz.adjoint_double_layer(
-                self.domain, self.range, self.dual_to_range, kappa
-            ).weak_form()
-            dl = bempp_cl.api.operators.boundary.helmholtz.double_layer(
                 self.domain, self.range, self.dual_to_range, kappa, assembler=self.assembler
             ).weak_form()
-            dlt = bempp_cl.api.operators.boundary.helmholtz.adjoint_double_layer(
-                self.domain, self.range, self.dual_to_range, kappa, assembler=self.assembler
-            ).weak_form()
+            transpose_double_layer = adjoint_double_layer.T
             g_inv = get_inverse_mass_matrix(self.range, self.dual_to_range)
-            self.mat = g_inv * (0.25 * identity + dlt * g_inv * adjoint_double_layer)
-            self.mat_T = (0.25 * identity + dl * g_inv * dl) * g_inv
-            _maybe_generate_samples(self.mat, self.mat_T, self.n_points, self.init_samples)
+            self.mat = g_inv * (0.25 * identity + adjoint_double_layer * g_inv * adjoint_double_layer)
+            self.mat_T = (0.25 * identity + transpose_double_layer * g_inv * transpose_double_layer) * g_inv
+            _maybe_generate_samples(self.mat, self.mat_T, self.precision, self.n_points, self.init_samples)
             self.form = 'strong'
             self.rhs_data_type = self.mat.dtype
             self.rhs = self.get_rhs(n_sources=self.n_sources)
@@ -1479,7 +1482,7 @@ class BemppClMaxwellEfie(BaseStructuredOperator):
             self.n_points = self.mat.shape[0]
             t0 = time.perf_counter()
             print(f"[sampling] ensuring {self.init_samples} stored sample(s) for {self.operator_type}")
-            _maybe_generate_samples(self.mat, self.mat, self.precision, self.n_points, self.init_samples, transposable = False)
+            _maybe_generate_samples(self.mat, self.mat.T, self.precision, self.n_points, self.init_samples)
             print(f"[sampling] sample preparation finished in {time.perf_counter() - t0:.3f}s")
             self.rhs_data_type = self.mat.dtype
             if n_sources > 0:
@@ -1510,7 +1513,7 @@ class BemppClMaxwellEfie(BaseStructuredOperator):
 
     def mv_trans(self, v):
         v = np.asarray(v, dtype=self._complex_dtype())
-        out = apply(self.mat, v)
+        out = apply(self.mat.T, v)
         return np.asarray(out, dtype=self._complex_dtype())
 
     @property
@@ -1539,7 +1542,7 @@ class BemppClHelmholtzSingleLayerP1(BaseStructuredOperator):
             self.mat = bempp_cl.api.operators.boundary.helmholtz.single_layer(
                 self.domain, self.range, self.dual_to_range, kappa, assembler = self.assembler
             ).weak_form()
-            _maybe_generate_samples(self.mat, self.mat, self.n_points, self.init_samples)
+            _maybe_generate_samples(self.mat, self.mat, self.precision, self.n_points, self.init_samples)
             self.rhs_data_type = self.mat.dtype
             self.rhs = self.get_rhs(n_sources=self.n_sources)
         except Exception as e:
@@ -1585,21 +1588,18 @@ class BemppClBurtonMiller(BaseStructuredOperator):
             self.range = self.domain
             self.dual_to_range = bempp_cl.api.function_space(self.grid, "P", 1)
 
-            if self.assembler == 'fmm':
+            if _uses_bempp_fmm(self.assembler):
                 identity = bempp_cl.api.operators.boundary.sparse.identity(
                     self.domain, self.range, self.dual_to_range
                 ).weak_form()
                 dl = bempp_cl.api.operators.boundary.helmholtz.double_layer(
-                    self.domain, self.range, self.dual_to_range, kappa, assembler="fmm"
-                ).weak_form()
-                dlt = bempp_cl.api.operators.boundary.helmholtz.adjoint_double_layer(
-                    self.domain, self.range, self.dual_to_range, kappa, assembler="fmm"
+                    self.domain, self.range, self.dual_to_range, kappa, assembler=self.assembler
                 ).weak_form()
                 hl = bempp_cl.api.operators.boundary.helmholtz.single_layer(
-                    self.domain, self.range, self.dual_to_range, kappa, assembler="fmm"
+                    self.domain, self.range, self.dual_to_range, kappa, assembler=self.assembler
                 ).weak_form()
                 self.mat = 0.5 * identity - dl + (1j / kappa) * hl
-                self.mat_T = 0.5 * identity - dlt + (1j / kappa) * hl
+                self.mat_T = 0.5 * identity - dl.T + (1j / kappa) * hl.T
             else:
             
                 # --- dtypes ---
@@ -1648,6 +1648,7 @@ class BemppClBurtonMiller(BaseStructuredOperator):
                 # --- Assemble mat and free temps ---
 
                 self.mat = nonsym + common
+                self.mat_T = self.mat.T
                 del nonsym
                 del common
 
@@ -1657,11 +1658,10 @@ class BemppClBurtonMiller(BaseStructuredOperator):
 
                 _maybe_generate_samples(
                     self.mat,
-                    None,
+                    self.mat_T,
                     self.precision,
                     self.n_points,
                     self.init_samples,
-                    transposable=True
                 )
 
             if n_sources > 0:
@@ -1699,21 +1699,18 @@ class BemppClHelmholtzCombined(BaseStructuredOperator):
             self.dual_to_range = self.domain
             self.range = bempp_cl.api.function_space(self.grid, "DP", 0)
             
-            if self.assembler == 'fmm':
+            if _uses_bempp_fmm(self.assembler):
                 identity = bempp_cl.api.operators.boundary.sparse.identity(
                     self.domain, self.range, self.dual_to_range
                 ).weak_form()
                 sl = bempp_cl.api.operators.boundary.helmholtz.single_layer(
-                    self.domain, self.range, self.dual_to_range, kappa, assembler="fmm"
+                    self.domain, self.range, self.dual_to_range, kappa, assembler=self.assembler
                 ).weak_form()
                 dl = bempp_cl.api.operators.boundary.helmholtz.double_layer(
-                    self.domain, self.range, self.dual_to_range, kappa, assembler="fmm"
-                ).weak_form()
-                dlt = bempp_cl.api.operators.boundary.helmholtz.adjoint_double_layer(
-                    self.domain, self.range, self.dual_to_range, kappa, assembler="fmm"
+                    self.domain, self.range, self.dual_to_range, kappa, assembler=self.assembler
                 ).weak_form()
                 self.mat = 0.5 * identity + dl - 1j * kappa * sl
-                self.mat_T = 0.5 * identity + dlt - 1j * kappa * sl
+                self.mat_T = 0.5 * identity + dl.T - 1j * kappa * sl.T
             
             else:
                 r_dtype = np.float32 if self.precision == "single" else np.float64
@@ -1826,7 +1823,7 @@ class BIEGrid(BaseStructuredOperator):
             self.precision = precision
             self.n_sources = n_sources
             self.kappa = kappa
-            self.assembler = assembler.lower()
+            self.assembler = _normalize_bempp_assembler(assembler)
             self.dim_param = dim_param
             self.cells_per_axis = cells_per_axis
             self.scalar_type = 'real'
@@ -1900,13 +1897,15 @@ def _biegrid_perturbed_mv_trans(self, v):
     return np.asarray(apply(self.mat_T, arr), dtype=self.rhs_data_type).reshape(-1)
 
 
-def _make_real_transpose_operator(forward_op, n_points):
+def _make_real_transpose_operator(forward_op, n_points, dtype):
+    op_dtype = np.dtype(dtype)
+
     def _apply_transpose(x):
-        x = np.asarray(x, dtype=np.float64)
+        x = np.asarray(x, dtype=op_dtype)
         is_vector = x.ndim == 1
         x_mat = x.reshape(n_points, 1) if is_vector else x
         cols = [
-            np.asarray(forward_op.rmatvec(x_mat[:, i]), dtype=np.float64).reshape(-1)
+            np.asarray(forward_op.rmatvec(x_mat[:, i]), dtype=op_dtype).reshape(-1)
             for i in range(x_mat.shape[1])
         ]
         result = np.column_stack(cols)
@@ -1916,11 +1915,11 @@ def _make_real_transpose_operator(forward_op, n_points):
 
     return LinearOperator(
         shape=(n_points, n_points),
-        dtype=np.float64,
+        dtype=op_dtype,
         matvec=_apply_transpose,
-        rmatvec=lambda x: apply(forward_op, x),
+        rmatvec=lambda x: np.asarray(apply(forward_op, x), dtype=op_dtype),
         matmat=_apply_transpose,
-        rmatmat=lambda x: apply(forward_op, x),
+        rmatmat=lambda x: np.asarray(apply(forward_op, x), dtype=op_dtype),
     )
 
 
@@ -2057,7 +2056,7 @@ def _init_biegrid_perturbed(
     instance.precision = precision
     instance.n_sources = n_sources
     instance.kappa = kappa
-    instance.assembler = assembler.lower()
+    instance.assembler = _normalize_bempp_assembler(assembler)
     instance.dim_param = dim_param
     instance.cells_per_axis = cells_per_axis
     instance.scalar_type = scalar_type
@@ -2128,7 +2127,7 @@ def _init_biegrid_perturbed(
             perturbation=instance._perturbation,
             symmetry_mode=symmetry_mode,
         )
-        instance.mat_T = _make_real_transpose_operator(instance.mat, instance.n_points)
+        instance.mat_T = _make_real_transpose_operator(instance.mat, instance.n_points, instance.rhs_data_type)
     else:
         instance.mat, instance.mat_T = make_complex_wrapped_operator(
             instance._base_real_operator,

@@ -2,75 +2,112 @@
 
 This is a testing framework that interfaces Structured Operators from Python and performs RSRS on them through bempp-rsrs
 
+
 ## Installation
 
-This crate retrieves bempp-cl and KiFMM operators, so both of them should be installed. Here we show an installation through an uv Virtual Environment, but any other python enviroment platform should be suitable for testing. KiFMM 
-uses Python 10 and here we repeat the instructions provided in that crate.
+This repository uses Git submodules for the exact `exafmm-t`, `bempp-cl`, and `kifmm-for-rsrs` revisions it expects. The checkouts live in `external/exafmm-t`, `external/bempp-cl`, and `external/kifmm-for-rsrs`, and both the Docker workflow and the local workflow install those local copies rather than cloning ExaFMM or KiFMM on demand or pulling `bempp-cl` from PyPI.
 
-1. Begin by installing rust
-
-```bash
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-```
-
-2. Clone kifmm from https://github.com/bempp/kifmm
-
-2. Install Maturin and pip in a new virtual environment.
+Before using either installation route, make sure the submodules are present:
 
 ```bash
-uv venv --python=3.10 && source .venv/bin/activate && uv pip install maturin pip
+git submodule update --init --recursive
 ```
 
-2. Use the Maturin CLI to install the Python bindings into this virtual environment, which additionally will install all required dependencies.
+### Option 1: Docker / Docker Compose
 
-Note that Maturin must be run from the `kifmm` crate root, not the workspace root, and that setuptools must be set to a version compatible with Mayavi.
+This is the easiest route, especially on Apple Silicon, because `compose.yaml` already requests a `linux/amd64` container.
 
-```bash
-pip install 'setuptools<69' .
-```
-
-NOTE: If the Mayavi installation fails, it can be removed by commenting the line "mayavi==4.8.1" from the pyproject.toml dependencies in the python folder. This will not affect KiFMM as it is only meant for plotting.
-
-3. Install the Python extension of KiFMM:
-
-```bash
-maturin develop --release
-```
-
-4. After the installation of kifmm you can install bempp-cl. It is not necessary to install everything from source, except from exafmm:
-
-```bash
-git clone https://github.com/exafmm/exafmm-t.git
-cd exafmm-t
-CFLAGS="-O3" CXXFLAGS="-O3" ./configure
-make
-make install
-python setup.py install
-```
-
-To install bempp-cl, in general 
-
-```bash
-uv pip install bempp-cl
-```
-
-should be enough, but sometimes you will need to install gmsh separately. In this case you should run:
-
-```bash
-uv pip install gmsh
-```
-
-NOTE: Exafmm will not work o Apple Silicon. To run these operators on your mac, you should remove `assembler="fmm"` when building an operator.
-
-To run using Docker image:
+Build and start the development container with Docker Compose:
 
 ```bash
 docker compose build
 docker compose run --rm dev
 ```
 
+If you prefer plain Docker commands, you can also use:
 
+```bash
+docker build -t rsrs-exps .
+docker run --rm -it rsrs-exps
+```
 
+On container startup, `scripts/setup_deps.sh` will:
+
+1. Create `.venv` inside `/workspace`.
+2. Stage `exafmm-t` from the submodule checkout at `/workspace/external/exafmm-t`, then build and install it.
+3. Install `bempp-cl` from the submodule checkout at `/workspace/external/bempp-cl` in editable mode.
+4. Build and install `kifmm-for-rsrs` from `/workspace/external/kifmm-for-rsrs` with `maturin develop --release` into that same `.venv`.
+5. Export `BEMPP_KIFMM_ROOT` (and `BEMPP_KIFMM_LIBRARY` when available) so `bempp-cl` can find the KiFMM shared library.
+6. Build this Rust project with `cargo build` unless `BUILD_RUST_PROJECT=0` is set for a lightweight smoke run.
+
+If you want to force a completely clean reinstall of the cached Docker dependencies, remove the named volumes first:
+
+```bash
+docker compose down -v
+```
+
+### Option 2: Local install without Docker
+
+The local workflow is now scripted. On Ubuntu 22.04 or another apt-based Linux environment, you can install everything with:
+
+```bash
+bash scripts/setup_local.sh --install-system-packages --install-rust
+```
+
+If the system packages and Rust toolchain are already present, the shorter form is enough:
+
+```bash
+bash scripts/setup_local.sh
+```
+
+By default, `scripts/setup_local.sh` will:
+
+1. Initialize the `external/exafmm-t`, `external/bempp-cl`, and `external/kifmm-for-rsrs` submodules.
+2. Create `.venv` in the project root.
+3. On supported Linux hosts, build `exafmm-t` from the local submodule checkout and install it into `.deps/exafmm-prefix` instead of `/usr/local`.
+4. Install `h5py`, editable `bempp-cl`, and the `kifmm-for-rsrs` Python bindings into that same `.venv`, plus the ExaFMM Python bindings on supported Linux hosts.
+5. Export the KiFMM discovery variables used by `bempp-cl`.
+6. Write `.rsrs-env.sh`, which re-exports the local KiFMM and ExaFMM paths for later shells.
+7. Run `cargo build` unless `--skip-rust-build` is passed.
+
+After the setup finishes, activate the environment with:
+
+```bash
+source .venv/bin/activate
+source .rsrs-env.sh
+```
+
+The generated `.rsrs-env.sh` sets `BEMPP_KIFMM_ROOT`, `BEMPP_KIFMM_LIBRARY` when available, and, on supported Linux hosts, the local ExaFMM include/library paths. That keeps the non-Docker workflow self-contained and avoids requiring a system-wide `make install`.
+
+If you are on a non-apt Linux distribution, install the equivalent system packages yourself and then run:
+
+```bash
+bash scripts/setup_local.sh
+```
+
+The apt-based package set used by the helper script is:
+
+```bash
+ca-certificates curl git pkg-config build-essential cmake clang lld \
+gfortran libssl-dev openmpi-bin libopenmpi-dev libhdf5-dev \
+libopenblas-dev liblapack-dev libfftw3-dev python3.10 python3.10-dev \
+python3.10-venv python3-pip patchelf libfontconfig1-dev \
+libfreetype6-dev gmsh
+```
+
+If you already have Python but want to override which interpreter creates the virtual environment, use:
+
+```bash
+bash scripts/setup_local.sh --python python3.11
+```
+
+### Notes
+
+- The `external/exafmm-t`, `external/bempp-cl`, and `external/kifmm-for-rsrs` submodules are the ones this project is expected to use. If you clone the repository without submodules, run `git submodule update --init --recursive` before starting Docker or the local setup.
+- `bempp-cl` is installed in editable mode, and the setup script will rebuild KiFMM when it detects newer source files in the submodule checkout.
+- `bempp-cl` does not import `kifmm_py` to discover KiFMM. It looks for the KiFMM shared library through `BEMPP_KIFMM_ROOT` or `BEMPP_KIFMM_LIBRARY`, which is why the setup exports those variables after building the KiFMM submodule checkout.
+- ExaFMM does not work on macOS hosts. On Macs, `bash scripts/setup_local.sh` skips the ExaFMM build automatically, so local installs should use KiFMM or dense assembly. If you need ExaFMM on a Mac, use Docker because the Compose service already targets `linux/amd64`.
+- If `gmsh` is missing outside Docker, make sure the `gmsh` executable is installed and available on `PATH`.
 ## Example of usage:
 
 This is a compilation of examples of uses of RSRS
@@ -420,4 +457,3 @@ config.plot_time_breakdown_piecharts()
     
 ![png](demo_files/demo_17_4.png)
     
-

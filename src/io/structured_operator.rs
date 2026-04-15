@@ -155,8 +155,12 @@ pub enum GeometryType {
 
 #[derive(Debug, Clone, Deserialize)]
 pub enum Assembler {
+    #[serde(alias = "dense")]
     Dense,
-    FMM,
+    #[serde(alias = "exafmm")]
+    ExaFMM,
+    #[serde(alias = "kifmm", alias = "FMM", alias = "fmm")]
+    KiFMM,
 }
 
 pub struct StructuredOperatorParams {
@@ -304,7 +308,8 @@ macro_rules! implement_structured_operator {
 
                 let assembler = std::ffi::CString::new(match params.assembler {
                     Assembler::Dense => "dense",
-                    Assembler::FMM => "fmm",
+                    Assembler::ExaFMM => "exafmm",
+                    Assembler::KiFMM => "kifmm",
                 })
                 .unwrap();
 

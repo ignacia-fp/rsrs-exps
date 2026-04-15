@@ -272,7 +272,8 @@ class RSRSBenchmarkConfig:
         assembler: int, optional
             Type of assembler
             0: Dense
-            1: FMM
+            1: ExaFMM
+            2: KiFMM
 
         symmetry: int, optional
             Type of symmetry
@@ -359,7 +360,7 @@ class RSRSBenchmarkConfig:
         
         self.rrqr_keys = ["RRQR", "SRRQR"]
 
-        self.assembler_types = ["Dense", "FMM"]
+        self.assembler_types = ["Dense", "ExaFMM", "KiFMM"]
 
         self.symmetry_type = ["NoSymm", "Symmetric", "Hermitian"]
 

@@ -1714,7 +1714,11 @@ mod tests {
         let x = vec![1.0, -0.25];
 
         let actual = apply_operator(&product, &x, TransMode::Trans);
-        let tmp = apply_operator(&DenseMatrixOperator::new(copy_array2(&b)), &x, TransMode::Trans);
+        let tmp = apply_operator(
+            &DenseMatrixOperator::new(copy_array2(&b)),
+            &x,
+            TransMode::Trans,
+        );
         let expected = apply_operator(&DenseMatrixOperator::new(a), &tmp, TransMode::Trans);
 
         let err = rel_l2_error(&actual, &expected);

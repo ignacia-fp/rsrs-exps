@@ -1,0 +1,14 @@
+.git
+.venv
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+target/
+results/
+vendor/
+external/exafmm-t/.eggs/
+external/exafmm-t/build/
+external/exafmm-t/dist/
+external/exafmm-t/*.egg-info/
+external/bempp-cl/target/
+external/kifmm-for-rsrs/target/
