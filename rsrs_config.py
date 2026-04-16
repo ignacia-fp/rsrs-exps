@@ -2508,7 +2508,7 @@ class RSRSBenchmarkConfig:
         dim_param = self.h
         geometry_type = camel_to_snake(self.geometry_types[self.geometry])
         precision = self.precision_types[self.precision_index]
-        assembler = "fmm"
+        assembler = self.assembler_types[self.assembler_index]
         OperatorClass(dim_param, kappa, geometry_type, precision, 0, init_samples, assembler)
 
     def summarize_gmres_cases(self, as_dataframe=False, sort_by_tolerance=True):

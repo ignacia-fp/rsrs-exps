@@ -55,16 +55,16 @@ for var in [
         symmetry=0,
         save_samples=False)'''
 
-config = RSRSBenchmarkConfig(operator_type=16, 
+config = RSRSBenchmarkConfig(operator_type=19, 
         dim_arg_type=1,  
         precision = 1, 
-        initial_num_samples = 7000, 
-        id_tols = [120], 
-        geometry=1, 
+        initial_num_samples = 0, 
+        id_tols = [20], 
+        geometry=8, 
         min_level=1, 
-        h=0.025,#016, 
+        h=0.01,#016, 
         depth = 2, 
-        kappa = 2.0, 
+        kappa = 3.0, 
         factors_cn = False, 
         dense_errors =False, 
         max_tree_depth=16, 
@@ -74,10 +74,11 @@ config = RSRSBenchmarkConfig(operator_type=16,
         solve = True, 
         symmetry=0, 
         save_samples=False,
+        load_samples=False,
         assembler=0)
 
 
-config.sample_with_python(10000)
+#config.sample_with_python(10000)
 
 #config.assembler_index = 1
 config.generate_bash_script("run_test.sh")
