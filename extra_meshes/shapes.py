@@ -57,16 +57,18 @@ def __generate_grid_from_geo_string(geo_string):
         f.write(geo_string)
         f.close()
 
-        fnull = open(os.devnull, "w")
-        cmd = gmsh_command + " -2 " + geo_name
-        try:
-            subprocess.check_call(cmd, shell=True, stdout=fnull, stderr=fnull)
-        except:  # noqa: E722
-            print("The following command failed: " + cmd)
-            fnull.close()
-            raise
+        cmd = [gmsh_command, "-2", geo_name]
+        with open(os.devnull, "w") as fnull:
+            result = subprocess.run(cmd, stdout=fnull, stderr=fnull, check=False)
+
+        # Some gmsh versions report a nonzero exit code for problematic surface
+        # definitions even though they still emit a usable mesh file.
+        if result.returncode != 0 and not (
+            os.path.exists(msh_name) and os.path.getsize(msh_name) > 0
+        ):
+            print("The following command failed: " + " ".join(cmd))
+            raise subprocess.CalledProcessError(result.returncode, cmd)
         os.remove(geo_name)
-        fnull.close()
         return msh_name
 
     msh_name = msh_from_string(geo_string)
@@ -108,6 +110,17 @@ def __gmsh_integer_list(values):
 def __generate_f16_geo_string(h):
     """Create the cleaned F16 geo script with explicit active/reversed surfaces."""
     body = _F16_BODY_GEO_PATH.read_text()
+    body = "\n".join(
+        line
+        for line in body.splitlines()
+        if not (
+            "-=" in line
+            and (
+                line.lstrip().startswith("Physical Point(")
+                or line.lstrip().startswith("Physical Surface(")
+            )
+        )
+    )
     return (
         "cl = "
         + str(h)
