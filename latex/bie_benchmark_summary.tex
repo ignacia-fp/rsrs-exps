@@ -1,0 +1,39 @@
+% BIEGrid benchmark summary (requested stop-point subset)
+\documentclass[11pt]{article}
+\usepackage[margin=0.75in]{geometry}
+\usepackage{amsmath}
+
+\begin{document}
+
+\section*{BIEGrid Benchmark Summary ($k=p=40$)}
+
+Square BIEGrid, double precision, $\kappa=0$, one right-hand side,
+GMRES tolerance $10^{-10}$, \texttt{num\_threads=4}, and
+\texttt{save\_samples=false}, \texttt{load\_samples=false}.
+Reported quantities:
+\[
+\text{relerr}=\frac{\|A-A_{\mathrm{rsrs}}\|_2}{\|A\|_2},
+\qquad
+\text{errsolve}=\|I-A_{\mathrm{rsrs}}^{-1}A\|_2.
+\]
+The $\mathrm{cond}(A)$ column uses the PerLevel estimate.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{r r r r r r r r}
+\hline
+& & \multicolumn{3}{c}{PerLevel ($k=p=40$)} & \multicolumn{3}{c}{Constant ($k=p=40$)} \\
+\cline{3-5} \cline{6-8}
+$N$ & $\mathrm{cond}(A)$ & $n_{\mathrm{samples}}$ & relerr & errsolve & $n_{\mathrm{samples}}$ & relerr & errsolve \\
+\hline
+80,656  & 1.4e+05 & 1,640 & 2.8e-06 & 1.0e-01 & 1,640 & 3.1e-06 & 1.0e-01 \\
+160,801 & 2.8e+05 & 1,640 & 8.8e-06 & 5.5e-01 & 1,640 & 8.4e-06 & 5.4e-01 \\
+321,489 & 7.5e+05 & 1,640 & 2.8e-05 & 4.2e+00 & --    & --      & --      \\
+\hline
+\end{tabular}
+\caption{Requested stop-point comparison for completed $k=p=40$ runs.}
+\label{tab:biegrid_k40_stop_point}
+\end{table}
+
+\end{document}

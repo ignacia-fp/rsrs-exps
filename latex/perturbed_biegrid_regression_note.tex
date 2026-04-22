@@ -176,13 +176,13 @@ and \texttt{fixed\_rank\_sampling\_mode = Constant}. For consistency with the
 earlier tables, the apply columns below report relative 2-norm and relative
 Frobenius errors,
 \[
-\frac{\|A - A_{\mathrm{app}}\|_2}{\|A\|_2},\quad
-\frac{\|A - A_{\mathrm{app}}\|_F}{\|A\|_F},
+\frac{\|A - A_{\mathrm{rsrs}}\|_2}{\|A\|_2},\quad
+\frac{\|A - A_{\mathrm{rsrs}}\|_F}{\|A\|_F},
 \]
 the solve columns report
 \[
-\texttt{err\_solve\_2} = \|I - A_{\mathrm{app}}^{-1}A\|_2,\quad
-\texttt{err\_solve\_fro} = \|I - A_{\mathrm{app}}^{-1}A\|_F,
+\texttt{err\_solve\_2} = \|I - A_{\mathrm{rsrs}}^{-1}A\|_2,\quad
+\texttt{err\_solve\_fro} = \|I - A_{\mathrm{rsrs}}^{-1}A\|_F,
 \]
 and the final column \texttt{solve\_error\_rhs} is the sampled solve error from
 solving with a random right hand side.

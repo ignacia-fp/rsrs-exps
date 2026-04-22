@@ -239,7 +239,7 @@ dependencies = [
 [[package]]
 name = "bempp-rsrs"
 version = "0.0.1-dev"
-source = "git+https://github.com/bempp/rsrs.git?branch=enable_symm#07d79e13fd65b28702a74052edbf0bdc29f19575"
+source = "git+https://github.com/bempp/rsrs.git?branch=enable_symm#efe95a4c0ad496943b03336ac800de96b30438e5"
 dependencies = [
  "bempp-octree",
  "cbindgen 0.29.2",
