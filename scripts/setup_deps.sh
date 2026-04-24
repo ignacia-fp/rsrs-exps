@@ -64,7 +64,18 @@ if [ ! -f "$DEPS_DIR/exafmm-t/.installed.ok" ]; then
   pushd "$DEPS_DIR/exafmm-t" >/dev/null
   CFLAGS="-O3" CXXFLAGS="-O3" ./configure
   make -j"$(nproc)"
-  make install
+  if [ -w /usr/local/include ] && [ -w /usr/local/lib ]; then
+    make install
+  elif command -v sudo >/dev/null 2>&1; then
+    sudo make install
+  else
+    EXAFMM_PREFIX="$DEPS_DIR/exafmm-t-install"
+    mkdir -p "$EXAFMM_PREFIX"
+    make install prefix="$EXAFMM_PREFIX"
+    export CPATH="$EXAFMM_PREFIX/include${CPATH:+:$CPATH}"
+    export LIBRARY_PATH="$EXAFMM_PREFIX/lib${LIBRARY_PATH:+:$LIBRARY_PATH}"
+    export LD_LIBRARY_PATH="$EXAFMM_PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+  fi
   python setup.py install
   popd >/dev/null
   touch "$DEPS_DIR/exafmm-t/.installed.ok"

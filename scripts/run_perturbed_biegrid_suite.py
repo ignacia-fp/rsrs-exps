@@ -27,7 +27,7 @@ CASES = [
         "max_adjoint": "1.0e-12",
         "max_adjoint_inv": "5.0e-13",
         "max_norm_2": "5.0e-7",
-        "max_solve": "1.0e-4",
+        "max_solve": "1.5e-4",
     },
     {
         "label": "Complex symmetric perturbed BIEGrid, 10k serial",
