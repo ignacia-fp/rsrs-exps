@@ -562,6 +562,9 @@ class RSRSBenchmarkConfig:
         filename: str = "run_test.sh",
         json_num_threads: list[int] | None = None,
         refinement_levels: list[int] | None = None,
+        refinement_level_depth_pairs: list[tuple[int, int]] | None = None,
+        mesh_widths: list[float] | None = None,
+        dof_marker: str | None = None,
     ):
         import json
         import subprocess
@@ -591,25 +594,70 @@ class RSRSBenchmarkConfig:
             "",
         ]
 
-        if refinement_levels is None:
-            refinement_levels = [
-                scenario_args_base["dim_args"][0]["RefinementLevelAndDepth"][0]
-            ]
-
         if json_num_threads is None:
             json_num_threads = [self.rsrs_args().get("num_threads", 1)]
+
+        dim_key = self.dim_arg_types[self.dim_arg_type_index]
+
+        if dof_marker is None:
+            if refinement_level_depth_pairs is not None or refinement_levels is not None:
+                dof_marker = "ref_level"
+            elif mesh_widths is not None:
+                dof_marker = "h"
+            elif dim_key == "RefinementLevelAndDepth":
+                dof_marker = "ref_level"
+            else:
+                dof_marker = "h"
+
+        if dof_marker not in {"ref_level", "h"}:
+            raise ValueError("dof_marker must be either 'ref_level' or 'h'.")
+
+        if refinement_levels is not None and refinement_level_depth_pairs is not None:
+            raise ValueError("Use either refinement_levels or refinement_level_depth_pairs, not both.")
+
+        if dof_marker == "ref_level":
+            if dim_key != "RefinementLevelAndDepth":
+                raise ValueError("dof_marker='ref_level' requires dim_arg_type 'RefinementLevelAndDepth'.")
+
+            if refinement_level_depth_pairs is None:
+                if refinement_levels is None:
+                    refinement_levels = [self.ref_level]
+                if self.depth is None:
+                    raise ValueError("depth must be specified when sweeping refinement levels.")
+                refinement_level_depth_pairs = [(rl, self.depth) for rl in refinement_levels]
+
+            dof_entries = [
+                (
+                    f"RefinementLevel = {ref_level}, depth = {depth}",
+                    {"RefinementLevelAndDepth": [ref_level, depth]},
+                )
+                for ref_level, depth in refinement_level_depth_pairs
+            ]
+        else:
+            if dim_key == "Meshwidth":
+                dim_arg_for_h = lambda h: {"MeshWidth": h}
+            elif dim_key == "KappaAndMeshwidth":
+                dim_arg_for_h = lambda h: {"KappaAndMeshwidth": [self.kappa, h]}
+            else:
+                raise ValueError("dof_marker='h' requires dim_arg_type 'Meshwidth' or 'KappaAndMeshwidth'.")
+
+            if mesh_widths is None:
+                mesh_widths = [self.h]
+
+            dof_entries = [
+                (f"h = {rust_float_format(h)}", dim_arg_for_h(h))
+                for h in mesh_widths
+            ]
 
         bash_lines.append("echo \"Running RSRS benchmarks\"")
         bash_lines.append("")
 
-        for rl in refinement_levels:
-            bash_lines.append(f"echo \"RefinementLevel = {rl}\"")
+        for label, dim_arg in dof_entries:
+            bash_lines.append(f"echo \"{label}\"")
 
-            # Inject refinement level
             scenario_args = dict(scenario_args_base)
-            scenario_args["dim_args"] = [{"RefinementLevelAndDepth": [rl, 2]}]
+            scenario_args["dim_args"] = [dim_arg]
 
-            # Escape static JSON
             data_json = esc(data_type_args)
             scenario_json = esc(scenario_args)
             output_json = esc(output_args)
