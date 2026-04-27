@@ -16,8 +16,11 @@ __pycache__/
 *.tmp
 *.cpython-310.pyc
 
-# Dependencies directory used by Docker
+# Dependency caches
 deps/
+.deps/
+.rsrs-env.sh
+vendor/
 
 # macOS
 .DS_Store

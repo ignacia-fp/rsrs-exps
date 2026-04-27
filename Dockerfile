@@ -45,13 +45,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install Rust via rustup
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
   | sh -s -- -y
+
 ENV PATH="/root/.cargo/bin:${PATH}"
+ENV WORKSPACE=/workspace
+ENV DEPS_DIR=/deps
+ENV LOCAL_EXAFMM_DIR=/workspace/external/exafmm-t
+ENV LOCAL_BEMPP_DIR=/workspace/external/bempp-cl
+ENV LOCAL_KIFMM_DIR=/workspace/external/kifmm-for-rsrs
+ENV BEMPP_KIFMM_ROOT=/workspace/external/kifmm-for-rsrs
 
 WORKDIR /workspace
 
-# Copy the bootstrap script into the image
-COPY scripts/setup_deps.sh /usr/local/bin/setup_deps.sh
-RUN chmod +x /usr/local/bin/setup_deps.sh
+# Copy the project into the image so plain `docker build` / `docker run`
+# also has access to the checked-out exafmm-t, bempp-cl, and kifmm-for-rsrs submodules.
+COPY . /workspace
+
+RUN install -m 0755 /workspace/scripts/setup_deps.sh /usr/local/bin/setup_deps.sh
 
 # Run setup on container start, then exec the CMD (bash by default)
 ENTRYPOINT ["/usr/local/bin/setup_deps.sh"]

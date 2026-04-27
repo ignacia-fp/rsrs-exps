@@ -623,8 +623,7 @@ fn summarize_complex_factor_routes(
                     frobenius_norm_complex(&diff_complex(&manual_adjoint, &adjoint(&no_trans)))
                         / denom;
 
-                let mode_label =
-                    format!("side={} branch={:?} inv={inv}", side_label(side), branch);
+                let mode_label = format!("side={} branch={:?} inv={inv}", side_label(side), branch);
 
                 if rel_transpose > worst_transpose {
                     worst_transpose = rel_transpose;
@@ -1068,8 +1067,7 @@ fn run_complex_rsrs_case_with_args_and_leaf_points(
     .unwrap();
     let norm_2_error = sigma_1.abs().sqrt() / sigma_2.abs().sqrt();
     let norm_fro_error: f64 = NumCast::from(norm_fro_error_raw).unwrap();
-    let norm_fro_error_transpose: f64 =
-        NumCast::from(norm_fro_error_transpose_raw).unwrap();
+    let norm_fro_error_transpose: f64 = NumCast::from(norm_fro_error_transpose_raw).unwrap();
 
     rsrs_operator.inv(true);
     let adjoint_consistency_error_inv: f64 =
@@ -1230,8 +1228,7 @@ fn run_real_rsrs_case_with_args(
     .unwrap();
     let norm_2_error = sigma_1.abs().sqrt() / sigma_2.abs().sqrt();
     let norm_fro_error: f64 = NumCast::from(norm_fro_error_raw).unwrap();
-    let norm_fro_error_transpose: f64 =
-        NumCast::from(norm_fro_error_transpose_raw).unwrap();
+    let norm_fro_error_transpose: f64 = NumCast::from(norm_fro_error_transpose_raw).unwrap();
 
     rsrs_operator.inv(true);
     let adjoint_consistency_error_inv: f64 =
@@ -1283,7 +1280,12 @@ fn run_complex_factor_diagnostics_case(
     symmetry: Symmetry,
     label: &'static str,
 ) -> Vec<ComplexFactorRouteSummary> {
-    run_complex_factor_diagnostics_case_with_args(comm, operator_type, label, small_rsrs_args(symmetry))
+    run_complex_factor_diagnostics_case_with_args(
+        comm,
+        operator_type,
+        label,
+        small_rsrs_args(symmetry),
+    )
 }
 
 fn run_complex_factor_diagnostics_case_with_args(
@@ -1327,7 +1329,12 @@ fn run_real_factor_diagnostics_case(
     symmetry: Symmetry,
     label: &'static str,
 ) -> Vec<RealFactorRouteSummary> {
-    run_real_factor_diagnostics_case_with_args(comm, operator_type, label, small_rsrs_args(symmetry))
+    run_real_factor_diagnostics_case_with_args(
+        comm,
+        operator_type,
+        label,
+        small_rsrs_args(symmetry),
+    )
 }
 
 fn run_real_factor_diagnostics_case_with_args(
@@ -1512,10 +1519,8 @@ fn biegrid_perturbed_rsrs_small_regression_luhybrid() {
         small_rsrs_args_with_pivot::<RealItem>(Symmetry::Symmetric, PivotMethod::LuHybrid(0.0));
     let args_nosymm_real =
         small_rsrs_args_with_pivot::<RealItem>(Symmetry::NoSymm, PivotMethod::LuHybrid(0.0));
-    let args_symm_complex = small_rsrs_args_with_pivot::<ComplexItem>(
-        Symmetry::Symmetric,
-        PivotMethod::LuHybrid(0.0),
-    );
+    let args_symm_complex =
+        small_rsrs_args_with_pivot::<ComplexItem>(Symmetry::Symmetric, PivotMethod::LuHybrid(0.0));
     let args_nosymm_complex =
         small_rsrs_args_with_pivot::<ComplexItem>(Symmetry::NoSymm, PivotMethod::LuHybrid(0.0));
 
@@ -1678,11 +1683,7 @@ fn biegrid_perturbed_rsrs_small_regression_tol1e12_rankpicking_tol() {
             &comm,
             StructuredOperatorType::BIEGridRealSymmetricPerturbed,
             "real symmetric",
-            small_tol_rsrs_args_with_rank_picking(
-                Symmetry::Symmetric,
-                1.0e-12,
-                RankPicking::Tol,
-            ),
+            small_tol_rsrs_args_with_rank_picking(Symmetry::Symmetric, 1.0e-12, RankPicking::Tol),
         ),
         run_real_rsrs_case_with_args(
             &comm,
@@ -1694,22 +1695,14 @@ fn biegrid_perturbed_rsrs_small_regression_tol1e12_rankpicking_tol() {
             &comm,
             StructuredOperatorType::BIEGridComplexSymmetricPerturbed,
             "complex symmetric",
-            small_tol_rsrs_args_with_rank_picking(
-                Symmetry::Symmetric,
-                1.0e-12,
-                RankPicking::Tol,
-            ),
+            small_tol_rsrs_args_with_rank_picking(Symmetry::Symmetric, 1.0e-12, RankPicking::Tol),
             square_leaf_points(SMALL_FIXED_RANK),
         ),
         run_complex_rsrs_case_with_args_and_leaf_points(
             &comm,
             StructuredOperatorType::BIEGridComplexPerturbed,
             "complex nonsymmetric",
-            small_tol_rsrs_args_with_rank_picking(
-                Symmetry::NoSymm,
-                1.0e-12,
-                RankPicking::Tol,
-            ),
+            small_tol_rsrs_args_with_rank_picking(Symmetry::NoSymm, 1.0e-12, RankPicking::Tol),
             square_leaf_points(SMALL_FIXED_RANK),
         ),
     ];

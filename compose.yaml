@@ -3,6 +3,13 @@ services:
     platform: linux/amd64
     build:
       context: .
+    environment:
+      WORKSPACE: /workspace
+      DEPS_DIR: /deps
+      LOCAL_EXAFMM_DIR: /workspace/external/exafmm-t
+      LOCAL_BEMPP_DIR: /workspace/external/bempp-cl
+      LOCAL_KIFMM_DIR: /workspace/external/kifmm-for-rsrs
+      BEMPP_KIFMM_ROOT: /workspace/external/kifmm-for-rsrs
     volumes:
       - .:/workspace:cached
       - deps:/deps

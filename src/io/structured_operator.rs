@@ -155,8 +155,12 @@ pub enum GeometryType {
 
 #[derive(Debug, Clone, Deserialize)]
 pub enum Assembler {
+    #[serde(alias = "dense")]
     Dense,
-    FMM,
+    #[serde(alias = "exafmm")]
+    ExaFMM,
+    #[serde(alias = "kifmm", alias = "FMM", alias = "fmm")]
+    KiFMM,
 }
 
 pub struct StructuredOperatorParams {
@@ -264,6 +268,23 @@ print(sys.prefix)
     query_python_env("python3", code)
 }
 
+fn prepend_python_bin_to_path(python_executable: &str) {
+    let Some(python_bin) = std::path::Path::new(python_executable).parent() else {
+        return;
+    };
+
+    let current_path = std::env::var_os("PATH").unwrap_or_default();
+    let mut paths: Vec<_> = std::env::split_paths(&current_path).collect();
+    if paths.iter().any(|path| path == python_bin) {
+        return;
+    }
+
+    paths.insert(0, python_bin.to_path_buf());
+    if let Ok(updated_path) = std::env::join_paths(paths) {
+        std::env::set_var("PATH", updated_path);
+    }
+}
+
 macro_rules! implement_structured_operator {
     ($scalar:ty, $mv:expr, $mv_t:expr, $rhs_fn:expr) => {
         impl StructuredOperatorImpl<$scalar> for StructuredOperatorInterface {
@@ -304,7 +325,8 @@ macro_rules! implement_structured_operator {
 
                 let assembler = std::ffi::CString::new(match params.assembler {
                     Assembler::Dense => "dense",
-                    Assembler::FMM => "fmm",
+                    Assembler::ExaFMM => "exafmm",
+                    Assembler::KiFMM => "kifmm",
                 })
                 .unwrap();
 
@@ -320,6 +342,7 @@ macro_rules! implement_structured_operator {
 
                 let env_stage = Instant::now();
                 let (python_executable, _python_home) = detect_python_env();
+                prepend_python_bin_to_path(&python_executable);
                 println!(
                     "[rsrs-exps][structured-operator] python environment resolved in {:.3}s: executable='{}'",
                     env_stage.elapsed().as_secs_f64(),

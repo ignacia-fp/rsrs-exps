@@ -1,0 +1,11 @@
+[submodule "external/bempp-cl"]
+	path = external/bempp-cl
+	url = https://github.com/ignacia-fp/bempp-cl-rsrs.git
+	branch = main
+[submodule "external/kifmm-for-rsrs"]
+	path = external/kifmm-for-rsrs
+	url = https://github.com/ignacia-fp/kifmm-for-rsrs.git
+	branch = main
+[submodule "external/exafmm-t"]
+	path = external/exafmm-t
+	url = https://github.com/exafmm/exafmm-t.git
