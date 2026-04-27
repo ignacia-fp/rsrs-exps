@@ -33,7 +33,6 @@ use std::{
 };
 
 type Real<T> = <T as rlst::RlstScalar>::Real;
-const EIGS_TOL: f64 = 1.0e-10;
 const FROBENIUS_ESTIMATION_SAMPLES: usize = 20;
 const ADJOINT_CHECK_SAMPLES: usize = 8;
 const APP_ERR_LEFT_SEED: u64 = 0xA001_E110_0000_0001;
@@ -47,6 +46,12 @@ const SOLVE_CHECK_SEED: u64 = 0x501E_0000_0000_0001;
 const MATVEC_BENCHMARK_SAMPLES: usize = 10;
 const STRUCTURED_OPERATOR_MV_BENCH_SEED: u64 = 0x6D56_0000_0000_0001;
 const RSRS_OPERATOR_MV_BENCH_SEED: u64 = 0x6D56_0000_0000_0002;
+const POWER_ITERATION_STEPS: usize = 50;
+const POWER_FORWARD_DIFF_SEED: u64 = 0xA200_0000_0000_0001;
+const POWER_FORWARD_A_SEED: u64 = 0xA200_0000_0000_0002;
+const POWER_FORWARD_RSRS_SEED: u64 = 0xA200_0000_0000_0003;
+const POWER_INVERSE_DIFF_SEED: u64 = 0xA200_0000_0000_0004;
+const POWER_INVERSE_RSRS_SEED: u64 = 0xA200_0000_0000_0005;
 
 fn start_save_stage(label: &str) -> Instant {
     println!("[rsrs-exps][save] {label}...");
@@ -58,6 +63,56 @@ fn finish_save_stage(label: &str, start: Instant) {
         "[rsrs-exps][save] {label} done in {:.3}s",
         start.elapsed().as_secs_f64()
     );
+}
+
+fn estimate_largest_eigenvalue_power<
+    Item: RlstScalar + RandScalar,
+    Space: SamplingSpace<F = Item>,
+    OpImpl: AsApply<Domain = Space, Range = Space>,
+>(
+    operator: &OpImpl,
+    n_steps: usize,
+    seed: u64,
+) -> Real<Item>
+where
+    StandardNormal: Distribution<Real<Item>>,
+    Standard: Distribution<Real<Item>>,
+    <Item as rlst::RlstScalar>::Real: RandScalar,
+    <<Space as rlst::LinearSpace>::E as rlst::ElementImpl>::Space: InnerProductSpace,
+{
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    let mut x = SamplingSpace::zero(operator.domain());
+    operator
+        .domain()
+        .sampling(&mut x, &mut rng, SampleType::StandardNormal);
+
+    let mut x_norm = x.norm();
+    if x_norm == num::Zero::zero() {
+        return num::Zero::zero();
+    }
+
+    x.scale_inplace(Item::from_real(
+        Real::<Item>::from_f64(1.0).unwrap() / x_norm,
+    ));
+
+    let mut lambda = num::Zero::zero();
+    for _ in 0..n_steps.max(1) {
+        let y = operator.apply(x.r(), TransMode::NoTrans);
+        x_norm = y.norm();
+        if x_norm == num::Zero::zero() {
+            return num::Zero::zero();
+        }
+
+        lambda = x.inner_product(y.r()).abs();
+
+        let mut x_next = y;
+        x_next.scale_inplace(Item::from_real(
+            Real::<Item>::from_f64(1.0).unwrap() / x_norm,
+        ));
+        x = x_next;
+    }
+
+    lambda
 }
 
 #[derive(Serialize, Clone)]
@@ -694,7 +749,6 @@ pub(crate) fn save_error_stats<
     finish_save_stage("write solve-vector sidecar", stage);
 
     rsrs_operator.inv(false);
-    let tol_eigs = <Space::F as RlstScalar>::Real::from_f64(EIGS_TOL).unwrap();
     let stage = start_save_stage("application error estimate (non-inverse)");
     let (app_err_left, app_err_right) = rsrs_error_estimator(
         structured_operator_op,
@@ -735,8 +789,11 @@ pub(crate) fn save_error_stats<
         transpose_matches_apply: approx_transpose_matches_apply,
     };
     let stage = start_save_stage("largest singular value of operator difference");
-    let mut eigs1 = Eigs::new(normal.r(), tol_eigs, None, None, None);
-    let (sigma_1, _) = eigs1.run(None, 1, None, false);
+    let sigma_1 = estimate_largest_eigenvalue_power(
+        &normal,
+        POWER_ITERATION_STEPS,
+        POWER_FORWARD_DIFF_SEED,
+    );
     finish_save_stage("largest singular value of operator difference", stage);
 
     let normal_structured = NormalOperator {
@@ -744,8 +801,11 @@ pub(crate) fn save_error_stats<
         transpose_matches_apply,
     };
     let stage = start_save_stage("largest singular value of original operator");
-    let mut eigs2 = Eigs::new(normal_structured.r(), tol_eigs, None, None, None);
-    let (sigma_2, _) = eigs2.run(None, 1, None, false);
+    let sigma_2 = estimate_largest_eigenvalue_power(
+        &normal_structured,
+        POWER_ITERATION_STEPS,
+        POWER_FORWARD_A_SEED,
+    );
     finish_save_stage("largest singular value of original operator", stage);
 
     let normal_rsrs = NormalOperator {
@@ -753,12 +813,15 @@ pub(crate) fn save_error_stats<
         transpose_matches_apply: approx_transpose_matches_apply,
     };
     let stage = start_save_stage("largest singular value of RSRS operator");
-    let mut eigs3 = Eigs::new(normal_rsrs.r(), tol_eigs, None, None, None);
-    let (c_1, _) = eigs3.run(None, 1, None, false);
+    let c_1 = estimate_largest_eigenvalue_power(
+        &normal_rsrs,
+        POWER_ITERATION_STEPS,
+        POWER_FORWARD_RSRS_SEED,
+    );
     finish_save_stage("largest singular value of RSRS operator", stage);
 
-    let norm_apply_2 = sigma_1[0].abs().sqrt();
-    let norm_a_2 = sigma_2[0].abs().sqrt();
+    let norm_apply_2 = sigma_1.abs().sqrt();
+    let norm_a_2 = sigma_2.abs().sqrt();
     let norm_apply_fro = norm_fro_error * norm_fro_operator;
 
     rsrs_operator.inv(true);
@@ -790,8 +853,11 @@ pub(crate) fn save_error_stats<
     };
 
     let stage = start_save_stage("largest singular value of inverse residual");
-    let mut eigs1 = Eigs::new(normal.r(), tol_eigs, None, None, None);
-    let (sigma_1, _) = eigs1.run(None, 1, None, false);
+    let sigma_1 = estimate_largest_eigenvalue_power(
+        &normal,
+        POWER_ITERATION_STEPS,
+        POWER_INVERSE_DIFF_SEED,
+    );
     finish_save_stage("largest singular value of inverse residual", stage);
 
     let normal_rsrs = NormalOperator {
@@ -799,15 +865,18 @@ pub(crate) fn save_error_stats<
         transpose_matches_apply: approx_transpose_matches_apply,
     };
     let stage = start_save_stage("largest singular value of inverse RSRS operator");
-    let mut eigs2 = Eigs::new(normal_rsrs.r(), tol_eigs, None, None, None);
-    let (c_2, _) = eigs2.run(None, 1, None, false);
+    let c_2 = estimate_largest_eigenvalue_power(
+        &normal_rsrs,
+        POWER_ITERATION_STEPS,
+        POWER_INVERSE_RSRS_SEED,
+    );
     finish_save_stage("largest singular value of inverse RSRS operator", stage);
 
-    let err_solve_2 = sigma_1[0].abs().sqrt();
+    let err_solve_2 = sigma_1.abs().sqrt();
     let err_solve_fro =
         norm_fro_error_inv * Real::<Item>::from_f64((rsrs_data.stats.dim as f64).sqrt()).unwrap();
 
-    let condition_number = c_2[0].abs().sqrt() * c_1[0].abs().sqrt();
+    let condition_number = c_2.abs().sqrt() * c_1.abs().sqrt();
 
     let (app_inv_err_left, app_inv_err_right) = {
         let stage = start_save_stage("application error estimate (inverse)");
