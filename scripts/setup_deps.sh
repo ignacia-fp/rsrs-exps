@@ -202,6 +202,49 @@ EOF
   echo "[setup] Wrote reusable environment exports to $env_file"
 }
 
+base_python_has_pip() {
+  "$PYTHON_BIN" -m pip --version >/dev/null 2>&1
+}
+
+ensure_virtualenv_available() {
+  if "$PYTHON_BIN" -m virtualenv --version >/dev/null 2>&1; then
+    return 0
+  fi
+
+  if ! base_python_has_pip; then
+    echo "[setup] ERROR: $PYTHON_BIN can create a virtual environment but cannot bootstrap pip or virtualenv."
+    echo "[setup] Install pip/virtualenv for the base interpreter first, or pass --python to a different interpreter."
+    exit 1
+  fi
+
+  echo "[setup] Installing virtualenv for fallback venv bootstrap"
+  "$PYTHON_BIN" -m pip install --user virtualenv >/dev/null
+}
+
+venv_is_usable() {
+  [ -f ".venv/bin/activate" ] && .venv/bin/python -m pip --version >/dev/null 2>&1
+}
+
+create_venv_with_fallback() {
+  echo "[setup] Creating Python venv in $WORKSPACE/.venv"
+  rm -rf .venv
+  "$PYTHON_BIN" -m venv .venv || true
+
+  if venv_is_usable; then
+    return 0
+  fi
+
+  echo "[setup] Built-in venv bootstrap was incomplete; retrying with virtualenv"
+  rm -rf .venv
+  ensure_virtualenv_available
+  "$PYTHON_BIN" -m virtualenv -p "$PYTHON_BIN" .venv
+
+  if ! venv_is_usable; then
+    echo "[setup] ERROR: failed to create a usable virtual environment in $WORKSPACE/.venv"
+    exit 1
+  fi
+}
+
 require_local_checkout() {
   local path="$1"
   local label="$2"
@@ -223,17 +266,9 @@ require_local_checkout() {
 
 # --- Python venv bootstrap ---
 VENV_CREATED=0
-if [ ! -x ".venv/bin/python" ]; then
-  echo "[setup] Creating Python venv in $WORKSPACE/.venv"
-  rm -rf .venv
-  "$PYTHON_BIN" -m venv .venv
+if [ ! -x ".venv/bin/python" ] || ! venv_is_usable; then
+  create_venv_with_fallback
   VENV_CREATED=1
-fi
-
-if [ ! -f ".venv/bin/activate" ]; then
-  echo "[setup] ERROR: venv activate script not found at $WORKSPACE/.venv/bin/activate"
-  ls -la .venv || true
-  exit 1
 fi
 
 # shellcheck disable=SC1091
@@ -250,18 +285,25 @@ export PYTHON_LIB_DIR="$(python -c "import sysconfig; print(sysconfig.get_config
 echo "[setup] PYTHON_INCLUDE_DIR=$PYTHON_INCLUDE_DIR"
 echo "[setup] PYTHON_LIB_DIR=$PYTHON_LIB_DIR"
 
-# --- Ensure gmsh in venv points to system gmsh (idempotent) ---
-SYS_GMSH="$(command -v gmsh || true)"
-if [ -z "$SYS_GMSH" ]; then
-  echo "[setup] ERROR: gmsh not found in PATH (install via apt in Dockerfile: gmsh + runtime libs)"
-  exit 1
-fi
-
+# --- Ensure gmsh is available inside the venv ---
 TARGET_GMSH="$WORKSPACE/.venv/bin/gmsh"
-if [ "$(readlink -f "$TARGET_GMSH" 2>/dev/null || true)" != "$SYS_GMSH" ]; then
+SYS_GMSH="$(command -v gmsh || true)"
+
+if [ -x "$TARGET_GMSH" ]; then
+  echo "[setup] Using gmsh from venv: $TARGET_GMSH"
+elif [ -n "$SYS_GMSH" ]; then
   echo "[setup] Linking system gmsh into venv: $SYS_GMSH"
   rm -f "$TARGET_GMSH"
   ln -s "$SYS_GMSH" "$TARGET_GMSH"
+else
+  echo "[setup] gmsh not found on PATH; installing the Python gmsh package into the venv"
+  python -m pip install gmsh >/dev/null
+fi
+
+if [ ! -x "$TARGET_GMSH" ]; then
+  echo "[setup] ERROR: gmsh is still unavailable after setup."
+  echo "[setup] Install a system gmsh binary, or ensure 'python -m pip install gmsh' succeeds for the chosen interpreter."
+  exit 1
 fi
 
 # --- exafmm-t ---

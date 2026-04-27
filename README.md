@@ -48,7 +48,13 @@ docker compose down -v
 
 ### Option 2: Local install without Docker
 
-The local workflow is now scripted. On Ubuntu 22.04 or another apt-based Linux environment, you can install everything with:
+The local workflow is scripted and is intended to work in three common setups:
+
+1. `apt`-based Linux with sudo
+2. macOS with Homebrew or an equivalent package manager
+3. Linux servers or clusters without sudo, where Python/MPI/build tools are already installed or can be loaded from the local environment
+
+On Ubuntu 22.04 or another apt-based Linux environment, you can install everything with:
 
 ```bash
 bash scripts/setup_local.sh --install-system-packages --install-rust
@@ -63,12 +69,13 @@ bash scripts/setup_local.sh
 By default, `scripts/setup_local.sh` will:
 
 1. Initialize the `external/exafmm-t`, `external/bempp-cl`, and `external/kifmm-for-rsrs` submodules.
-2. Create `.venv` in the project root.
+2. Create `.venv` in the project root. If the selected Python's built-in `venv` support creates an incomplete environment, the script falls back to `virtualenv` automatically.
 3. On supported Linux hosts, build `exafmm-t` from the local submodule checkout and install it into `.deps/exafmm-prefix` instead of `/usr/local`.
 4. Install `h5py`, editable `bempp-cl`, and the `kifmm-for-rsrs` Python bindings into that same `.venv`, plus the ExaFMM Python bindings on supported Linux hosts.
-5. Export the KiFMM discovery variables used by `bempp-cl`.
-6. Write `.rsrs-env.sh`, which re-exports the local KiFMM and ExaFMM paths for later shells.
-7. Run `cargo build` unless `--skip-rust-build` is passed.
+5. Ensure `gmsh` is available inside `.venv`. If no system `gmsh` executable is on `PATH`, the script installs the Python `gmsh` package and uses its bundled executable.
+6. Export the KiFMM discovery variables used by `bempp-cl`.
+7. Write `.rsrs-env.sh`, which re-exports the local KiFMM and ExaFMM paths for later shells.
+8. Run `cargo build` unless `--skip-rust-build` is passed.
 
 After the setup finishes, activate the environment with:
 
@@ -79,7 +86,7 @@ source .rsrs-env.sh
 
 The generated `.rsrs-env.sh` sets `BEMPP_KIFMM_ROOT`, `BEMPP_KIFMM_LIBRARY` when available, and, on supported Linux hosts, the local ExaFMM include/library paths. That keeps the non-Docker workflow self-contained and avoids requiring a system-wide `make install`.
 
-If you are on a non-apt Linux distribution, install the equivalent system packages yourself and then run:
+If you are on a non-apt Linux distribution, make sure the equivalent prerequisites are available first and then run:
 
 ```bash
 bash scripts/setup_local.sh
@@ -101,13 +108,53 @@ If you already have Python but want to override which interpreter creates the vi
 bash scripts/setup_local.sh --python python3.11
 ```
 
+#### macOS
+
+ExaFMM does not work on macOS hosts, so local macOS installs should use KiFMM or dense assembly. A typical Homebrew baseline is:
+
+```bash
+brew install git pkg-config cmake llvm open-mpi hdf5 openblas fftw gmsh
+bash scripts/setup_local.sh --python "$(command -v python3)"
+```
+
+If you prefer a different Python, pass it explicitly with `--python`. The script skips ExaFMM automatically on macOS.
+
+#### Linux servers without sudo
+
+On clusters or shared servers, the script cannot install system packages for you. Before running it, make sure the following are already installed or loaded in your shell:
+
+```bash
+- Python 3 with venv support (or pip + virtualenv)
+- git
+- pkg-config
+- cmake
+- a working C/C++ toolchain
+- MPI (`mpicc` plus pkg-config metadata such as `ompi.pc` or `mpich.pc`)
+- BLAS / LAPACK
+- FFTW
+- HDF5
+- gmsh
+```
+
+Then run:
+
+```bash
+bash scripts/setup_local.sh --python "$(command -v python3)"
+```
+
+Notes for this setup:
+
+- If the loaded Python creates an incomplete `.venv`, the script will retry with `virtualenv`.
+- If `gmsh` is not provided by the system, the script will install the Python `gmsh` package into `.venv`.
+- If you build the Rust project in a shell where MPI is not already loaded, `cargo build` can fail while probing `mpicc` or `ompi.pc`. Reload the MPI environment and rerun the script.
+
 ### Notes
 
 - The `external/exafmm-t`, `external/bempp-cl`, and `external/kifmm-for-rsrs` submodules are the ones this project is expected to use. If you clone the repository without submodules, run `git submodule update --init --recursive` before starting Docker or the local setup.
 - `bempp-cl` is installed in editable mode, and the setup script will rebuild KiFMM when it detects newer source files in the submodule checkout.
 - `bempp-cl` does not import `kifmm_py` to discover KiFMM. It looks for the KiFMM shared library through `BEMPP_KIFMM_ROOT` or `BEMPP_KIFMM_LIBRARY`, which is why the setup exports those variables after building the KiFMM submodule checkout.
 - ExaFMM does not work on macOS hosts. On Macs, `bash scripts/setup_local.sh` skips the ExaFMM build automatically, so local installs should use KiFMM or dense assembly. If you need ExaFMM on a Mac, use Docker because the Compose service already targets `linux/amd64`.
-- If `gmsh` is missing outside Docker, make sure the `gmsh` executable is installed and available on `PATH`.
+- If `gmsh` is missing outside Docker, `scripts/setup_local.sh` now falls back to `python -m pip install gmsh`. A system `gmsh` on `PATH` still works and will be reused when available.
 ## Example of usage:
 
 This is a compilation of examples of uses of RSRS

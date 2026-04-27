@@ -38,6 +38,44 @@ APT_PACKAGES=(
   gmsh
 )
 
+print_manual_package_hints() {
+  case "$(uname -s)" in
+    Darwin)
+      cat <<'EOF'
+[setup-local] macOS hint:
+  Use Homebrew (or another package manager) for the native prerequisites, then rerun:
+    bash scripts/setup_local.sh --python "$(command -v python3)"
+
+  A typical Homebrew baseline is:
+    brew install git pkg-config cmake llvm open-mpi hdf5 openblas fftw gmsh
+
+  Notes:
+    - ExaFMM is skipped automatically on macOS.
+    - KiFMM and dense assembly are still supported locally.
+EOF
+      ;;
+    *)
+      cat <<'EOF'
+[setup-local] Non-apt Linux hint:
+  Make sure the following prerequisites are installed or loaded before rerunning:
+    - Python 3 with venv support (or pip + virtualenv)
+    - git
+    - pkg-config
+    - cmake
+    - a C/C++ toolchain
+    - MPI (mpicc plus pkg-config metadata)
+    - BLAS / LAPACK
+    - FFTW
+    - HDF5
+    - gmsh
+
+  Then rerun:
+    bash scripts/setup_local.sh --python "$(command -v python3)"
+EOF
+      ;;
+  esac
+}
+
 print_help() {
   cat <<EOF
 Usage: scripts/setup_local.sh [options]
@@ -59,6 +97,8 @@ Examples:
 Notes:
   On macOS, this setup skips ExaFMM automatically because ExaFMM is not
   supported there. KiFMM and non-ExaFMM workflows can still be installed.
+  On systems without sudo, install or load the required dependencies first and
+  pass the chosen interpreter with --python.
 EOF
 }
 
@@ -116,7 +156,7 @@ run_with_optional_sudo() {
 install_system_packages() {
   if ! command -v apt-get >/dev/null 2>&1; then
     echo "[setup-local] ERROR: --install-system-packages currently supports apt-get based systems only"
-    echo "[setup-local] Install the equivalent packages for your distribution, then rerun bash scripts/setup_local.sh"
+    print_manual_package_hints
     exit 1
   fi
 
@@ -142,6 +182,11 @@ install_rust_toolchain() {
 
 if [ "$INSTALL_SYSTEM_PACKAGES" = "1" ]; then
   install_system_packages
+fi
+
+if [ "$INSTALL_SYSTEM_PACKAGES" = "0" ] && ! command -v apt-get >/dev/null 2>&1; then
+  echo "[setup-local] Note: automatic system package installation is unavailable on this host."
+  print_manual_package_hints
 fi
 
 if [ "$INSTALL_RUST" = "1" ]; then
