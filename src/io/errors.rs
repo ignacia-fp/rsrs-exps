@@ -533,6 +533,7 @@ pub fn app_error_right<
     rsrs_op: &OpImpl2,
     sample_size: usize,
     inv: bool,
+    transpose_matches_apply: bool,
     seed: u64,
 ) -> Real<Item>
 where
@@ -544,7 +545,11 @@ where
     TriangularMatrix<Item>: TriangularOperations<Item = Item>,
     <<Space as rlst::LinearSpace>::E as rlst::ElementImpl>::Space: rlst::InnerProductSpace,
 {
-    let trans_mode = TransMode::Trans;
+    let trans_mode = if transpose_matches_apply {
+        TransMode::NoTrans
+    } else {
+        TransMode::Trans
+    };
 
     let mut sample_frame = VectorFrame::default();
     let mut rng = ChaCha8Rng::seed_from_u64(seed);
@@ -693,6 +698,7 @@ pub fn rsrs_error_estimator<
     rsrs_operator: &OpImpl2,
     sample_size: usize,
     inv: bool,
+    transpose_matches_apply: bool,
     left_seed: u64,
     right_seed: u64,
 ) -> (Real<Item>, Real<Item>)
@@ -707,7 +713,14 @@ where
 {
     let app_err_left = app_error_left(target_op, rsrs_operator, sample_size, inv, left_seed);
 
-    let app_err_right = app_error_right(target_op, rsrs_operator, sample_size, inv, right_seed);
+    let app_err_right = app_error_right(
+        target_op,
+        rsrs_operator,
+        sample_size,
+        inv,
+        transpose_matches_apply,
+        right_seed,
+    );
 
     (app_err_left, app_err_right)
 }
@@ -1503,6 +1516,73 @@ mod tests {
         }
     }
 
+    struct SymmetricNoTransposeOperator<Item: RlstScalar> {
+        inner: DenseMatrixOperator<Item>,
+    }
+
+    impl<Item: RlstScalar> SymmetricNoTransposeOperator<Item> {
+        fn new(matrix: DynamicArray<Item, 2>) -> Self {
+            Self {
+                inner: DenseMatrixOperator::new(matrix),
+            }
+        }
+    }
+
+    impl<Item: RlstScalar> std::fmt::Debug for SymmetricNoTransposeOperator<Item> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "SymmetricNoTransposeOperator")
+        }
+    }
+
+    impl<Item: RlstScalar> OperatorBase for SymmetricNoTransposeOperator<Item> {
+        type Domain = ArrayVectorSpace<Item>;
+        type Range = ArrayVectorSpace<Item>;
+
+        fn domain(&self) -> Rc<Self::Domain> {
+            self.inner.domain()
+        }
+
+        fn range(&self) -> Rc<Self::Range> {
+            self.inner.range()
+        }
+    }
+
+    impl<Item: RlstScalar> AsApply for SymmetricNoTransposeOperator<Item> {
+        fn apply_extended<
+            ContainerIn: ElementContainer<E = <Self::Domain as LinearSpace>::E>,
+            ContainerOut: ElementContainerMut<E = <Self::Range as LinearSpace>::E>,
+        >(
+            &self,
+            alpha: <Self::Range as LinearSpace>::F,
+            x: Element<ContainerIn>,
+            beta: <Self::Range as LinearSpace>::F,
+            y: Element<ContainerOut>,
+            trans_mode: TransMode,
+        ) {
+            assert!(
+                !matches!(trans_mode, TransMode::Trans),
+                "transpose path should not be used for symmetric operator"
+            );
+            self.inner.apply_extended(alpha, x, beta, y, trans_mode);
+        }
+
+        fn apply<ContainerIn: ElementContainer<E = <Self::Domain as LinearSpace>::E>>(
+            &self,
+            x: Element<ContainerIn>,
+            trans_mode: TransMode,
+        ) -> rlst::operator::ElementType<<Self::Range as LinearSpace>::E> {
+            assert!(
+                !matches!(trans_mode, TransMode::Trans),
+                "transpose path should not be used for symmetric operator"
+            );
+            self.inner.apply(x, trans_mode)
+        }
+    }
+
+    impl<Item: RlstScalar> Inv for SymmetricNoTransposeOperator<Item> {
+        fn inv(&mut self, _inv: bool) {}
+    }
+
     fn rel_l2_error<Item: RlstScalar>(actual: &[Item], expected: &[Item]) -> f64 {
         let mut actual_arr = rlst_dynamic_array1!(Item, [actual.len()]);
         let mut expected_arr = rlst_dynamic_array1!(Item, [expected.len()]);
@@ -1573,7 +1653,7 @@ mod tests {
         let mut rsrs_like = ToggleInverseOperator::new(matrix, inverse);
 
         let left_err = app_error_left(&target, &rsrs_like, 8, false, 1);
-        let right_err = app_error_right(&target, &rsrs_like, 8, false, 2);
+        let right_err = app_error_right(&target, &rsrs_like, 8, false, false, 2);
         let left_err: f64 = NumCast::from(left_err).unwrap();
         let right_err: f64 = NumCast::from(right_err).unwrap();
 
@@ -1582,7 +1662,7 @@ mod tests {
 
         rsrs_like.inv(true);
         let left_inv_err = app_error_left(&target, &rsrs_like, 8, true, 3);
-        let right_inv_err = app_error_right(&target, &rsrs_like, 8, true, 4);
+        let right_inv_err = app_error_right(&target, &rsrs_like, 8, true, false, 4);
         let left_inv_err: f64 = NumCast::from(left_inv_err).unwrap();
         let right_inv_err: f64 = NumCast::from(right_inv_err).unwrap();
 
@@ -1630,6 +1710,26 @@ mod tests {
         assert!(
             identity_fro_rel_err <= 0.12,
             "unexpected identity Frobenius norm estimate: estimated={norm_fro_identity}, exact={exact_identity_fro}, rel_err={identity_fro_rel_err}"
+        );
+    }
+
+    #[test]
+    fn app_error_right_can_reuse_apply_for_symmetric_operator() {
+        let mut matrix = rlst_dynamic_array2!(f64, [2, 2]);
+        matrix[[0, 0]] = 2.0;
+        matrix[[0, 1]] = -1.0;
+        matrix[[1, 0]] = -1.0;
+        matrix[[1, 1]] = 3.0;
+
+        let target = SymmetricNoTransposeOperator::new(copy_array2(&matrix));
+        let rsrs_like = SymmetricNoTransposeOperator::new(matrix);
+
+        let right_err = app_error_right(&target, &rsrs_like, 8, false, true, 17);
+        let right_err: f64 = NumCast::from(right_err).unwrap();
+
+        assert!(
+            right_err <= 1.0e-12,
+            "right symmetric error too large: {right_err}"
         );
     }
 

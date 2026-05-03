@@ -755,6 +755,7 @@ pub(crate) fn save_error_stats<
         rsrs_operator,
         10,
         false,
+        transpose_matches_apply,
         APP_ERR_LEFT_SEED,
         APP_ERR_RIGHT_SEED,
     );
@@ -789,11 +790,8 @@ pub(crate) fn save_error_stats<
         transpose_matches_apply: approx_transpose_matches_apply,
     };
     let stage = start_save_stage("largest singular value of operator difference");
-    let sigma_1 = estimate_largest_eigenvalue_power(
-        &normal,
-        POWER_ITERATION_STEPS,
-        POWER_FORWARD_DIFF_SEED,
-    );
+    let sigma_1 =
+        estimate_largest_eigenvalue_power(&normal, POWER_ITERATION_STEPS, POWER_FORWARD_DIFF_SEED);
     finish_save_stage("largest singular value of operator difference", stage);
 
     let normal_structured = NormalOperator {
@@ -853,11 +851,8 @@ pub(crate) fn save_error_stats<
     };
 
     let stage = start_save_stage("largest singular value of inverse residual");
-    let sigma_1 = estimate_largest_eigenvalue_power(
-        &normal,
-        POWER_ITERATION_STEPS,
-        POWER_INVERSE_DIFF_SEED,
-    );
+    let sigma_1 =
+        estimate_largest_eigenvalue_power(&normal, POWER_ITERATION_STEPS, POWER_INVERSE_DIFF_SEED);
     finish_save_stage("largest singular value of inverse residual", stage);
 
     let normal_rsrs = NormalOperator {
@@ -885,6 +880,7 @@ pub(crate) fn save_error_stats<
             rsrs_operator,
             10,
             true,
+            transpose_matches_apply,
             APP_ERR_LEFT_SEED ^ 0x100,
             APP_ERR_RIGHT_SEED ^ 0x100,
         );
