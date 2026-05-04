@@ -1734,6 +1734,35 @@ mod tests {
     }
 
     #[test]
+    fn normal_operator_can_reuse_apply_for_symmetric_operator() {
+        let mut matrix = rlst_dynamic_array2!(f64, [2, 2]);
+        matrix[[0, 0]] = 2.0;
+        matrix[[0, 1]] = -1.0;
+        matrix[[1, 0]] = -1.0;
+        matrix[[1, 1]] = 3.0;
+
+        let normal = NormalOperator::new(
+            SymmetricNoTransposeOperator::new(copy_array2(&matrix)),
+            true,
+        );
+        let x = vec![1.0, -0.25];
+
+        let actual = apply_operator(&normal, &x, TransMode::NoTrans);
+        let tmp = apply_operator(
+            &DenseMatrixOperator::new(copy_array2(&matrix)),
+            &x,
+            TransMode::NoTrans,
+        );
+        let expected = apply_operator(&DenseMatrixOperator::new(matrix), &tmp, TransMode::NoTrans);
+
+        let err = rel_l2_error(&actual, &expected);
+        assert!(
+            err <= 1.0e-12,
+            "normal symmetric operator error too large: {err}"
+        );
+    }
+
+    #[test]
     fn normal_operator_matches_dense_adjoint_product() {
         let mut matrix = rlst_dynamic_array2!(Complex<f64>, [2, 2]);
         matrix[[0, 0]] = Complex::new(1.0, 0.5);

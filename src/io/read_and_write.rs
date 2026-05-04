@@ -719,7 +719,7 @@ pub(crate) fn save_error_stats<
     tol: Real<Item>,
     path_str: &str,
     transpose_matches_apply: bool,
-    _complex_symmetric_rsrs: bool,
+    complex_symmetric_rsrs: bool,
 ) where
     StandardNormal: Distribution<Real<Item>>,
     Standard: Distribution<Real<Item>>,
@@ -771,10 +771,12 @@ pub(crate) fn save_error_stats<
     let self_adjoint_apply_error =
         estimate_self_adjoint_apply_error(rsrs_operator, ADJOINT_CHECK_SAMPLES);
     finish_save_stage("self-adjoint apply estimate", stage);
-    // Treat the approximation and error operators as general operators for norm
-    // estimation, even when the target operator is symmetric. The RSRS
-    // approximation is not guaranteed to preserve symmetry exactly.
-    let approx_transpose_matches_apply = false;
+    // When the underlying operator is symmetric, or the RSRS construction is
+    // explicitly configured to preserve complex symmetry, reuse the forward
+    // apply path for the approximation/error normal operators as well. This
+    // avoids calling transpose on backends that do not implement it (for
+    // example distributed CSR kernels in RLST).
+    let approx_transpose_matches_apply = transpose_matches_apply || complex_symmetric_rsrs;
     let stage = start_save_stage("frobenius norm comparison (non-inverse)");
     let (norm_fro_error, norm_fro_operator) = frobenius_diff_and_reference_norm(
         structured_operator_op,
