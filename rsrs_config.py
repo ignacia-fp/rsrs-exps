@@ -93,6 +93,7 @@ class RSRSBenchmarkConfig:
         num_threads: int = 32,
         min_num_samples: int = 0,
         fixed_rank_sampling_mode: int = 0,
+        nonsymmetric_id_combination: int = 0,
         run_seed: int | None = None,
         symmetry: int = 0,
         flush_factors: bool = False,
@@ -247,6 +248,12 @@ class RSRSBenchmarkConfig:
             0: "PerLevel" — keep the predicted total budget, but adapt active samples by level
             1: "Constant" — keep the same sample and active budget on every level
 
+        nonsymmetric_id_combination : int, optional
+            Index selecting how the two sketch families are combined before the
+            common ID in the non-symmetric case:
+            0: "Sum" — use Y + Z
+            1: "Concat" — use [Y, Z]
+
         min_rank: int, optional,
             Minimum rank that a block should have to be processed for RSRS.
             Default is 1.
@@ -349,6 +356,9 @@ class RSRSBenchmarkConfig:
         # Fixed-rank sample-budget strategy.
         self.fixed_rank_sampling_modes = ["PerLevel", "Constant"]
 
+        # Non-symmetric common-ID sketch aggregation.
+        self.nonsymmetric_id_combinations = ["Sum", "Concat"]
+
         # Rank picking strategy:
         self.rank_pickings = ["Min", ## After the leaf level, when merging boxes, it looks for the smallest skeleton size and assigns it as the new box's fixed rank.
                 "Max", ## Same as before, but it takes the largest skeleton size.
@@ -375,6 +385,7 @@ class RSRSBenchmarkConfig:
         self.pivot_method_index = pivot_method
         self.rank_picking_index = rank_picking
         self.fixed_rank_sampling_mode_index = fixed_rank_sampling_mode
+        self.nonsymmetric_id_combination_index = nonsymmetric_id_combination
         self.rrqr_index = rrqr
         self.lu_stab = lu_stab
         self.diag_stab = diag_stab
@@ -486,6 +497,7 @@ class RSRSBenchmarkConfig:
             "min_num_samples": self.min_num_samples,
             "initial_num_samples": self.initial_num_samples,  ## Initial num samples: useful only when sampling is done in parallel way (not active yet)
             "fixed_rank_sampling_mode": self.fixed_rank_sampling_modes[self.fixed_rank_sampling_mode_index],
+            "nonsymmetric_id_combination": self.nonsymmetric_id_combinations[self.nonsymmetric_id_combination_index],
             "run_seed": self.run_seed,
             "shift": stab(self.op_shift),
             "null_method": self.null_methods[self.null_method_index],

@@ -883,6 +883,41 @@ fn small_rsrs_args_with_pivot<Item: RlstScalar<Real = f64>>(
     )
 }
 
+fn small_nonsymmetric_rsrs_args_from_json<Item: RlstScalar<Real = f64>>(
+    nonsymmetric_id_combination: &str,
+) -> RsrsArgs<Item> {
+    serde_json::from_value(serde_json::json!({
+        "oversampling": SMALL_FIXED_RANK,
+        "oversampling_diag_blocks": SMALL_FIXED_RANK,
+        "min_num_samples": 0,
+        "initial_num_samples": 0,
+        "fixed_rank_sampling_mode": "PerLevel",
+        "nonsymmetric_id_combination": nonsymmetric_id_combination,
+        "shift": { "type": "False" },
+        "null_method": "Projection",
+        "qr_method": "RRQR",
+        "near_block_extraction_method": "LuLstSq",
+        "diag_block_extraction_method": "LuLstSq",
+        "lu_pivot_method": { "type": "Lu", "value": 0.0 },
+        "diag_pivot_method": { "type": "Lu", "value": 0.0 },
+        "tol_null": 1.0e-16,
+        "tol_id": SMALL_FIXED_RANK as f64,
+        "tol_ext_near": 1.0e-16,
+        "tol_diag_ext": 1.0e-16,
+        "min_rank": 1,
+        "min_level": 1,
+        "symmetry": "NoSymm",
+        "rank_picking": "Min",
+        "fact_type": "Joint",
+        "save_samples": false,
+        "load_samples": false,
+        "num_threads": 1,
+        "flush_factors": false,
+        "store_far": false
+    }))
+    .unwrap()
+}
+
 fn small_tol_rsrs_args_with_rank_picking<Item: RlstScalar<Real = f64>>(
     symmetry: Symmetry,
     tol_id: f64,
@@ -1019,6 +1054,7 @@ fn run_complex_rsrs_case_with_args_and_leaf_points(
         &operator,
         &rsrs_operator,
         10,
+        false,
         false,
         APP_ERR_LEFT_SEED,
         APP_ERR_RIGHT_SEED,
@@ -1180,6 +1216,7 @@ fn run_real_rsrs_case_with_args(
         &operator,
         &rsrs_operator,
         10,
+        false,
         false,
         APP_ERR_LEFT_SEED,
         APP_ERR_RIGHT_SEED,
@@ -1504,6 +1541,99 @@ fn biegrid_perturbed_rsrs_small_regression() {
         }),
         "small perturbed BIEGrid regression produced non-finite metrics"
     );
+}
+
+#[test]
+fn biegrid_perturbed_rsrs_small_real_nonsymmetric_id_combination_regression() {
+    std::env::set_var("OPENBLAS_NUM_THREADS", "1");
+    std::env::set_var("RSRS_BIEGRID_PERTURB_SCALE", "1e-2");
+
+    let universe = mpi::initialize().unwrap();
+    let comm = universe.world();
+
+    let args_sum = small_nonsymmetric_rsrs_args_from_json::<RealItem>("Sum");
+    let args_concat = small_nonsymmetric_rsrs_args_from_json::<RealItem>("Concat");
+
+    let sum_identifier = RsrsOptions::<RealItem>::new(Some(args_sum.clone())).to_identifier();
+    let concat_identifier = RsrsOptions::<RealItem>::new(Some(args_concat.clone())).to_identifier();
+
+    assert!(
+        sum_identifier.contains("_nsid_Sum"),
+        "expected Sum identifier token, got {sum_identifier}"
+    );
+    assert!(
+        concat_identifier.contains("_nsid_Concat"),
+        "expected Concat identifier token, got {concat_identifier}"
+    );
+    assert_ne!(
+        sum_identifier, concat_identifier,
+        "Sum and Concat should not collide in the run identifier"
+    );
+
+    let metrics = vec![
+        run_real_rsrs_case_with_args(
+            &comm,
+            StructuredOperatorType::BIEGridRealPerturbed,
+            "real nonsymmetric sum",
+            args_sum,
+        ),
+        run_real_rsrs_case_with_args(
+            &comm,
+            StructuredOperatorType::BIEGridRealPerturbed,
+            "real nonsymmetric concat",
+            args_concat,
+        ),
+    ];
+
+    assert_eq!(
+        metrics[0].dim, metrics[1].dim,
+        "Sum and Concat should factorize the same problem size"
+    );
+
+    for row in &metrics {
+        assert!(
+            row.norm_2_error.is_finite()
+                && row.norm_fro_error.is_finite()
+                && row.norm_fro_error_transpose.is_finite()
+                && row.adjoint_consistency_error.is_finite()
+                && row.adjoint_consistency_error_inv.is_finite()
+                && row.solve_error.is_finite(),
+            "non-finite regression metric for {}: {:?}",
+            row.label,
+            row
+        );
+        assert!(
+            row.norm_2_error <= row.norm_fro_error + 1.0e-15,
+            "{} violated ||.||_2 <= ||.||_F (2-norm={}, fro={})",
+            row.label,
+            row.norm_2_error,
+            row.norm_fro_error
+        );
+        assert!(
+            row.norm_2_error < 1.0e-4,
+            "{} produced unexpectedly large application 2-norm error ({})",
+            row.label,
+            row.norm_2_error
+        );
+        assert!(
+            row.adjoint_consistency_error < 1.0e-10,
+            "{} produced unexpectedly large adjoint consistency error ({})",
+            row.label,
+            row.adjoint_consistency_error
+        );
+        assert!(
+            row.adjoint_consistency_error_inv < 1.0e-10,
+            "{} produced unexpectedly large inverse adjoint consistency error ({})",
+            row.label,
+            row.adjoint_consistency_error_inv
+        );
+        assert!(
+            row.solve_error < 5.0e-4,
+            "{} produced unexpectedly large sampled solve error ({})",
+            row.label,
+            row.solve_error
+        );
+    }
 }
 
 #[test]
