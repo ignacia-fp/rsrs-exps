@@ -478,7 +478,7 @@ macro_rules! implement_test_framework {
                     finish_root_stage(rank, "fetch right-hand sides", stage);
                     let dim = points.len();
 
-                    let mut solves = Solves {
+                    let mut base_solves = Solves {
                         no_prec: None,
                         prec: None,
                         rel_err_no_prec: None,
@@ -488,22 +488,6 @@ macro_rules! implement_test_framework {
                         vectors_file: None,
                     };
 
-                    match self.output_options.solve {
-                        Solve::True(tol) => {
-                            let label = format!(
-                                "solve without preconditioner ({} rhs, tol={:.3e})",
-                                rhs.len(),
-                                tol
-                            );
-                            let stage = start_root_stage(rank, &label);
-                            let (its, rel_err, sols) = solve_system(&operator, &rhs, tol);
-                            finish_root_stage(rank, &label, stage);
-                            solves.no_prec = Some(its);
-                            solves.rel_err_no_prec = Some(rel_err);
-                            solves.sols_no_prec = Some(sols);
-                        }
-                        Solve::False => {}
-                    };
                     for &id_tol in self.test_params.scenario_params.id_tols.iter() {
                         let max_leaf_points = default_max_leaf_points(
                             id_tol.to_f64().unwrap(),
@@ -529,7 +513,21 @@ macro_rules! implement_test_framework {
                             );
                         }
 
-                        let mut solves = solves.clone();
+                        if let Solve::True(tol) = self.output_options.solve {
+                            if base_solves.no_prec.is_none() {
+                                let label = format!(
+                                    "solve without preconditioner ({} rhs, tol={:.3e})",
+                                    rhs.len(),
+                                    tol
+                                );
+                                let stage = start_root_stage(rank, &label);
+                                let (its, rel_err, sols) = solve_system(&operator, &rhs, tol);
+                                finish_root_stage(rank, &label, stage);
+                                base_solves.no_prec = Some(its);
+                                base_solves.rel_err_no_prec = Some(rel_err);
+                                base_solves.sols_no_prec = Some(sols);
+                            }
+                        }
 
                         println!("Test: {} points, tol:{}", dim, id_tol);
                         if rank == 0 {
@@ -570,6 +568,7 @@ macro_rules! implement_test_framework {
                         let transpose_matches_apply = transpose_matches_apply(
                             &self.test_params.scenario_params.structured_operator_type,
                         );
+                        let mut solves = base_solves.clone();
                         match self.output_options.solve {
                             Solve::True(tol) => {
                                 let label = format!(
@@ -866,7 +865,7 @@ macro_rules! implement_distributed_test_framework {
                     );
                     log_root(rank, &format!("{dim} local degrees of freedom"));
 
-                    let mut solves = Solves {
+                    let mut base_solves = Solves {
                         no_prec: None,
                         prec: None,
                         rel_err_prec: None,
@@ -874,23 +873,6 @@ macro_rules! implement_distributed_test_framework {
                         sols_no_prec: None,
                         sols_prec: None,
                         vectors_file: None,
-                    };
-
-                    match self.output_options.solve {
-                        Solve::True(tol) => {
-                                let label = format!(
-                                    "solve without preconditioner ({} rhs, tol={:.3e})",
-                                    rhs.len(),
-                                    tol
-                                );
-                                let stage = start_root_stage(rank, &label);
-                                let (its, rel_err, sols) = solve_system(&operator, &rhs, tol);
-                                finish_root_stage(rank, &label, stage);
-                                solves.no_prec = Some(its);
-                                solves.rel_err_no_prec = Some(rel_err);
-                                solves.sols_no_prec = Some(sols);
-                            },
-                        Solve::False => {},
                     };
 
                     let path_str = self.test_params.get_test_dir(dim_num);
@@ -921,7 +903,21 @@ macro_rules! implement_distributed_test_framework {
                             );
                         }
 
-                        let mut solves = solves.clone();
+                        if let Solve::True(tol) = self.output_options.solve {
+                            if base_solves.no_prec.is_none() {
+                                let label = format!(
+                                    "solve without preconditioner ({} rhs, tol={:.3e})",
+                                    rhs.len(),
+                                    tol
+                                );
+                                let stage = start_root_stage(rank, &label);
+                                let (its, rel_err, sols) = solve_system(&operator, &rhs, tol);
+                                finish_root_stage(rank, &label, stage);
+                                base_solves.no_prec = Some(its);
+                                base_solves.rel_err_no_prec = Some(rel_err);
+                                base_solves.sols_no_prec = Some(sols);
+                            }
+                        }
 
                         println!("Test: {} points, tol:{}", dim, id_tol);
                         if comm.rank() == 0 {
@@ -946,8 +942,7 @@ macro_rules! implement_distributed_test_framework {
                         let transpose_matches_apply = transpose_matches_apply(
                             &self.test_params.scenario_params.structured_operator_type,
                         );
-
-
+                        let mut solves = base_solves.clone();
 
                         match self.output_options.solve {
                             Solve::True(tol) => {
