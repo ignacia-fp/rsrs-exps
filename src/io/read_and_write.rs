@@ -121,10 +121,13 @@ pub struct Solves<Item: RlstScalar> {
     pub prec: Option<Vec<Vec<Real<Item>>>>,
     pub rel_err_no_prec: Option<Vec<Real<Item>>>,
     pub rel_err_prec: Option<Vec<Real<Item>>>,
+    pub rel_err_approx_inv: Option<Vec<Real<Item>>>,
     #[serde(skip_serializing)]
     pub sols_no_prec: Option<Vec<Vec<Item>>>,
     #[serde(skip_serializing)]
     pub sols_prec: Option<Vec<Vec<Item>>>,
+    #[serde(skip_serializing)]
+    pub sols_approx_inv: Option<Vec<Vec<Item>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub vectors_file: Option<String>,
 }
@@ -670,6 +673,10 @@ where
         return Ok(());
     }
 
+    if file.link_exists(name) {
+        file.unlink(name)?;
+    }
+
     let group = file.create_group(name)?;
     <Item as SolveVectorArchive<Item>>::write_matrix(&group, data)
 }
@@ -682,7 +689,9 @@ fn save_solve_vectors<Item>(
 where
     Item: RlstScalar + SolveVectorArchive<Item>,
 {
-    let has_vectors = solves.sols_no_prec.is_some() || solves.sols_prec.is_some();
+    let has_vectors = solves.sols_no_prec.is_some()
+        || solves.sols_prec.is_some()
+        || solves.sols_approx_inv.is_some();
 
     if !has_vectors {
         return None;
@@ -690,10 +699,16 @@ where
 
     let file_name = format!("solve_vectors_{:e}.h5", tol);
     let file_path = Path::new(path_str).join(&file_name);
-    let file = Hdf5File::create(&file_path).unwrap();
+    let file = if file_path.exists() {
+        Hdf5File::open_rw(&file_path).unwrap()
+    } else {
+        Hdf5File::create(&file_path).unwrap()
+    };
 
     write_optional_vector_group(&file, "sols_no_prec", solves.sols_no_prec.as_deref()).unwrap();
     write_optional_vector_group(&file, "sols_prec", solves.sols_prec.as_deref()).unwrap();
+    write_optional_vector_group(&file, "sols_approx_inv", solves.sols_approx_inv.as_deref())
+        .unwrap();
 
     Some(file_name)
 }

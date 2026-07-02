@@ -28,6 +28,15 @@ def sci_no_padding2(x):
     base = base.rstrip("0").rstrip(".")  # remove trailing zeros and dot
     return f"{base}e{int(exp)}"
 
+def rust_sci_format(x, precision=None):
+    if precision is None:
+        s = f"{x:e}"
+    else:
+        s = f"{x:.{precision}e}"
+    base, exp = s.split("e")
+    base = base.rstrip("0").rstrip(".")
+    return f"{base}e{int(exp)}"
+
 def rust_float_format(x: float, precision: int = 2) -> str:
     s = f"{x:.{precision}e}"
     # Remove the leading zero in the exponent (e.g. e-01 -> e-1)
@@ -746,54 +755,40 @@ class RSRSBenchmarkConfig:
 
     def generate_sub_folder_name(self) -> str:
         args = self.rsrs_args()
+        identifier = (
+            f"rsrs_null_{args['null_method']}"
+            f"_toln_{rust_sci_format(args['tol_null'])}"
+            f"_os_{args['oversampling']}"
+            f"_osdiag_{args['oversampling_diag_blocks']}"
+            f"_initsam_{args['initial_num_samples']}"
+        )
+
+        shift = args["shift"]
+        if shift["type"] == "True":
+            identifier += f"_shiftd_{rust_sci_format(shift['value'])}"
+
+        identifier += f"_fsamp_{args['fixed_rank_sampling_mode']}"
+
+        if args["nonsymmetric_id_combination"] == "Concat":
+            identifier += f"_nsid_{args['nonsymmetric_id_combination']}"
+
+        identifier += (
+            f"_mrnk_{args['min_rank']}"
+            f"_mlvl_{args['min_level']}"
+            f"_{args['symmetry']}"
+            f"_rpick_{args['rank_picking']}"
+            f"_next_{args['near_block_extraction_method']}"
+            f"_tolextn_{rust_sci_format(args['tol_ext_near'])}"
+            f"_db_ext_{args['diag_block_extraction_method']}"
+            f"_tol_lstsq_{rust_sci_format(args['tol_diag_ext'])}"
+        )
 
         if self.rrqr_keys[self.rrqr_index] == "SRRQR":
-            rrqr_pred = f"srrqr_" + sci_no_padding2(self.f)
+            identifier += f"_srrqr_{rust_sci_format(self.f)}"
         else:
-            rrqr_pred = "rrqr"
+            identifier += "_rrqr"
 
-        if self.symmetric is None:
-            sym = "symmetry"
-        else:
-            sym = "symmetric"
-
-        if self.op_shift == 0:
-            return (
-                f"rsrs_null_{args['null_method']}"
-                f"_toln_{args['tol_null']:.0e}"
-                f"_os_{args['oversampling']}"
-                f"_osdiag_{args['oversampling_diag_blocks']}"
-                f"_initsam_{args['initial_num_samples']}"
-                f"_fsamp_{args['fixed_rank_sampling_mode']}"
-                f"_mrnk_{args['min_rank']}"
-                f"_mlvl_{args['min_level']}"
-                f"_herm_{camel_to_snake(str(args[sym]))}"
-                f"_rpick_{args['rank_picking']}"
-                f"_next_{args['near_block_extraction_method']}"
-                f"_tolextn_{args['tol_ext_near']:.0e}"
-                f"_db_ext_{args['diag_block_extraction_method']}"
-                f"_tol_lstsq_{args['tol_diag_ext']:.0e}"
-                f"_{rrqr_pred}"
-            )
-        else:
-            return (
-                f"rsrs_null_{args['null_method']}"
-                f"_toln_{args['tol_null']:.0e}"
-                f"_os_{args['oversampling']}"
-                f"_osdiag_{args['oversampling_diag_blocks']}"
-                f"_initsam_{args['initial_num_samples']}"
-                f"_fsamp_{args['fixed_rank_sampling_mode']}"
-                f"_stabilised_{sci_no_padding(self.op_shift)}"
-                f"_mrnk_{args['min_rank']}"
-                f"_mlvl_{args['min_level']}"
-                f"_herm_{camel_to_snake(str(args[sym]))}"
-                f"_rpick_{args['rank_picking']}"
-                f"_next_{args['near_block_extraction_method']}"
-                f"_tolextn_{args['tol_ext_near']:.0e}"
-                f"_db_ext_{args['diag_block_extraction_method']}"
-                f"_tol_lstsq_{args['tol_diag_ext']:.0e}"
-                f"_{rrqr_pred}"
-            )
+        return identifier
 
     def load_all_stats(self, kind="error"):
         return _config_results.load_all_stats(self, kind=kind)
@@ -801,8 +796,17 @@ class RSRSBenchmarkConfig:
     def _results_base_path(self):
         return _config_results.results_base_path(self)
 
+    def results_path(self):
+        return self._results_base_path()
+
+    def grid_path(self):
+        return _config_results.grid_path(self)
+
     def _select_error_stat(self, tol=None):
         return _config_results.select_error_stat(self, tol=tol)
+
+    def solve_vectors_path(self, tol=None):
+        return _config_results.solve_vectors_path(self, tol=tol)
 
     @staticmethod
     def _decode_legacy_vectors(vectors):
@@ -810,6 +814,15 @@ class RSRSBenchmarkConfig:
 
     def _load_solution_group(self, stat, group_name):
         return _config_results.load_solution_group(self, stat, group_name)
+
+    def geometry_slug(self):
+        return camel_to_snake(self.geometry_types[self.geometry])
+
+    def geometry_dim_param(self):
+        dim_key = self.dim_arg_types[self.dim_arg_type_index]
+        if dim_key == "RefinementLevelAndDepth" and self.ref_level is not None and self.ref_level > 1:
+            return self.ref_level
+        return self.h
 
     @classmethod
     def generate_table_a(
@@ -1630,19 +1643,28 @@ class RSRSBenchmarkConfig:
         dst.parent.mkdir(parents=True, exist_ok=True)  # create target dirs if needed
         src.rename(dst)
 
-    def load_sols(self, tol=1e-2):
+    def load_sols(self, tol=1e-2, sol_kind="prec"):
+        if sol_kind == "no_prec":
+            stat = self._select_error_stat()
+            return self._load_solution_group(stat, "sols_no_prec")
+
         if tol == 0.0:
             stat = self._select_error_stat()
             return self._load_solution_group(stat, "sols_no_prec")
-        else:
-            stat = self._select_error_stat(tol)
+
+        stat = self._select_error_stat(tol)
+        if sol_kind == "approx_inv":
+            return self._load_solution_group(stat, "sols_approx_inv")
+        if sol_kind == "prec":
             return self._load_solution_group(stat, "sols_prec")
 
-    def get_far_field(self, tol=1e-2, n_grid_points=150, plane=0, lims = [-1,1,-1,1], c=0.0):
+        raise ValueError("sol_kind must be one of: 'prec', 'no_prec', 'approx_inv'")
+
+    def get_far_field(self, tol=1e-2, n_grid_points=150, plane=0, lims = [-1,1,-1,1], c=0.0, sol_kind="prec"):
         import bempp_cl.api
         import matplotlib
         matplotlib.rcParams["figure.figsize"] = (5.0, 4.0)
-        sols = self.load_sols(tol)
+        sols = self.load_sols(tol, sol_kind=sol_kind)
         folder = self.generate_folder_name()
         subfolder = self.generate_sub_folder_name()
         filename = f"grid.msh"
@@ -1698,10 +1720,10 @@ class RSRSBenchmarkConfig:
             plt.savefig(sol_path)
             plt.close()
 
-    def get_rcs(self, tol=1e-2, number_of_angles=400, plane=0, polar=True):
+    def get_rcs(self, tol=1e-2, number_of_angles=400, plane=0, polar=True, sol_kind="prec"):
         import bempp_cl.api
         plt.rcParams["figure.figsize"] = (10, 8)
-        sols = self.load_sols(tol)
+        sols = self.load_sols(tol, sol_kind=sol_kind)
         folder = self.generate_folder_name()
         subfolder = self.generate_sub_folder_name()
         filename = f"grid.msh"
@@ -1764,6 +1786,7 @@ class RSRSBenchmarkConfig:
     def plot_field_slices_3d(
         self,
         tol=1e-2,
+        sol_kind="prec",
         plane="xz",                 # "xy", "xz", "yz"
         plane_value=None,           # z for "xy", y for "xz", x for "yz"
         plane_points=200,
@@ -1805,7 +1828,7 @@ class RSRSBenchmarkConfig:
     ):
         """
         Render 3D colored plane slices for:
-        - each solution in self.load_sols(tol)
+        - each solution in self.load_sols(tol, sol_kind=sol_kind)
         - (optionally) the coherent sum of all solutions
 
         Can optionally add the *incident* field consistently with your RHS generation:
@@ -1871,7 +1894,7 @@ class RSRSBenchmarkConfig:
             raise ValueError("contrast must be one of: 'linear', 'power', 'log'")
 
         # ---- locate grid + load solutions ----
-        sols = self.load_sols(tol)
+        sols = self.load_sols(tol, sol_kind=sol_kind)
         if len(sols) == 0:
             raise ValueError("No solutions loaded.")
 

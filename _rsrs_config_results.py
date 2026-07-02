@@ -6,10 +6,26 @@ from pathlib import Path
 import numpy as np
 
 
+def _rust_sci_format(x):
+    base, exp = f"{x:e}".split("e")
+    base = base.rstrip("0").rstrip(".")
+    return f"{base}e{int(exp)}"
+
+
 def results_base_path(config):
     folder = config.generate_folder_name()
     subfolder = config.generate_sub_folder_name()
     return Path(os.getcwd()) / "results" / folder / subfolder
+
+
+def grid_path(config):
+    return results_base_path(config) / "grid.msh"
+
+
+def expected_solve_vectors_path(config, tol):
+    if tol is None:
+        raise ValueError("tol must be provided when constructing an expected solve-vectors path.")
+    return results_base_path(config) / f"solve_vectors_{_rust_sci_format(tol)}.h5"
 
 
 def load_all_stats(config, kind="error"):
@@ -76,6 +92,19 @@ def select_error_stat(config, tol=None):
             continue
 
     raise ValueError(f"No error stats found for tolerance {tol}.")
+
+
+def solve_vectors_path(config, tol=None):
+    base_path = results_base_path(config)
+    if not base_path.exists():
+        return expected_solve_vectors_path(config, tol) if tol is not None else None
+
+    stat = select_error_stat(config, tol=tol)
+    solves = stat.get("solves", {})
+    vectors_file = solves.get("vectors_file")
+    if not vectors_file:
+        return expected_solve_vectors_path(config, tol) if tol is not None else None
+    return results_base_path(config) / vectors_file
 
 
 def decode_legacy_vectors(vectors):

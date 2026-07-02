@@ -1,6 +1,6 @@
 use crate::io::plot_results::time_piechart;
 use crate::io::read_and_write::{save_error_stats, save_rank_stats, save_time_stats, Solves};
-use crate::io::solve::solve_system;
+use crate::io::solve::{apply_inverse_system, solve_system};
 use crate::io::structured_operator::{
     get_bempp_points, GeometryType, StructuredOperator, StructuredOperatorImpl,
     StructuredOperatorInterface, StructuredOperatorParams,
@@ -483,8 +483,10 @@ macro_rules! implement_test_framework {
                         prec: None,
                         rel_err_no_prec: None,
                         rel_err_prec: None,
+                        rel_err_approx_inv: None,
                         sols_no_prec: None,
                         sols_prec: None,
+                        sols_approx_inv: None,
                         vectors_file: None,
                     };
 
@@ -569,6 +571,14 @@ macro_rules! implement_test_framework {
                             &self.test_params.scenario_params.structured_operator_type,
                         );
                         let mut solves = base_solves.clone();
+                        let label =
+                            format!("apply RSRS inverse directly ({} rhs)", rhs.len());
+                        let stage = start_root_stage(rank, &label);
+                        rsrs_operator.inv(true);
+                        let (rel_err, sols_approx_inv) =
+                            apply_inverse_system(&operator, &rsrs_operator, &rhs);
+                        solves.rel_err_approx_inv = Some(rel_err);
+                        solves.sols_approx_inv = Some(sols_approx_inv);
                         match self.output_options.solve {
                             Solve::True(tol) => {
                                 let label = format!(
@@ -577,10 +587,8 @@ macro_rules! implement_test_framework {
                                     tol
                                 );
                                 let stage = start_root_stage(rank, &label);
-                                rsrs_operator.inv(true);
                                 let (its, rel_err, sols) =
                                     solve_prec_system(&operator, &rsrs_operator, &rhs, tol);
-                                rsrs_operator.inv(false);
                                 finish_root_stage(rank, &label, stage);
                                 solves.prec = Some(its);
                                 solves.rel_err_prec = Some(rel_err);
@@ -588,6 +596,8 @@ macro_rules! implement_test_framework {
                             }
                             Solve::False => {}
                         };
+                        rsrs_operator.inv(false);
+                        finish_root_stage(rank, &label, stage);
 
                         match self.output_options.results_output {
                             Results::All => {
@@ -868,10 +878,12 @@ macro_rules! implement_distributed_test_framework {
                     let mut base_solves = Solves {
                         no_prec: None,
                         prec: None,
-                        rel_err_prec: None,
                         rel_err_no_prec: None,
+                        rel_err_prec: None,
+                        rel_err_approx_inv: None,
                         sols_no_prec: None,
                         sols_prec: None,
+                        sols_approx_inv: None,
                         vectors_file: None,
                     };
 
@@ -943,6 +955,14 @@ macro_rules! implement_distributed_test_framework {
                             &self.test_params.scenario_params.structured_operator_type,
                         );
                         let mut solves = base_solves.clone();
+                        let label =
+                            format!("apply RSRS inverse directly ({} rhs)", rhs.len());
+                        let stage = start_root_stage(rank, &label);
+                        rsrs_operator.inv(true);
+                        let (rel_err, sols_approx_inv) =
+                            apply_inverse_system(&operator, &rsrs_operator, &rhs);
+                        solves.rel_err_approx_inv = Some(rel_err);
+                        solves.sols_approx_inv = Some(sols_approx_inv);
 
                         match self.output_options.solve {
                             Solve::True(tol) => {
@@ -952,9 +972,7 @@ macro_rules! implement_distributed_test_framework {
                                     tol
                                 );
                                 let stage = start_root_stage(rank, &label);
-                                rsrs_operator.inv(true);
                                 let (its, rel_err, sols) = solve_prec_system(&operator, &rsrs_operator, &rhs, tol);
-                                rsrs_operator.inv(false);
                                 finish_root_stage(rank, &label, stage);
                                 solves.prec = Some(its);
                                 solves.rel_err_prec = Some(rel_err);
@@ -962,6 +980,8 @@ macro_rules! implement_distributed_test_framework {
                             }
                             Solve::False => {},
                         };
+                        rsrs_operator.inv(false);
+                        finish_root_stage(rank, &label, stage);
 
                         match self.output_options.results_output {
                             Results::All => {

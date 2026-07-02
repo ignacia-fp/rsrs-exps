@@ -186,3 +186,68 @@ where
     println!("[rsrs-exps][solve] preconditioned GMRES finished");
     (res_vec, res_norm_vec, sols_vec)
 }
+
+/// Apply the RSRS approximate inverse directly to multiple RHS vectors.
+pub fn apply_inverse_system<
+    'a,
+    Item: RlstScalar + MatrixId + MatrixPseudoInverse + MatrixLu + RandScalar + MatrixQr + MatrixInverse,
+    Space: SamplingSpace<F = Item> + IndexableSpace + rlst::InnerProductSpace,
+    OpImpl: AsApply<Domain = Space, Range = Space>,
+    OpImpl2: AsApply<Domain = Space, Range = Space>,
+>(
+    target_op: &OpImpl,
+    rsrs_operator: &OpImpl2,
+    rhs_list: &[Element<rlst::operator::ConcreteElementContainer<<Space as LinearSpace>::E>>],
+) -> (
+    Vec<<Item as RlstScalar>::Real>, // relative norm
+    Vec<Vec<Item>>,                  // solution
+)
+where
+    LuDecomposition<Item, BaseArray<Item, VectorContainer<Item>, 2>>:
+        MatrixLuDecomposition<Item = Item>,
+    TriangularMatrix<Item>: TriangularOperations<Item = Item>,
+    GivensRotationData<Item>: rlst::GivensRotation<Item>,
+    <<Space as rlst::LinearSpace>::E as rlst::ElementImpl>::Space: rlst::InnerProductSpace,
+{
+    let dim = target_op.domain().dimension();
+    let mut res_norm_vec = Vec::with_capacity(rhs_list.len());
+    let mut sols_vec = Vec::with_capacity(rhs_list.len());
+    println!(
+        "[rsrs-exps][solve] starting direct RSRS inverse application: rhs_count={}, dim={}",
+        rhs_list.len(),
+        dim,
+    );
+
+    for (rhs_idx, rhs) in rhs_list.iter().enumerate() {
+        let stage = Instant::now();
+        println!(
+            "[rsrs-exps][solve] rhs {}/{}: direct RSRS inverse application start",
+            rhs_idx + 1,
+            rhs_list.len()
+        );
+
+        let sol = rsrs_operator.apply(rhs.r(), TransMode::NoTrans);
+
+        let mut diff = rhs.duplicate();
+        diff -= target_op.apply(sol.r(), TransMode::NoTrans);
+        let rel_norm = diff.norm() / rhs.norm();
+        println!("Rel norm: {}", rel_norm);
+        println!(
+            "[rsrs-exps][solve] rhs {}/{}: direct RSRS inverse application done in {:.3}s",
+            rhs_idx + 1,
+            rhs_list.len(),
+            stage.elapsed().as_secs_f64(),
+        );
+
+        res_norm_vec.push(rel_norm);
+        let mut sol_vec = rlst_dynamic_array2!(Item, [1, dim]);
+        target_op
+            .r()
+            .domain()
+            .fill_array(&sol, &mut sol_vec, 0, TransMode::NoTrans);
+        sols_vec.push(sol_vec.data().to_vec());
+    }
+
+    println!("[rsrs-exps][solve] direct RSRS inverse application finished");
+    (res_norm_vec, sols_vec)
+}
