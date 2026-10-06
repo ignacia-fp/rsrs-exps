@@ -2,6 +2,10 @@
 
 This is a testing framework that interfaces Structured Operators from Python and performs RSRS on them through bempp-rsrs
 
+## Saved accuracy metrics
+
+See [accuracy metric definitions and normalization](docs/accuracy_metrics.md) for
+the four recorded compression and solve estimates, probe settings, and backfill usage.
 
 ## Installation
 

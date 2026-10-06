@@ -1,0 +1,50 @@
+{
+  "schema_version": "rsrs_accuracy_metrics_v1",
+  "values_are_estimates": true,
+  "certified_bounds": false,
+  "operators": {
+    "A": "Reference structured operator used by the experiment (the live FMM operator in the saved-sample sweeps).",
+    "A_tilde": "Compressed RSRS forward operator.",
+    "B": "Computed RSRS approximate inverse.",
+    "R": "I - B A; this is the left inverse residual, not I - A B.",
+    "n": "Matrix dimension (dim)."
+  },
+  "definitions": {
+    "compression_relerr_fro": "||A - A_tilde||_F / ||A||_F",
+    "compression_relerr_2": "||A - A_tilde||_2 / ||A||_2",
+    "solve_residual_relerr_fro": "||I - B A||_F / sqrt(n)",
+    "solve_residual_norm_2": "||I - B A||_2"
+  },
+  "interpretations": {
+    "compression_relerr_fro": "Relative aggregate matrix approximation error.",
+    "compression_relerr_2": "Spectral compression error relative to the reference operator norm; not a bound on relative matvec error for every input vector.",
+    "solve_residual_relerr_fro": "RMS relative solution error over isotropic unit solution vectors x, with right-hand sides b = A x; not an average over arbitrary right-hand sides.",
+    "solve_residual_norm_2": "Worst-direction relative solution error for b = A x, estimated rather than certified; ||I||_2 = 1, so no sqrt(n) normalization is applied."
+  },
+  "estimation": {
+    "frobenius_method": "Ratio of Frobenius estimates from independent-of-training real Gaussian test vectors.",
+    "frobenius_compression_estimator": "||(A - A_tilde) G||_F / ||A G||_F",
+    "frobenius_solve_estimator": "||(I - B A) H||_F / ||H||_F",
+    "probe_source": "Fresh ChaCha8Rng evaluation probes, not saved training Omega/Psi columns; distinct fixed seeds for G and H.",
+    "frobenius_probe_count": 20,
+    "frobenius_compression_seed": "0xF20B000000000001",
+    "frobenius_solve_seed": "0xF20B000000000002",
+    "spectral_method": "Square roots of power-iteration Rayleigh estimates for E^* E, A^* A and R^* R, where E = A - A_tilde, using implemented adjoints.",
+    "spectral_power_steps": 50,
+    "spectral_compression_seed": "0xA200000000000001",
+    "spectral_reference_seed": "0xA200000000000002",
+    "spectral_solve_seed": "0xA200000000000004",
+    "caveat": "Finite-probe and finite-iteration estimates. Adjoint consistency and convergence must be checked before claiming spectral accuracy; see adjoint_consistency_error_inv."
+  },
+  "raw_field_definitions": {
+    "norm_apply_fro": "Unnormalized Frobenius compression error estimate; divide by norm_a_fro.",
+    "norm_a_fro": "Frobenius norm estimate of the reference operator.",
+    "norm_apply_2": "Unnormalized spectral compression error estimate; divide by norm_a_2.",
+    "norm_a_2": "Spectral norm estimate of the reference operator.",
+    "err_solve_fro": "Unnormalized Frobenius inverse-residual estimate; divide by sqrt(dim).",
+    "err_solve_2": "Already the spectral inverse-residual estimate; do not divide by sqrt(dim).",
+    "solve_error_rhs": "A separate sampled relative solution error, ||B A x - x||_2 / ||x||_2; not a matrix norm."
+  },
+  "scope": "Algebraic coefficient-space errors against the reference operator, not PDE discretization errors.",
+  "null_value_meaning": "Unavailable because an input is nonfinite, negative, or its normalization denominator is zero."
+}

@@ -53,6 +53,49 @@ const POWER_FORWARD_RSRS_SEED: u64 = 0xA200_0000_0000_0003;
 const POWER_INVERSE_DIFF_SEED: u64 = 0xA200_0000_0000_0004;
 const POWER_INVERSE_RSRS_SEED: u64 = 0xA200_0000_0000_0005;
 
+fn headline_accuracy_metrics(
+    dim: usize,
+    norm_apply_fro: f64,
+    norm_a_fro: f64,
+    norm_apply_2: f64,
+    norm_a_2: f64,
+    err_solve_fro: f64,
+    err_solve_2: f64,
+) -> serde_json::Value {
+    fn finite_ratio(numerator: f64, denominator: f64) -> Option<f64> {
+        let value = numerator / denominator;
+        (numerator.is_finite()
+            && numerator >= 0.0
+            && denominator.is_finite()
+            && denominator > 0.0
+            && value.is_finite())
+        .then_some(value)
+    }
+
+    let mut metrics: serde_json::Value =
+        serde_json::from_str(include_str!("../../scripts/accuracy_metrics_schema.json"))
+            .expect("valid accuracy metric definitions");
+    metrics["compression_relerr_fro"] = serde_json::json!(finite_ratio(norm_apply_fro, norm_a_fro));
+    metrics["compression_relerr_2"] = serde_json::json!(finite_ratio(norm_apply_2, norm_a_2));
+    metrics["solve_residual_relerr_fro"] =
+        serde_json::json!(finite_ratio(err_solve_fro, (dim as f64).sqrt()));
+    metrics["solve_residual_norm_2"] = serde_json::json!(finite_ratio(err_solve_2, 1.0));
+    metrics["estimation"]["frobenius_probe_count"] =
+        serde_json::json!(FROBENIUS_ESTIMATION_SAMPLES);
+    metrics["estimation"]["spectral_power_steps"] = serde_json::json!(POWER_ITERATION_STEPS);
+    metrics["estimation"]["spectral_compression_seed"] =
+        serde_json::json!(format!("0x{POWER_FORWARD_DIFF_SEED:016X}"));
+    metrics["estimation"]["spectral_reference_seed"] =
+        serde_json::json!(format!("0x{POWER_FORWARD_A_SEED:016X}"));
+    metrics["estimation"]["frobenius_compression_seed"] =
+        serde_json::json!(format!("0x{FROB_FORWARD_SEED:016X}"));
+    metrics["estimation"]["frobenius_solve_seed"] =
+        serde_json::json!(format!("0x{FROB_INVERSE_SEED:016X}"));
+    metrics["estimation"]["spectral_solve_seed"] =
+        serde_json::json!(format!("0x{POWER_INVERSE_DIFF_SEED:016X}"));
+    metrics
+}
+
 fn start_save_stage(label: &str) -> Instant {
     println!("[rsrs-exps][save] {label}...");
     Instant::now()
@@ -135,6 +178,7 @@ pub struct Solves<Item: RlstScalar> {
 #[derive(Serialize)]
 pub struct ErrorStatsOutput<Item: RlstScalar> {
     dim: usize,
+    accuracy_metrics: serde_json::Value,
     app_inv_err_left: Real<Item>,
     app_inv_err_right: Real<Item>,
     app_err_left: Real<Item>,
@@ -926,6 +970,15 @@ pub(crate) fn save_error_stats<
 
     let stats = ErrorStatsOutput::<Item> {
         dim: rsrs_data.stats.dim,
+        accuracy_metrics: headline_accuracy_metrics(
+            rsrs_data.stats.dim,
+            NumCast::from(norm_apply_fro).unwrap(),
+            NumCast::from(norm_fro_operator).unwrap(),
+            NumCast::from(norm_apply_2).unwrap(),
+            NumCast::from(norm_a_2).unwrap(),
+            NumCast::from(err_solve_fro).unwrap(),
+            NumCast::from(err_solve_2).unwrap(),
+        ),
         app_inv_err_left,
         app_inv_err_right,
         app_err_left,
@@ -1050,6 +1103,37 @@ mod tests {
     use crate::io::errors::NormalOperator;
     use num::NumCast;
     use std::rc::Rc;
+
+    #[test]
+    fn headline_metrics_use_distinct_normalizations() {
+        let metrics = headline_accuracy_metrics(25, 4.0, 20.0, 3.0, 12.0, 0.5, 0.3);
+        assert_eq!(metrics["compression_relerr_fro"], 0.2);
+        assert_eq!(metrics["compression_relerr_2"], 0.25);
+        assert_eq!(metrics["solve_residual_relerr_fro"], 0.1);
+        assert_eq!(metrics["solve_residual_norm_2"], 0.3);
+        assert_eq!(metrics["values_are_estimates"], true);
+        assert_eq!(
+            metrics["estimation"]["frobenius_probe_count"],
+            FROBENIUS_ESTIMATION_SAMPLES
+        );
+        assert_eq!(
+            metrics["estimation"]["spectral_power_steps"],
+            POWER_ITERATION_STEPS
+        );
+        assert_eq!(
+            metrics["definitions"]["solve_residual_norm_2"],
+            "||I - B A||_2"
+        );
+    }
+
+    #[test]
+    fn headline_metrics_do_not_turn_undefined_errors_into_zero() {
+        let metrics = headline_accuracy_metrics(0, 0.0, 0.0, 0.0, 0.0, 0.5, f64::NAN);
+        assert!(metrics["compression_relerr_fro"].is_null());
+        assert!(metrics["compression_relerr_2"].is_null());
+        assert!(metrics["solve_residual_relerr_fro"].is_null());
+        assert!(metrics["solve_residual_norm_2"].is_null());
+    }
 
     struct DenseMatrixOperator<Item: RlstScalar> {
         matrix: DynamicArray<Item, 2>,
