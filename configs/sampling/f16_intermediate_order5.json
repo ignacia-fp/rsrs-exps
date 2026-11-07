@@ -1,0 +1,14 @@
+{
+  "kernel": "f16_helmholtz_combined",
+  "geometry": "f16",
+  "mesh": "/users/PAS3325/ignaciafp/rsrs-exps/results/current_grid.msh",
+  "mesh_width": 0.03,
+  "kappa": 2.6666666666666665,
+  "precision": "double",
+  "assembler": "exafmm",
+  "expected_dofs": 224688,
+  "parameters": {
+    "fmm_expansion_order": 8,
+    "quadrature_regular": 2
+  }
+}

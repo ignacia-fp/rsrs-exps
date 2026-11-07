@@ -23,9 +23,9 @@ from kifmm_py import (
 )
 import time
 
-bempp_cl.api.GLOBAL_PARAMETERS.fmm.expansion_order = 3
-# bempp_cl.api.GLOBAL_PARAMETERS.quadrature.regular = 1
-# bempp_cl.api.GLOBAL_PARAMETERS.quadrature.singular = 1
+bempp_cl.api.GLOBAL_PARAMETERS.fmm.expansion_order = 8
+bempp_cl.api.GLOBAL_PARAMETERS.quadrature.regular = 2
+#bempp_cl.api.GLOBAL_PARAMETERS.quadrature.singular = 3
 
 bempp_cl.api.DEFAULT_PRECISION = "single"
 # -------------------------
@@ -1471,13 +1471,20 @@ class BemppClMaxwellEfie(BaseStructuredOperator):
             self.scalar_type = 'complex'
             self.operator_type = 'BemppClMaxwellEfie'
             self.domain = bempp_cl.api.function_space(self.grid, "RWG", 0)
-            self.dual_to_range = self.domain
-            self.range = bempp_cl.api.function_space(self.grid, "SNC", 0)
+            self.range = self.domain
+            self.dual_to_range = bempp_cl.api.function_space(self.grid, "SNC", 0)
             t0 = time.perf_counter()
             print("[operator] assembling Maxwell EFIE weak form...")
             self.mat = bempp_cl.api.operators.boundary.maxwell.electric_field(
-                self.domain, self.dual_to_range, self.range, kappa, assembler = self.assembler
+                self.domain, self.range, self.dual_to_range, kappa, assembler=self.assembler
             ).weak_form()
+            #identity = bempp_cl.api.operators.boundary.sparse.identity(self.domain, self.range, self.dual_to_range).weak_form()
+            #magnetic = bempp_cl.api.operators.boundary.maxwell.magnetic_field(
+            #    self.domain, self.range, self.dual_to_range, kappa, assembler=self.assembler
+            #).weak_form()
+
+            #self.mat = 0.5 * identity + magnetic
+            #self.mat_T = 0.5 * identity.T + magnetic.T
             print(f"[operator] assembled Maxwell EFIE weak form in {time.perf_counter() - t0:.3f}s")
             self.n_points = self.mat.shape[0]
             t0 = time.perf_counter()
@@ -1524,6 +1531,7 @@ class BemppClMaxwellEfie(BaseStructuredOperator):
 
     def get_rhs(self, n_sources=1):
         return right_hand_side(self, 'Dirichlet', n_sources)
+
 
 
 class BemppClHelmholtzSingleLayerP1(BaseStructuredOperator):
@@ -1587,8 +1595,26 @@ class BemppClBurtonMiller(BaseStructuredOperator):
             self.domain = bempp_cl.api.function_space(self.grid, "P", 1)
             self.range = self.domain
             self.dual_to_range = bempp_cl.api.function_space(self.grid, "P", 1)
-
-            if _uses_bempp_fmm(self.assembler):
+            identity = bempp_cl.api.operators.boundary.sparse.identity(
+                    self.domain, self.range, self.dual_to_range
+                    ).weak_form()
+            dl = bempp_cl.api.operators.boundary.helmholtz.double_layer(
+                    self.domain, self.range, self.dual_to_range, kappa, assembler=self.assembler
+                    ).weak_form()
+            hl = bempp_cl.api.operators.boundary.helmholtz.single_layer(
+                    self.domain, self.range, self.dual_to_range, kappa, assembler=self.assembler
+                    ).weak_form()
+            self.mat = 0.5 * identity - dl + (1j / kappa) * hl
+            self.mat_T = 0.5 * identity - dl.T + (1j / kappa) * hl.T
+            _maybe_generate_samples(
+                    self.mat,
+                    self.mat_T,
+                    self.precision,
+                    self.n_points,
+                    self.init_samples,
+                    transposable=False
+                    )
+            '''if _uses_bempp_fmm(self.assembler):
                 identity = bempp_cl.api.operators.boundary.sparse.identity(
                     self.domain, self.range, self.dual_to_range
                 ).weak_form()
@@ -1662,7 +1688,7 @@ class BemppClBurtonMiller(BaseStructuredOperator):
                     self.precision,
                     self.n_points,
                     self.init_samples,
-                )
+                )'''
 
             if n_sources > 0:
                 self.rhs = self.get_rhs(n_sources=self.n_sources)
@@ -1698,8 +1724,26 @@ class BemppClHelmholtzCombined(BaseStructuredOperator):
             self.domain = bempp_cl.api.function_space(self.grid, "DP", 0)
             self.dual_to_range = self.domain
             self.range = bempp_cl.api.function_space(self.grid, "DP", 0)
-            
-            if _uses_bempp_fmm(self.assembler):
+            identity = bempp_cl.api.operators.boundary.sparse.identity(
+                self.domain, self.range, self.dual_to_range
+            ).weak_form()
+            sl = bempp_cl.api.operators.boundary.helmholtz.single_layer(
+                self.domain, self.range, self.dual_to_range, kappa, assembler=self.assembler
+            ).weak_form()
+            adl = bempp_cl.api.operators.boundary.helmholtz.adjoint_double_layer(
+                self.domain, self.range, self.dual_to_range, kappa, assembler=self.assembler
+            ).weak_form()
+            self.mat = 0.5 * identity + adl - 1j * kappa * sl
+            self.mat_T = 0.5 * identity + adl.T - 1j * kappa * sl.T
+            _maybe_generate_samples(
+                    self.mat,
+                    self.mat_T,
+                    self.precision,
+                    self.n_points,
+                    self.init_samples,
+                    transposable=False
+                    )
+            '''if _uses_bempp_fmm(self.assembler):
                 identity = bempp_cl.api.operators.boundary.sparse.identity(
                     self.domain, self.range, self.dual_to_range
                 ).weak_form()
@@ -1763,7 +1807,7 @@ class BemppClHelmholtzCombined(BaseStructuredOperator):
                     self.n_points, 
                     self.init_samples,
                     transposable=True
-                )
+                )'''
             if n_sources > 0:
                 self.rhs = self.get_rhs(n_sources=self.n_sources)
         except Exception as e:

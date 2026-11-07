@@ -1,0 +1,14 @@
+{
+  "kernel": "f16_helmholtz_combined",
+  "geometry": "f16",
+  "mesh": "/users/PAS3325/ignaciafp/rsrs-exps/results/f16_BemppClHelmholtzCombined_precision_double_mesh_width_4.60e-2_od_16_0.08_num_threads_56_old/rsrs_null_Projection_toln_1e-16_os_8_osdiag_16_initsam_0_fsamp_PerLevel_nsid_Concat_mrnk_1_mlvl_1_NoSymm_rpick_Min_next_LuLstSq_tolextn_1e-8_db_ext_LuLstSq_tol_lstsq_1e-16_rrqr/grid.msh",
+  "mesh_width": 0.046,
+  "kappa": 1.7391304347826089,
+  "precision": "double",
+  "assembler": "exafmm",
+  "expected_dofs": 97876,
+  "parameters": {
+    "fmm_expansion_order": 8,
+    "quadrature_regular": 2
+  }
+}

@@ -1,0 +1,132 @@
+{
+  "_README": [
+    "Copy this file, edit the values, and run: rsrs-experiment build path/to/your_file.json",
+    "Fields beginning with an underscore are documentation and are ignored.",
+    "A TEST may directly contain options, or contain options plus a sweep.",
+    "BUNDLES list the tests to place in one generated script.",
+    "GENERATE may be one object or a list of objects when you want several scripts."
+  ],
+  "_NUMBERED_OPTIONS": {
+    "operator": {
+      "0": "BasicStructuredOperator",
+      "1": "BemppClLaplaceSingleLayer",
+      "2": "BemppClHelmholtzSingleLayer",
+      "3": "KiFMMLaplaceOperator",
+      "4": "KiFMMHelmholtzOperator",
+      "5": "BemppRsLaplaceOperator",
+      "6": "BemppClLaplaceCombined",
+      "7": "BemppClLaplaceSingleLayerCP",
+      "8": "BemppClLaplaceSingleLayerMM",
+      "9": "BemppClHelmholtzSingleLayerCP",
+      "10": "BemppClLaplaceSingleLayerCPID",
+      "11": "BemppClLaplaceSingleLayerP1",
+      "12": "KiFMMLaplaceOperatorV",
+      "13": "BemppClLaplaceCombinedP1",
+      "14": "BemppClLaplaceSingleLayerCPIDP1",
+      "15": "BemppClHelmholtzSingleLayerCPID",
+      "16": "BemppClMaxwellEfie",
+      "17": "BemppClHelmholtzSingleLayerP1",
+      "18": "BemppClBurtonMiller",
+      "19": "BemppClHelmholtzCombined",
+      "20": "BemppClLaplaceSecond",
+      "21": "BIEGrid"
+    },
+    "precision": {"0": "Single", "1": "Double"},
+    "dimension": {"0": "Kappa", "1": "KappaAndMeshwidth", "2": "Meshwidth", "3": "RefinementLevelAndDepth"},
+    "geometry": {"0": "SphereSurface", "1": "CubeSurface", "2": "CylinderSurface", "3": "EllipsoidSurface", "4": "Dihedral", "5": "Device", "6": "F16", "7": "RidgedHorn", "8": "EMCCAlmond", "9": "FrigateHull", "10": "Plane", "11": "Square", "12": "Cube"},
+    "assembler": {"0": "Dense", "1": "ExaFMM", "2": "KiFMM"},
+    "results": {"0": "All", "1": "Rank", "2": "Time"},
+    "null_method": {"0": "Projection", "1": "Svd", "2": "Qr"},
+    "block_extraction": {"0": "LuLstSq", "1": "Svd"},
+    "pivot": {"0": "Lu", "1": "DirectInversion", "2": "LuHybrid"},
+    "qr": {"0": "RRQR", "1": "SRRQR"},
+    "rank_picking": {"0": "Min", "1": "Max", "2": "Avg", "3": "Mid", "4": "DoubleMin", "5": "Tol"},
+    "factorization": {"0": "Split", "1": "Joint"},
+    "fixed_rank_sampling": {"0": "PerLevel", "1": "Constant"},
+    "nonsymmetric_combination": {"0": "Sum", "1": "Concat"},
+    "symmetry": {"0": "NoSymm", "1": "Symmetric", "2": "Hermitian"},
+    "gmres": {"0": "none", "1": "unpreconditioned only", "2": "preconditioned only", "3": "both"}
+  },
+  "GENERATE": {
+    "selection": "all_tests",
+    "name": "my_rsrs_experiments",
+    "kind": "sh",
+    "output_dir": "generated_jobs",
+    "date": null,
+    "executable": "cargo run --release"
+  },
+  "SHARE_UNPRECONDITIONED": true,
+  "DEFAULTS": {
+    "operator": 19,
+    "precision": 1,
+    "dimension": 1,
+    "geometry": 6,
+    "h": 0.046,
+    "kappa": 1.73913,
+    "ref_level": null,
+    "depth": null,
+    "id_tols": [0.01, 0.0001],
+    "max_tree_depth": 16,
+    "leaf_size": null,
+    "n_sources": 3,
+    "assembler": 1,
+    "results": 0,
+    "gmres": 3,
+    "solve_tol": 1e-7,
+    "plot": true,
+    "dense_errors": false,
+    "factors_cn": false,
+    "oversampling": 8,
+    "oversampling_diag": 16,
+    "min_num_samples": 0,
+    "initial_num_samples": 0,
+    "fixed_rank_sampling": 0,
+    "nonsymmetric_combination": 1,
+    "run_seed": null,
+    "shift": 0.0,
+    "null_method": 0,
+    "qr": 0,
+    "srrqr_f": 1.01,
+    "block_extraction": 0,
+    "pivot": 2,
+    "lu_stab": 0.0,
+    "diag_stab": 0.0,
+    "tol_null": 1e-16,
+    "tol_ext_near": 1e-16,
+    "tol_ext_diag": 1e-16,
+    "min_rank": 1,
+    "min_level": 1,
+    "symmetry": 0,
+    "rank_picking": 0,
+    "factorization": 1,
+    "save_samples": false,
+    "load_samples": true,
+    "num_threads": 56,
+    "apply_threads": 56,
+    "flush_factors": false,
+    "store_far": false
+  },
+  "TESTS": {
+    "baseline": {
+      "tol_ext_near": 1e-16
+    },
+    "near_tolerance_comparison": {
+      "options": {},
+      "sweep": {
+        "tol_ext_near": [1e-8, 1e-10]
+      }
+    }
+  },
+  "BUNDLES": {
+    "all_tests": ["baseline", "near_tolerance_comparison"]
+  },
+  "SLURM": {
+    "job_name": "rsrs_tests",
+    "account": "PAS3325",
+    "time": "2-00:00:00",
+    "nodes": 1,
+    "ntasks": 1,
+    "cpus_per_task": 56,
+    "mem": "200G"
+  }
+}

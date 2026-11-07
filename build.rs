@@ -39,6 +39,16 @@ fn main() {
     println!("cargo:rerun-if-changed=c_src/structured_operator_interface.c");
     println!("cargo:rerun-if-env-changed=PYTHON_INCLUDE_DIR");
     println!("cargo:rerun-if-env-changed=PYTHON_LIB_DIR");
+    println!("cargo:rerun-if-env-changed=INTEL_LIB_DIR");
+
+    // ARPACK's complex Arnoldi routines require Intel's Fortran I/O runtime
+    // on Cardinal. Emit final linker arguments only when that environment is
+    // present, leaving non-Intel builds unchanged.
+    if let Ok(intel_lib_dir) = std::env::var("INTEL_LIB_DIR") {
+        println!("cargo:rustc-link-search=native={intel_lib_dir}");
+        println!("cargo:rustc-link-arg=-lifport");
+        println!("cargo:rustc-link-arg=-lifcoremt");
+    }
 
     // Get the Python include path
     let python_include = Command::new("python")

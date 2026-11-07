@@ -86,15 +86,49 @@ def h_neumann_data(d, kappa):
 
     return neumann_data
 
-def m_dirichlet_data(d, kappa):
+def maxwell_transverse_polarization(direction, preferred=None):
+    """Return a unit polarization orthogonal to the propagation direction."""
+    direction = np.asarray(direction, dtype=np.float64)
+    norm = np.linalg.norm(direction)
+    if norm == 0.0:
+        raise ValueError("direction must be nonzero")
+    d = direction / norm
+
+    if preferred is None:
+        preferred = np.array([-1.0, 0.0, 0.0], dtype=np.float64)
+    else:
+        preferred = np.asarray(preferred, dtype=np.float64)
+
+    polarization = preferred - np.dot(preferred, d) * d
+    pol_norm = np.linalg.norm(polarization)
+
+    if pol_norm < 1e-12:
+        canonical_axes = np.eye(3, dtype=np.float64)
+        axis = canonical_axes[np.argmin(np.abs(canonical_axes @ d))]
+        polarization = axis - np.dot(axis, d) * d
+        pol_norm = np.linalg.norm(polarization)
+
+    if pol_norm < 1e-12:
+        raise ValueError("could not construct a transverse Maxwell polarization")
+
+    return polarization / pol_norm
+
+
+def m_dirichlet_data(d, kappa, polarization=None):
     d = np.asarray(d, dtype=np.float64)
-    polarization = np.array([-1.0, 0, 0])
+    d_norm = np.linalg.norm(d)
+    if d_norm == 0.0:
+        raise ValueError("direction must be nonzero")
+    d = d / d_norm
+    polarization = maxwell_transverse_polarization(d, polarization)
+
     @bempp_cl.api.complex_callable
     def dirichlet_data(x, n, domain_index, result):
         incident_field = polarization * np.exp(1j * kappa * np.dot(d, x))
         result[:] = np.cross(incident_field, n)
 
     return dirichlet_data
+
 
 def h_combined_data(d, kappa):
     d = np.asarray(d, dtype=np.float64)
@@ -278,7 +312,7 @@ def right_hand_side(operator, problem_type, n_sources=1):
 
         for d in directions:
             d_data = m_dirichlet_data(d, kappa)
-            gfun = bempp_cl.api.GridFunction(operator.domain, fun=d_data)
+            gfun = bempp_cl.api.GridFunction(operator.domain, fun=d_data, dual_space=operator.dual_to_range)
             rhs_list.append(_gridfun_to_vec(gfun))
 
         return rhs_list

@@ -1,5 +1,8 @@
 *.json
+!configs/**/*.json
+.legacy/
 *.msh
+!extra_meshes/f16_mesh_width_2.00e-2_495380.msh
 *.h5
 
 # Rust

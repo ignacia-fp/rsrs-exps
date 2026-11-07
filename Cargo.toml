@@ -34,7 +34,9 @@ paste = "1"
 ndgrid = { git = "https://github.com/ignacia-fp/ndgrid-for-rsrs.git", features = [
     "serde",
 ] }
-bempp-rsrs = { git = "https://github.com/bempp/rsrs.git", branch = "main" }
+# Local development uses the standalone sibling checkout. Release and cluster
+# manifests should pin the corresponding Git revision instead.
+bempp-rsrs = { path = "../rsrs" }
 bempp = { git = "https://github.com/ignacia-fp/bempp-rs-for-rsrs.git", features = [
     "enable_tracing",
 ] }

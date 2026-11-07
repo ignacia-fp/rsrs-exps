@@ -77,7 +77,7 @@ def generate_random_points_on_square(
     points = origin + np.outer(s, u_vec) + np.outer(t, v_vec)
     return points'''
 
-    return sample_points_on_square(level=6, origin=np.array([0.0, 0.0, 0.000001]), total_points=n_points)
+    return sample_points_on_square(level=7, origin=np.array([0.0, 0.0, 0.000001]), total_points=n_points)
 
 
 def sample_points_on_square(
@@ -226,7 +226,7 @@ def get_geometry(geometry_type, dim_param):
     elif geometry_type == 'cube_surface':
         return bempp_cl.api.shapes.cube(h=dim_param)
     elif geometry_type == 'cylinder_surface':   
-        return sh.cylinder(r1 = 1.0, r2 = 1.0, h=0.5, lc = dim_param)#bempp_cl.api.shapes.cylinders(h=dim_param, r=[0.5])
+        return sh.cylinder(r1 = 1.0, r2 = 1.0, h=1.0, lc = dim_param)#bempp_cl.api.shapes.cylinders(h=dim_param, r=[0.5])
     elif geometry_type == 'ellipsoid_surface':
         return bempp_cl.api.shapes.ellipsoid(h=dim_param)
     elif geometry_type == 'trefoil_knot':

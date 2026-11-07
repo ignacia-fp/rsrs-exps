@@ -74,7 +74,7 @@ class RSRSBenchmarkConfig:
         f: float = 1.01,
         dim_arg_type: int = 2,
         geometry: int = 0,
-        solve_tol: float = 1e-10,
+        solve_tol: float = 1e-7,
         solve: bool = True,
         plot: bool = True,
         dense_errors: bool = False,
@@ -109,7 +109,9 @@ class RSRSBenchmarkConfig:
         store_far: bool = False,
         initial_num_samples = 0,
         assembler = 0,
-        symmetric = None
+        symmetric = None,
+        apply_threads: int | None = None,
+        leaf_size: int | None = None,
     ):
         
         """
@@ -430,6 +432,12 @@ class RSRSBenchmarkConfig:
         self.save_samples = save_samples
         self.load_samples = load_samples
         self.num_threads = num_threads
+        self.apply_threads = num_threads if apply_threads is None else apply_threads
+        self.leaf_size = leaf_size
+        if self.num_threads < 1 or self.apply_threads < 1:
+            raise ValueError("num_threads and apply_threads must be positive")
+        if self.leaf_size is not None and self.leaf_size < 1:
+            raise ValueError("leaf_size must be positive when provided")
         self.flush_factors = flush_factors
         self.store_far = store_far
         self.initial_num_samples = initial_num_samples
@@ -481,7 +489,7 @@ class RSRSBenchmarkConfig:
             "Meshwidth": {"MeshWidth": self.h},
             "RefinementLevelAndDepth": {"RefinementLevelAndDepth": (self.ref_level, self.depth)},
         }
-        return {
+        scenario = {
             "id_tols": self.id_tols,
             "dim_args": [dim_args_map[dim_type]],
             "geometry_type": self.geometry_types[self.geometry],
@@ -489,9 +497,12 @@ class RSRSBenchmarkConfig:
             "n_sources": self.n_sources,
             "assembler": self.assembler_types[self.assembler_index]
         }
+        if self.leaf_size is not None:
+            scenario["leaf_size"] = self.leaf_size
+        return scenario
 
     def output_args(self) -> Dict:
-        return {
+        args = {
             "solve": {"True": self.solve_tol} if self.solve else {"False": None},
             "plot": self.plot,
             "dense_errors": self.dense_errors,
@@ -531,6 +542,9 @@ class RSRSBenchmarkConfig:
             "store_far": self.store_far,
             "symmetric": self.symmetric,
         }
+        if self.apply_threads != self.num_threads:
+            args["apply_threads"] = self.apply_threads
+        return args
 
     def as_dict(self) -> Dict[str, Dict]:
         return {

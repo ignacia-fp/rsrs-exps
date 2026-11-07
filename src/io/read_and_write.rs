@@ -1,6 +1,7 @@
 use super::errors::rsrs_error_estimator;
 use crate::io::errors::frobenius_diff_and_reference_norm;
 use crate::io::errors::{DiffOperator, IdOperator, NormalOperator, ProductOperator};
+use crate::lanczos::{estimate_largest_eigenvalue_hermitian, LanczosOptions};
 use bempp_rsrs::rsrs::rsrs_cycle::Rsrs;
 use bempp_rsrs::rsrs::rsrs_factors::rsrs_operator::Inv;
 use bempp_rsrs::rsrs::sketch::SampleType;
@@ -53,6 +54,31 @@ const POWER_FORWARD_RSRS_SEED: u64 = 0xA200_0000_0000_0003;
 const POWER_INVERSE_DIFF_SEED: u64 = 0xA200_0000_0000_0004;
 const POWER_INVERSE_RSRS_SEED: u64 = 0xA200_0000_0000_0005;
 
+#[derive(Debug, Clone, Copy, Deserialize, Serialize)]
+#[serde(tag = "type")]
+pub enum NormEstimator {
+    Power {
+        iterations: usize,
+    },
+    Arnoldi {
+        max_iterations: i32,
+        tolerance: f64,
+    },
+    Lanczos {
+        max_iterations: usize,
+        min_iterations: usize,
+        tolerance: f64,
+    },
+}
+
+impl Default for NormEstimator {
+    fn default() -> Self {
+        Self::Power {
+            iterations: POWER_ITERATION_STEPS,
+        }
+    }
+}
+
 fn headline_accuracy_metrics(
     dim: usize,
     norm_apply_fro: f64,
@@ -61,6 +87,7 @@ fn headline_accuracy_metrics(
     norm_a_2: f64,
     err_solve_fro: f64,
     err_solve_2: f64,
+    norm_estimator: NormEstimator,
 ) -> serde_json::Value {
     fn finite_ratio(numerator: f64, denominator: f64) -> Option<f64> {
         let value = numerator / denominator;
@@ -93,6 +120,8 @@ fn headline_accuracy_metrics(
         serde_json::json!(format!("0x{FROB_INVERSE_SEED:016X}"));
     metrics["estimation"]["spectral_solve_seed"] =
         serde_json::json!(format!("0x{POWER_INVERSE_DIFF_SEED:016X}"));
+    metrics["estimation"]["spectral_estimator"] =
+        serde_json::to_value(norm_estimator).expect("serializable norm estimator");
     metrics
 }
 
@@ -158,6 +187,66 @@ where
     lambda
 }
 
+fn estimate_largest_eigenvalue<
+    Item: RlstScalar + RandScalar + NonSymmetricArnoldiUpdate + NonSymmetricArnoldiExtract,
+    Space: SamplingSpace<F = Item> + IndexableSpace,
+    OpImpl: AsApply<Domain = Space, Range = Space>,
+>(
+    operator: &OpImpl,
+    estimator: NormEstimator,
+    seed: u64,
+) -> Real<Item>
+where
+    StandardNormal: Distribution<Real<Item>>,
+    Standard: Distribution<Real<Item>>,
+    Real<Item>: RandScalar,
+    <<Space as LinearSpace>::E as ElementImpl>::Space: InnerProductSpace,
+{
+    match estimator {
+        NormEstimator::Power { iterations } => {
+            println!("[rsrs-exps][norm] estimator=power iterations={iterations}");
+            estimate_largest_eigenvalue_power(operator, iterations, seed)
+        }
+        NormEstimator::Arnoldi {
+            max_iterations,
+            tolerance,
+        } => {
+            println!(
+                "[rsrs-exps][norm] estimator=arnoldi max_iterations={max_iterations} tolerance={tolerance:.3e}"
+            );
+            let mut eigs = Eigs::new(
+                operator.r(),
+                Real::<Item>::from_f64(tolerance).unwrap(),
+                Some(max_iterations),
+                None,
+                None,
+            );
+            let (eigenvalues, _) = eigs.run(None, 1, None, false);
+            eigenvalues[0].abs()
+        }
+        NormEstimator::Lanczos {
+            max_iterations,
+            min_iterations,
+            tolerance,
+        } => {
+            let estimate = estimate_largest_eigenvalue_hermitian(
+                operator,
+                LanczosOptions {
+                    max_iterations,
+                    min_iterations,
+                    tolerance,
+                    seed,
+                },
+            );
+            println!(
+                "[rsrs-exps][norm] estimator=lanczos iterations={} converged={} ritz_residual={:.3e}",
+                estimate.iterations, estimate.converged, estimate.residual_bound
+            );
+            estimate.largest_eigenvalue
+        }
+    }
+}
+
 #[derive(Serialize, Clone)]
 pub struct Solves<Item: RlstScalar> {
     pub no_prec: Option<Vec<Vec<Real<Item>>>>,
@@ -173,6 +262,39 @@ pub struct Solves<Item: RlstScalar> {
     pub sols_approx_inv: Option<Vec<Vec<Item>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub vectors_file: Option<String>,
+}
+
+#[derive(Serialize)]
+struct UnpreconditionedGmresOutput<Item: RlstScalar> {
+    dimension: usize,
+    tolerance: f64,
+    solves: Solves<Item>,
+}
+
+/// Save a standalone baseline GMRES result without constructing RSRS factors.
+pub(crate) fn save_unpreconditioned_gmres<Item>(
+    mut solves: Solves<Item>,
+    tolerance: f64,
+    dimension: usize,
+    path_str: &str,
+) where
+    Item: RlstScalar + SolveVectorArchive<Item>,
+{
+    fs::create_dir_all(Path::new(path_str)).unwrap();
+    solves.vectors_file = save_solve_vectors(
+        &solves,
+        Real::<Item>::from_f64(tolerance).unwrap(),
+        path_str,
+    );
+    let output = UnpreconditionedGmresOutput {
+        dimension,
+        tolerance,
+        solves,
+    };
+    let path = Path::new(path_str).join("unpreconditioned_gmres.json");
+    let json = serde_json::to_string_pretty(&output).expect("Failed to serialize GMRES data");
+    let mut file = File::create(path).unwrap();
+    file.write_all(json.as_bytes()).unwrap();
 }
 
 #[derive(Serialize)]
@@ -779,6 +901,7 @@ pub(crate) fn save_error_stats<
     path_str: &str,
     transpose_matches_apply: bool,
     complex_symmetric_rsrs: bool,
+    norm_estimator: NormEstimator,
 ) where
     StandardNormal: Distribution<Real<Item>>,
     Standard: Distribution<Real<Item>>,
@@ -851,8 +974,7 @@ pub(crate) fn save_error_stats<
         transpose_matches_apply: approx_transpose_matches_apply,
     };
     let stage = start_save_stage("largest singular value of operator difference");
-    let sigma_1 =
-        estimate_largest_eigenvalue_power(&normal, POWER_ITERATION_STEPS, POWER_FORWARD_DIFF_SEED);
+    let sigma_1 = estimate_largest_eigenvalue(&normal, norm_estimator, POWER_FORWARD_DIFF_SEED);
     finish_save_stage("largest singular value of operator difference", stage);
 
     let normal_structured = NormalOperator {
@@ -860,11 +982,8 @@ pub(crate) fn save_error_stats<
         transpose_matches_apply,
     };
     let stage = start_save_stage("largest singular value of original operator");
-    let sigma_2 = estimate_largest_eigenvalue_power(
-        &normal_structured,
-        POWER_ITERATION_STEPS,
-        POWER_FORWARD_A_SEED,
-    );
+    let sigma_2 =
+        estimate_largest_eigenvalue(&normal_structured, norm_estimator, POWER_FORWARD_A_SEED);
     finish_save_stage("largest singular value of original operator", stage);
 
     let normal_rsrs = NormalOperator {
@@ -872,11 +991,7 @@ pub(crate) fn save_error_stats<
         transpose_matches_apply: approx_transpose_matches_apply,
     };
     let stage = start_save_stage("largest singular value of RSRS operator");
-    let c_1 = estimate_largest_eigenvalue_power(
-        &normal_rsrs,
-        POWER_ITERATION_STEPS,
-        POWER_FORWARD_RSRS_SEED,
-    );
+    let c_1 = estimate_largest_eigenvalue(&normal_rsrs, norm_estimator, POWER_FORWARD_RSRS_SEED);
     finish_save_stage("largest singular value of RSRS operator", stage);
 
     let norm_apply_2 = sigma_1.abs().sqrt();
@@ -912,8 +1027,7 @@ pub(crate) fn save_error_stats<
     };
 
     let stage = start_save_stage("largest singular value of inverse residual");
-    let sigma_1 =
-        estimate_largest_eigenvalue_power(&normal, POWER_ITERATION_STEPS, POWER_INVERSE_DIFF_SEED);
+    let sigma_1 = estimate_largest_eigenvalue(&normal, norm_estimator, POWER_INVERSE_DIFF_SEED);
     finish_save_stage("largest singular value of inverse residual", stage);
 
     let normal_rsrs = NormalOperator {
@@ -921,11 +1035,7 @@ pub(crate) fn save_error_stats<
         transpose_matches_apply: approx_transpose_matches_apply,
     };
     let stage = start_save_stage("largest singular value of inverse RSRS operator");
-    let c_2 = estimate_largest_eigenvalue_power(
-        &normal_rsrs,
-        POWER_ITERATION_STEPS,
-        POWER_INVERSE_RSRS_SEED,
-    );
+    let c_2 = estimate_largest_eigenvalue(&normal_rsrs, norm_estimator, POWER_INVERSE_RSRS_SEED);
     finish_save_stage("largest singular value of inverse RSRS operator", stage);
 
     let err_solve_2 = sigma_1.abs().sqrt();
@@ -978,6 +1088,7 @@ pub(crate) fn save_error_stats<
             NumCast::from(norm_a_2).unwrap(),
             NumCast::from(err_solve_fro).unwrap(),
             NumCast::from(err_solve_2).unwrap(),
+            norm_estimator,
         ),
         app_inv_err_left,
         app_inv_err_right,
@@ -1106,7 +1217,8 @@ mod tests {
 
     #[test]
     fn headline_metrics_use_distinct_normalizations() {
-        let metrics = headline_accuracy_metrics(25, 4.0, 20.0, 3.0, 12.0, 0.5, 0.3);
+        let metrics =
+            headline_accuracy_metrics(25, 4.0, 20.0, 3.0, 12.0, 0.5, 0.3, NormEstimator::default());
         assert_eq!(metrics["compression_relerr_fro"], 0.2);
         assert_eq!(metrics["compression_relerr_2"], 0.25);
         assert_eq!(metrics["solve_residual_relerr_fro"], 0.1);
@@ -1128,7 +1240,16 @@ mod tests {
 
     #[test]
     fn headline_metrics_do_not_turn_undefined_errors_into_zero() {
-        let metrics = headline_accuracy_metrics(0, 0.0, 0.0, 0.0, 0.0, 0.5, f64::NAN);
+        let metrics = headline_accuracy_metrics(
+            0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.5,
+            f64::NAN,
+            NormEstimator::default(),
+        );
         assert!(metrics["compression_relerr_fro"].is_null());
         assert!(metrics["compression_relerr_2"].is_null());
         assert!(metrics["solve_residual_relerr_fro"].is_null());
@@ -1377,6 +1498,35 @@ mod tests {
         assert!(
             rel_err <= 1.0e-8,
             "eigs 2-norm estimate too far from exact: estimated={estimated_norm}, exact={exact_norm}, rel_err={rel_err}"
+        );
+    }
+
+    #[test]
+    fn lanczos_normal_estimator_matches_dense_spectral_norm() {
+        let mut matrix = rlst_dynamic_array2!(Complex<f64>, [10, 10]);
+        populate_complex_test_matrix(&mut matrix);
+
+        let exact_norm = exact_spectral_norm_complex(&matrix);
+        let op = DenseMatrixOperator::new(matrix);
+        let normal = NormalOperator {
+            op: op.r(),
+            transpose_matches_apply: false,
+        };
+        let eigenvalue = estimate_largest_eigenvalue(
+            &normal,
+            NormEstimator::Lanczos {
+                max_iterations: 10,
+                min_iterations: 2,
+                tolerance: 1.0e-12,
+            },
+            POWER_FORWARD_A_SEED,
+        );
+        let estimated_norm: f64 = NumCast::from(eigenvalue.sqrt()).unwrap();
+        let rel_err = (estimated_norm - exact_norm).abs() / exact_norm;
+
+        assert!(
+            rel_err <= 1.0e-8,
+            "Lanczos 2-norm estimate too far from exact: estimated={estimated_norm}, exact={exact_norm}, rel_err={rel_err}"
         );
     }
 }

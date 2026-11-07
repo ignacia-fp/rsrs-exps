@@ -1,0 +1,11 @@
+{
+  "kernel": "laplace_single_layer",
+  "geometry": "sphere",
+  "refinement_level": 4,
+  "precision": "double",
+  "assembler": "exafmm",
+  "parameters": {
+    "fmm_expansion_order": 3,
+    "quadrature_regular": 2
+  }
+}

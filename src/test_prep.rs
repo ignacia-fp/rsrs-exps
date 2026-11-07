@@ -1,5 +1,7 @@
 use crate::io::plot_results::time_piechart;
-use crate::io::read_and_write::{save_error_stats, save_rank_stats, save_time_stats, Solves};
+use crate::io::read_and_write::{
+    save_error_stats, save_rank_stats, save_time_stats, NormEstimator, Solves,
+};
 use crate::io::solve::{apply_inverse_system, solve_system};
 use crate::io::structured_operator::{
     get_bempp_points, GeometryType, StructuredOperator, StructuredOperatorImpl,
@@ -55,6 +57,8 @@ pub enum DimArg<Item: RlstScalar> {
 #[derive(Debug, Clone, Deserialize)]
 pub enum Solve {
     True(f64),
+    UnprecOnly(f64),
+    PrecOnly(f64),
     False,
 }
 
@@ -65,6 +69,8 @@ pub struct ScenarioArgs<Item: RlstScalar> {
     dim_args: Vec<DimArg<Item>>,
     geometry_type: GeometryType,
     max_tree_depth: usize,
+    #[serde(default)]
+    leaf_size: Option<usize>,
     n_sources: i32,
     assembler: Assembler,
 }
@@ -93,6 +99,7 @@ pub struct ScenarioOptions<Item: RlstScalar> {
     geometry_type: GeometryType,
     pub precision: Precision,
     max_tree_depth: usize,
+    leaf_size: Option<usize>,
     n_sources: i32,
     assembler: Assembler,
 }
@@ -163,6 +170,14 @@ Please classify it explicitly as 2D, 3D surface, or 3D volume.",
             )
         }
     }
+}
+
+fn max_leaf_points(
+    configured_leaf_size: Option<usize>,
+    id_tol: f64,
+    geometry_type: &GeometryType,
+) -> usize {
+    configured_leaf_size.unwrap_or_else(|| default_max_leaf_points(id_tol, geometry_type))
 }
 
 impl<Item: RlstScalar> TestParams<Item> {
@@ -311,6 +326,7 @@ impl<Item: RlstScalar> ScenarioArgs<Item> {
             dim_args,
             geometry_type,
             max_tree_depth,
+            leaf_size: None,
             n_sources,
             assembler,
         }
@@ -352,6 +368,7 @@ impl<Item: RlstScalar> ScenarioOptions<Item> {
             geometry_type: args.geometry_type,
             precision: data_type.precision,
             max_tree_depth: args.max_tree_depth,
+            leaf_size: args.leaf_size,
             n_sources: args.n_sources,
             assembler: args.assembler,
         }
@@ -365,6 +382,8 @@ pub struct OutputOptions {
     dense_errors: bool,
     factors_cn: bool,
     results_output: Results,
+    #[serde(default)]
+    norm_estimator: NormEstimator,
 }
 
 impl OutputOptions {
@@ -381,6 +400,7 @@ impl OutputOptions {
             dense_errors,
             factors_cn,
             results_output,
+            norm_estimator: NormEstimator::default(),
         }
     }
 }
@@ -490,8 +510,28 @@ macro_rules! implement_test_framework {
                         vectors_file: None,
                     };
 
+                    if let Solve::UnprecOnly(tol) = self.output_options.solve {
+                        let label = format!(
+                            "solve without preconditioner only ({} rhs, tol={:.3e})",
+                            rhs.len(), tol
+                        );
+                        let stage = start_root_stage(rank, &label);
+                        let (its, rel_err, sols) = solve_system(&operator, &rhs, tol);
+                        finish_root_stage(rank, &label, stage);
+                        base_solves.no_prec = Some(its);
+                        base_solves.rel_err_no_prec = Some(rel_err);
+                        base_solves.sols_no_prec = Some(sols);
+                        if rank == 0 {
+                            crate::io::read_and_write::save_unpreconditioned_gmres(
+                                base_solves, tol, dim, &path_str,
+                            );
+                        }
+                        continue;
+                    }
+
                     for &id_tol in self.test_params.scenario_params.id_tols.iter() {
-                        let max_leaf_points = default_max_leaf_points(
+                        let max_leaf_points = max_leaf_points(
+                            self.test_params.scenario_params.leaf_size,
                             id_tol.to_f64().unwrap(),
                             &self.test_params.scenario_params.geometry_type,
                         );
@@ -580,7 +620,7 @@ macro_rules! implement_test_framework {
                         solves.rel_err_approx_inv = Some(rel_err);
                         solves.sols_approx_inv = Some(sols_approx_inv);
                         match self.output_options.solve {
-                            Solve::True(tol) => {
+                            Solve::True(tol) | Solve::PrecOnly(tol) => {
                                 let label = format!(
                                     "solve with RSRS preconditioner ({} rhs, tol={:.3e})",
                                     rhs.len(),
@@ -594,7 +634,7 @@ macro_rules! implement_test_framework {
                                 solves.rel_err_prec = Some(rel_err);
                                 solves.sols_prec = Some(sols);
                             }
-                            Solve::False => {}
+                            Solve::False | Solve::UnprecOnly(_) => {}
                         };
                         rsrs_operator.inv(false);
                         finish_root_stage(rank, &label, stage);
@@ -614,6 +654,7 @@ macro_rules! implement_test_framework {
                                         .rsrs_params
                                         .symmetry
                                         .complex_symmetric_val::<Self::Item>(),
+                                    self.output_options.norm_estimator,
                                 );
                                 finish_root_stage(rank, "save error statistics", stage);
                                 let stage = start_root_stage(rank, "save time statistics");
@@ -686,6 +727,7 @@ macro_rules! implement_test_framework {
                                         .rsrs_params
                                         .symmetry
                                         .complex_symmetric_val::<Self::Item>(),
+                                    self.output_options.norm_estimator,
                                 );
                                 finish_root_stage(rank, "save error statistics", stage);
                                 let stage = start_root_stage(rank, "save rank statistics");
@@ -875,6 +917,9 @@ macro_rules! implement_distributed_test_framework {
                     );
                     log_root(rank, &format!("{dim} local degrees of freedom"));
 
+                    let path_str = self.test_params.get_test_dir(dim_num);
+                    let preferred_sampling_dir = self.test_params.get_sample_storage_dir(dim_num);
+
                     let mut base_solves = Solves {
                         no_prec: None,
                         prec: None,
@@ -887,13 +932,31 @@ macro_rules! implement_distributed_test_framework {
                         vectors_file: None,
                     };
 
-                    let path_str = self.test_params.get_test_dir(dim_num);
-                    let preferred_sampling_dir = self.test_params.get_sample_storage_dir(dim_num);
+                    if let Solve::UnprecOnly(tol) = self.output_options.solve {
+                        let label = format!(
+                            "solve without preconditioner only ({} rhs, tol={:.3e})",
+                            rhs.len(), tol
+                        );
+                        let stage = start_root_stage(rank, &label);
+                        let (its, rel_err, sols) = solve_system(&operator, &rhs, tol);
+                        finish_root_stage(rank, &label, stage);
+                        base_solves.no_prec = Some(its);
+                        base_solves.rel_err_no_prec = Some(rel_err);
+                        base_solves.sols_no_prec = Some(sols);
+                        if rank == 0 {
+                            crate::io::read_and_write::save_unpreconditioned_gmres(
+                                base_solves, tol, dim, &path_str,
+                            );
+                        }
+                        continue;
+                    }
+
                     self.test_params.rsrs_params.sketching.sample_storage_dir =
                         Some(preferred_sampling_dir.to_string_lossy().into_owned());
 
                     for &id_tol in self.test_params.scenario_params.id_tols.iter() {
-                        let max_leaf_points = default_max_leaf_points(
+                        let max_leaf_points = max_leaf_points(
+                            self.test_params.scenario_params.leaf_size,
                             id_tol.to_f64().unwrap(),
                             &self.test_params.scenario_params.geometry_type,
                         );
@@ -965,7 +1028,7 @@ macro_rules! implement_distributed_test_framework {
                         solves.sols_approx_inv = Some(sols_approx_inv);
 
                         match self.output_options.solve {
-                            Solve::True(tol) => {
+                            Solve::True(tol) | Solve::PrecOnly(tol) => {
                                 let label = format!(
                                     "solve with RSRS preconditioner ({} rhs, tol={:.3e})",
                                     rhs.len(),
@@ -978,7 +1041,7 @@ macro_rules! implement_distributed_test_framework {
                                 solves.rel_err_prec = Some(rel_err);
                                 solves.sols_prec = Some(sols);
                             }
-                            Solve::False => {},
+                            Solve::False | Solve::UnprecOnly(_) => {},
                         };
                         rsrs_operator.inv(false);
                         finish_root_stage(rank, &label, stage);
@@ -998,6 +1061,7 @@ macro_rules! implement_distributed_test_framework {
                                         .rsrs_params
                                         .symmetry
                                         .complex_symmetric_val::<Self::Item>(),
+                                    self.output_options.norm_estimator,
                                 );
                                 finish_root_stage(rank, "save error statistics", stage);
                                 let stage = start_root_stage(rank, "save time statistics");
@@ -1065,6 +1129,7 @@ macro_rules! implement_distributed_test_framework {
                                         .rsrs_params
                                         .symmetry
                                         .complex_symmetric_val::<Self::Item>(),
+                                    self.output_options.norm_estimator,
                                 );
                                 finish_root_stage(rank, "save error statistics", stage);
                                 let stage = start_root_stage(rank, "save rank statistics");

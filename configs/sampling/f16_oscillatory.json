@@ -1,0 +1,14 @@
+{
+  "kernel": "f16_helmholtz_combined",
+  "geometry": "f16",
+  "mesh": "../../extra_meshes/f16_mesh_width_2.00e-2_495380.msh",
+  "mesh_width": 0.02,
+  "kappa": 4.0,
+  "precision": "double",
+  "assembler": "exafmm",
+  "expected_dofs": 495380,
+  "parameters": {
+    "fmm_expansion_order": 8,
+    "quadrature_regular": 2
+  }
+}

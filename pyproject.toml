@@ -1,0 +1,24 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "rsrs-experiments"
+version = "0.1.0.dev0"
+description = "Parallel sampling, RSRS execution, reporting, and plotting workflows"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.26,<3",
+    "scipy>=1.11,<2",
+    "so-kernels>=0.1.0.dev0",
+]
+
+[project.optional-dependencies]
+plot = ["matplotlib>=3.8,<4"]
+dev = ["pytest>=8,<10"]
+
+[project.scripts]
+rsrs-experiment = "rsrs_experiments.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["python/rsrs_experiments"]

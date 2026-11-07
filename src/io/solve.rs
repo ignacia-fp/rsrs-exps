@@ -8,7 +8,8 @@ use rlst::{
 use std::time::Instant;
 
 const GMRES_RESTART: usize = 20;
-const GMRES_MAX_ITER: usize = 5000;
+const GMRES_MAX_ITER: usize = 500;
+const GMRES_MAX_ITER_1: usize = 500;
 
 /// Solve a system for multiple RHS vectors
 pub fn solve_system<
@@ -42,7 +43,7 @@ where
         dim,
         tol,
         GMRES_RESTART,
-        GMRES_MAX_ITER
+        GMRES_MAX_ITER_1
     );
 
     for (rhs_idx, rhs) in rhs_list.iter().enumerate() {
@@ -67,7 +68,7 @@ where
             })
             .set_tol(Item::real(tol))
             .set_restart(GMRES_RESTART)
-            .set_max_iter(GMRES_MAX_ITER);
+            .set_max_iter(GMRES_MAX_ITER_1);
 
         let (sol, _res) = gmres.run();
 
