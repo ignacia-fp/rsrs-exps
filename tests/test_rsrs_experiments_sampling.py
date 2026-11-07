@@ -135,8 +135,8 @@ def test_sample_cache_runs_rsrs_and_extracts_errors(tmp_path):
         {
             "oversampling": 8,
             "oversampling_diag_blocks": 8,
-            "fixed_rank_sampling_mode": "Constant",
-            "tol_id": 8.0,
+            "fixed_rank_sampling_mode": "PerLevel",
+            "tol_id": 0.01,
             "symmetry": "NoSymm",
             "rank_picking": "Min",
             "load_samples": True,
@@ -145,8 +145,25 @@ def test_sample_cache_runs_rsrs_and_extracts_errors(tmp_path):
             "threads": {"factorization_threads": 1, "apply_threads": 1},
         },
         output=tmp_path / "rsrs_result",
+        gmres_options={
+            "mode": "both",
+            "tolerance": 1.0e-7,
+            "max_iterations": 100,
+            "rhs_count": 2,
+        },
     )
     assert result.report["status"] == "complete"
     assert result.report["errors"]["factor_relative_2"] < 1e-2
     assert result.report["errors"]["inverse_residual_relative_fro"] < 1e-2
+    assert result.report["rsrs"]["ranks"]
+    assert result.report["rsrs"]["active_samples"] > 0
+    assert set(result.report["gmres"]["solves"]) == {
+        "unpreconditioned",
+        "preconditioned",
+    }
+    assert all(
+        solve["recorded_residuals"]
+        for solves in result.report["gmres"]["solves"].values()
+        for solve in solves
+    )
     assert (tmp_path / "rsrs_result" / "rsrs_report.json").is_file()

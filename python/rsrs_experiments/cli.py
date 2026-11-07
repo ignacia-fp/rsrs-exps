@@ -10,7 +10,7 @@ from pathlib import Path
 from .cache import SampleCache
 from .configuration import load_definition, option_guide, render_script
 from .plotting import plot_error_summary
-from .runner import run_rsrs
+from .runner import run_case, run_rsrs
 from .sampling import ParallelSamplingConfig, sample_operator
 
 
@@ -51,6 +51,13 @@ def _run(args: argparse.Namespace) -> int:
         points=args.points,
     )
     print(json.dumps(result.report["errors"], indent=2))
+    return 0
+
+
+def _run_case(args: argparse.Namespace) -> int:
+    result = run_case(_json(args.case))
+    report = result.report if hasattr(result, "report") else result
+    print(json.dumps(report, indent=2))
     return 0
 
 
@@ -101,7 +108,7 @@ def _build(args: argparse.Namespace) -> int:
             script_name=settings["name"],
             kind=settings.get("kind", "sh"),
             creation_date=created,
-            executable=settings.get("executable", "cargo run --release"),
+            executable=settings.get("executable", "rsrs-experiment run-case"),
         )
         print(path)
     return 0
@@ -133,6 +140,11 @@ def parser() -> argparse.ArgumentParser:
     run.add_argument("--error-seed", type=int, default=1701)
     run.add_argument("--points", type=Path)
     run.set_defaults(handler=_run)
+    case = commands.add_parser(
+        "run-case", help="run one JSON-defined sampling/factorisation/solve case"
+    )
+    case.add_argument("case", help="JSON object or path to a JSON case")
+    case.set_defaults(handler=_run_case)
     plot = commands.add_parser("plot-errors", help="plot errors from an RSRS JSON report")
     plot.add_argument("--report", type=Path, required=True)
     plot.add_argument("--output", type=Path, required=True)
@@ -151,7 +163,7 @@ def parser() -> argparse.ArgumentParser:
     render.add_argument("--kind", choices=("sh", "sbatch"), default="sh")
     render.add_argument("--output-dir", type=Path, default=Path("generated_jobs"))
     render.add_argument("--date", help="override creation date (YYYY-MM-DD)")
-    render.add_argument("--executable", default="cargo run --release", help="driver command")
+    render.add_argument("--executable", default="rsrs-experiment run-case", help="driver command")
     render.set_defaults(handler=_render)
     return root
 

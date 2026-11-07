@@ -1,60 +1,36 @@
-"""Copy this file and edit its dictionaries to define experiment bundles.
-
-Run ``rsrs-experiment options`` for the complete numbered option guide.
-Only values that differ from DEFAULTS need to be specified in each test.
-"""
+"""Small local BIEGrid bundle using the Python-only experiment path."""
 
 DEFAULTS = {
-    "operator": 19,                 # BemppClHelmholtzCombined
-    "precision": 1,                # Double
-    "dimension": 1,                # KappaAndMeshwidth
-    "geometry": 6,                 # F16
-    "assembler": 1,                # ExaFMM
-    "symmetry": 0,                 # NoSymm
-    "nonsymmetric_combination": 1, # Concat
-    "fixed_rank_sampling": 0,      # PerLevel
-    "factorization": 1,            # Joint
-    "max_tree_depth": 16,
-    "num_threads": 56,
-    "load_samples": True,
-    "save_samples": False,
-    "solve_tol": 1e-7,
-    "gmres": 3,                     # Both; equivalent bundle tests share baseline GMRES
+    "operator": 3,
+    "operator_parameters": {"cells_per_axis": 8},
+    "sample_cache": "results/sample_cache/biegrid_complex",
+    "sampling": {
+        "target": 200,
+        "workers": 4,
+        "batch_size": 10,
+        "symmetry": 2,
+        "validation": "sampled",
+    },
+    "rsrs": {
+        "tol_id": 1.0e-2,
+        "max_tree_depth": 6,
+        "symmetry": 0,
+        "nonsymmetric_id_combination": 1,
+    },
+    "diagnostics": {
+        "gmres": {"mode": 3, "tolerance": 1.0e-7, "rhs_count": 3}
+    },
 }
-
-# When true, the first equivalent test runs both GMRES variants and later
-# RSRS-parameter variants automatically use preconditioned-only GMRES.
-SHARE_UNPRECONDITIONED = True
 
 TESTS = {
-    "quasi": {
-        "options": {
-            "h": 0.046,
-            "kappa": 1.73913,
-            "id_tols": [1e-2, 1e-4],
-        },
-        # A Cartesian sweep: this produces two commands.
-        "sweep": {"tol_ext_near": [1e-8, 1e-16]},
-    },
-    "intermediate": {
-        "h": 0.03,
-        "kappa": 2.6666667,
-        "id_tols": [1e-2, 1e-4],
-        "tol_ext_near": 1e-16,
+    "baseline": {},
+    "near_tolerance": {
+        "options": {},
+        "sweep": {"rsrs.tol_ext_near": [1.0e-8, 1.0e-16]},
     },
 }
 
-BUNDLES = {
-    "f16_all": ["quasi", "intermediate"],
-}
-
-# Used only when --kind sbatch is selected. Keys become #SBATCH --key=value.
-SLURM = {
-    "job_name": "f16_rsrs",
-    "account": "PAS3325",
-    "time": "2-00:00:00",
-    "nodes": 1,
-    "ntasks": 1,
-    "cpus_per_task": 56,
-    "mem": "200G",
-}
+BUNDLES = {"all": ["baseline", "near_tolerance"]}
+SHARE_UNPRECONDITIONED = True
+SLURM = {"job_name": "biegrid", "cpus_per_task": 4, "mem": "8G", "time": "01:00:00"}
+GENERATE = {"selection": "all", "name": "biegrid_example", "kind": "sh"}

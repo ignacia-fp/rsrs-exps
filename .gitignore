@@ -5,10 +5,6 @@
 !extra_meshes/f16_mesh_width_2.00e-2_495380.msh
 *.h5
 
-# Rust
-target/
-Cargo.lock
-
 # Python
 .venv/
 .python-version

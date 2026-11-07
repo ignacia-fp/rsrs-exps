@@ -12,12 +12,12 @@ The refactoring separates four responsibilities:
   factorisation and factor application.
 - `python/rsrs_experiments` owns sampling, validation, orchestration, GMRES,
   reporting, and plotting.
-- `python/rsrs_runtime` is the transitional Python API for samples, factors,
-  configuration, and structured reports.
+- `bempp_rsrs` exposes sample-fed factorisation, factor application, ranks,
+  timings, effort, and memory statistics from the sibling Rust repository.
 
-The Rust code in `src/` remains a compatibility driver while the Python
-factor binding is completed. New experiment definitions should use the
-versioned JSON/Python configuration layer rather than adding one-off scripts.
+This repository is Python-only. Rust factorisation code and its PyO3 binding
+live in `../rsrs`; new experiments use the versioned JSON/Python configuration
+layer rather than adding one-off drivers.
 
 ## Development setup
 

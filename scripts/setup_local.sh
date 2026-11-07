@@ -6,7 +6,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 WORKSPACE="${WORKSPACE:-$REPO_ROOT}"
 DEPS_DIR="${DEPS_DIR:-$WORKSPACE/.deps}"
-BUILD_RUST_PROJECT="${BUILD_RUST_PROJECT:-1}"
+BUILD_RSRS_EXTENSION="${BUILD_RSRS_EXTENSION:-1}"
 PYTHON_BIN="${PYTHON_BIN:-}"
 INSTALL_SYSTEM_PACKAGES=0
 INSTALL_RUST=0
@@ -85,7 +85,7 @@ Run the non-Docker rsrs-exps setup on the host system.
 Options:
   --install-system-packages  Install the Ubuntu/Debian package prerequisites with apt-get.
   --install-rust             Install Rust with rustup if cargo is not already available.
-  --skip-rust-build          Skip the final top-level cargo build.
+  --skip-rust-build          Skip building the sibling RSRS Python extension.
   --python BIN              Use BIN to create the virtual environment.
   --deps-dir PATH           Store dependency build caches in PATH.
   -h, --help                Show this help text.
@@ -111,7 +111,7 @@ while [ "$#" -gt 0 ]; do
       INSTALL_RUST=1
       ;;
     --skip-rust-build)
-      BUILD_RUST_PROJECT=0
+      BUILD_RSRS_EXTENSION=0
       ;;
     --python)
       shift
@@ -211,7 +211,7 @@ git -C "$REPO_ROOT" submodule update --init --recursive
 WORKSPACE="$WORKSPACE" \
 DEPS_DIR="$DEPS_DIR" \
 PYTHON_BIN="$PYTHON_BIN" \
-BUILD_RUST_PROJECT="$BUILD_RUST_PROJECT" \
+BUILD_RSRS_EXTENSION="$BUILD_RSRS_EXTENSION" \
 "$REPO_ROOT/scripts/setup_deps.sh" true
 
 cat <<EOF

@@ -10,14 +10,102 @@ import time
 from typing import Any, Mapping
 
 import numpy as np
+from scipy.sparse.linalg import LinearOperator, gmres
 
 from .cache import SampleCache
+from .sampling import ParallelSamplingConfig, sample_operator
 
 
 @dataclass(frozen=True)
 class RsrsRunResult:
     factors: Any
     report: dict[str, Any]
+
+
+def _linear_operator(operator: Any) -> LinearOperator:
+    if hasattr(operator, "aslinearoperator"):
+        return operator.aslinearoperator()
+    return LinearOperator(
+        operator.shape,
+        dtype=np.dtype(operator.dtype),
+        matvec=operator.matvec,
+        matmat=getattr(operator, "matmat", None),
+    )
+
+
+def _right_hand_sides(operator: Any, *, count: int, seed: int) -> np.ndarray:
+    provider = getattr(operator, "right_hand_sides", None)
+    if callable(provider):
+        values = np.asarray(provider(count=count))
+        return values.reshape(operator.shape[0], count)
+    dtype = np.dtype(operator.dtype)
+    rng = np.random.default_rng(seed)
+    values = rng.standard_normal((operator.shape[0], count)).astype(dtype)
+    if np.issubdtype(dtype, np.complexfloating):
+        values += 1j * rng.standard_normal(values.shape)
+    return values
+
+
+def _gmres_report(
+    operator: Any,
+    factors: Any | None,
+    *,
+    mode: str,
+    tolerance: float,
+    max_iterations: int,
+    restart: int | None,
+    rhs_count: int,
+    seed: int,
+) -> dict[str, Any]:
+    if mode == "none":
+        return {"mode": mode, "solves": {}}
+    if mode not in {"unpreconditioned", "preconditioned", "both"}:
+        raise ValueError(f"unknown GMRES mode {mode!r}")
+    if mode in {"preconditioned", "both"} and factors is None:
+        raise ValueError("preconditioned GMRES requires RSRS factors")
+    matrix = _linear_operator(operator)
+    rhs = _right_hand_sides(operator, count=rhs_count, seed=seed)
+    variants = []
+    if mode in {"unpreconditioned", "both"}:
+        variants.append(("unpreconditioned", None))
+    if mode in {"preconditioned", "both"}:
+        variants.append(("preconditioned", factors.aslinearoperator(inverse=True)))
+    report: dict[str, Any] = {"mode": mode, "tolerance": tolerance, "solves": {}}
+    for name, preconditioner in variants:
+        solves = []
+        for column in range(rhs_count):
+            history: list[float] = []
+            started = time.perf_counter()
+            solution, info = gmres(
+                matrix,
+                rhs[:, column],
+                M=preconditioner,
+                rtol=tolerance,
+                atol=0.0,
+                restart=restart,
+                maxiter=max_iterations,
+                callback=lambda value: history.append(float(value)),
+                # ``legacy`` reports the preconditioned residual norm while
+                # interpreting maxiter as inner iterations, matching the
+                # historical RSRS experiment driver and its 500-iteration cap.
+                callback_type="legacy",
+            )
+            denominator = max(float(np.linalg.norm(rhs[:, column])), np.finfo(float).tiny)
+            true_residual = float(
+                np.linalg.norm(_apply(operator, solution) - rhs[:, column]) / denominator
+            )
+            solves.append(
+                {
+                    "rhs": column,
+                    "info": int(info),
+                    "iterations": len(history),
+                    "recorded_residuals": history,
+                    "final_true_relative_residual": true_residual,
+                    "seconds": time.perf_counter() - started,
+                }
+            )
+        report["solves"][name] = solves
+    return report
 
 
 def _apply(operator: Any, values: np.ndarray) -> np.ndarray:
@@ -75,6 +163,7 @@ def run_rsrs(
     error_probes: int = 4,
     error_seed: int = 1701,
     points: np.ndarray | Path | None = None,
+    gmres_options: Mapping[str, Any] | None = None,
 ) -> RsrsRunResult:
     from bempp_rsrs import InsufficientSamplesError, RsrsOptions, RsrsSession
     from so_kernels import create_operator
@@ -114,6 +203,19 @@ def run_rsrs(
     error_started = time.perf_counter()
     errors = _errors(operator, factors, seed=error_seed, probes=error_probes)
     error_seconds = time.perf_counter() - error_started
+    gmres_options = dict(gmres_options or {})
+    gmres_result = _gmres_report(
+        operator,
+        factors,
+        mode=str(gmres_options.pop("mode", "none")),
+        tolerance=float(gmres_options.pop("tolerance", 1.0e-7)),
+        max_iterations=int(gmres_options.pop("max_iterations", 500)),
+        restart=gmres_options.pop("restart", None),
+        rhs_count=int(gmres_options.pop("rhs_count", 1)),
+        seed=int(gmres_options.pop("seed", 1701)),
+    )
+    if gmres_options:
+        raise ValueError(f"unknown GMRES options: {sorted(gmres_options)}")
     report = {
         "created_utc": datetime.now(timezone.utc).isoformat(),
         "status": "complete",
@@ -123,12 +225,77 @@ def run_rsrs(
         "dtype": str(factors.dtype),
         "sample_count": manifest["sample_count"],
         "configuration": options.to_mapping(),
+        "rsrs": factors.report,
         "timings_seconds": {
             "factorization": factorization_seconds,
             "error_computation": error_seconds,
         },
         "errors": errors,
+        "gmres": gmres_result,
     }
     output.mkdir(parents=True, exist_ok=True)
     (output / "rsrs_report.json").write_text(json.dumps(report, indent=2) + "\n")
     return RsrsRunResult(factors, report)
+
+
+def run_case(case: Mapping[str, Any]) -> RsrsRunResult | dict[str, Any]:
+    """Execute one complete Python-owned experiment definition."""
+    from so_kernels import create_operator
+
+    definition = dict(case)
+    operator_spec = dict(definition["operator"])
+    output = Path(definition["output"])
+    diagnostics = dict(definition.get("diagnostics", {}))
+    gmres_options = dict(diagnostics.pop("gmres", {}))
+    gmres_mode = str(gmres_options.get("mode", "none"))
+    if gmres_mode == "unpreconditioned":
+        operator = create_operator(operator_spec)
+        gmres_result = _gmres_report(
+            operator,
+            None,
+            mode=gmres_mode,
+            tolerance=float(gmres_options.get("tolerance", 1.0e-7)),
+            max_iterations=int(gmres_options.get("max_iterations", 500)),
+            restart=gmres_options.get("restart"),
+            rhs_count=int(gmres_options.get("rhs_count", 1)),
+            seed=int(gmres_options.get("seed", 1701)),
+        )
+        report = {
+            "created_utc": datetime.now(timezone.utc).isoformat(),
+            "status": "complete",
+            "operator": operator_spec,
+            "gmres": gmres_result,
+        }
+        output.mkdir(parents=True, exist_ok=True)
+        (output / "rsrs_report.json").write_text(json.dumps(report, indent=2) + "\n")
+        return report
+
+    cache_path = Path(definition["sample_cache"])
+    sampling = dict(definition.get("sampling", {}))
+    target = int(sampling.pop("target", 0))
+    if target > 0:
+        sample_operator(
+            ParallelSamplingConfig(
+                operator=operator_spec,
+                sample_count=target,
+                output=cache_path,
+                workers=int(sampling.pop("workers", 1)),
+                batch_size=int(sampling.pop("batch_size", 10)),
+                seed=int(sampling.pop("seed", 0)),
+                symmetry=str(sampling.pop("symmetry", "auto")),
+                validation=str(sampling.pop("validation", "none")),
+                validation_workers=sampling.pop("validation_workers", None),
+                validation_batch_size=sampling.pop("validation_batch_size", None),
+                validation_tolerance=float(sampling.pop("validation_tolerance", 5.0e-4)),
+            )
+        )
+    if sampling:
+        raise ValueError(f"unknown sampling options: {sorted(sampling)}")
+    return run_rsrs(
+        cache_path,
+        definition.get("rsrs", {}),
+        output=output,
+        error_probes=int(diagnostics.pop("error_probes", 4)),
+        error_seed=int(diagnostics.pop("error_seed", 1701)),
+        gmres_options=gmres_options,
+    )

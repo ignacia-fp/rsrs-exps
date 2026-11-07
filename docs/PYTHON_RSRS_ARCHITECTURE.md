@@ -106,10 +106,10 @@ rsrs.run_with_cache(cache_path);    // precomputed rows on disk; never samples
 
 The latter two are the only entry points exposed through PyO3.
 
-## Configuration and compatibility with `rsrs_config`
+## Configuration
 
 The Python API must expose every RSRS option currently selectable through
-`rsrs_config`, rather than offering a reduced set of convenient presets. This
+the factorisation API, rather than offering a reduced set of convenient presets. This
 includes:
 
 - ID, nullification, extraction, and diagonal tolerances;
@@ -123,11 +123,10 @@ includes:
 - independent factorisation and factor-application thread counts;
 - rank, timing, effort, and memory-statistics controls.
 
-`rsrs_config` remains a high-level experiment/configuration generator, but it
-must emit the same versioned configuration object accepted by the Python API
-and the native Rust API. It must not maintain a second set of numerical
-defaults. Missing fields are resolved by Rust so old configurations continue
-to follow the library's standard behaviour.
+`rsrs-experiment` is the high-level experiment/configuration generator. It
+emits the same versioned configuration object accepted by the Python API and
+the native Rust API and does not maintain a separate numerical implementation.
+Missing fields are resolved by the `bempp_rsrs` options object.
 
 Tree leaf size is represented as an optional setting:
 

@@ -9,7 +9,9 @@ DEPS_DIR="${DEPS_DIR:-$WORKSPACE/.deps}"
 LOCAL_EXAFMM_DIR="${LOCAL_EXAFMM_DIR:-$WORKSPACE/external/exafmm-t}"
 LOCAL_BEMPP_DIR="${LOCAL_BEMPP_DIR:-$WORKSPACE/external/bempp-cl}"
 LOCAL_KIFMM_DIR="${LOCAL_KIFMM_DIR:-$WORKSPACE/external/kifmm-for-rsrs}"
-BUILD_RUST_PROJECT="${BUILD_RUST_PROJECT:-1}"
+RSRS_ROOT="${RSRS_ROOT:-$WORKSPACE/../rsrs}"
+SO_KERNELS_ROOT="${SO_KERNELS_ROOT:-$WORKSPACE/../so-kernels}"
+BUILD_RSRS_EXTENSION="${BUILD_RSRS_EXTENSION:-1}"
 EXAFMM_PREFIX="${EXAFMM_PREFIX:-$DEPS_DIR/exafmm-prefix}"
 PYTHON_BIN="${PYTHON_BIN:-}"
 ENABLE_EXAFMM="${ENABLE_EXAFMM:-auto}"
@@ -38,7 +40,9 @@ echo "[setup] Using DEPS_DIR=$DEPS_DIR"
 echo "[setup] Using LOCAL_EXAFMM_DIR=$LOCAL_EXAFMM_DIR"
 echo "[setup] Using LOCAL_BEMPP_DIR=$LOCAL_BEMPP_DIR"
 echo "[setup] Using LOCAL_KIFMM_DIR=$LOCAL_KIFMM_DIR"
-echo "[setup] BUILD_RUST_PROJECT=$BUILD_RUST_PROJECT"
+echo "[setup] RSRS_ROOT=$RSRS_ROOT"
+echo "[setup] SO_KERNELS_ROOT=$SO_KERNELS_ROOT"
+echo "[setup] BUILD_RSRS_EXTENSION=$BUILD_RSRS_EXTENSION"
 echo "[setup] Using EXAFMM_PREFIX=$EXAFMM_PREFIX"
 echo "[setup] Using PYTHON_BIN=$PYTHON_BIN"
 echo "[setup] ENABLE_EXAFMM=$ENABLE_EXAFMM"
@@ -393,13 +397,22 @@ fi
 configure_kifmm_runtime_env "$KIFMM_SOURCE_DIR"
 write_local_env_file
 
-# ---- Build main Rust project (optional on startup) ----
-if [ "$BUILD_RUST_PROJECT" = "1" ]; then
-  echo "[setup] Building Rust project"
-  cargo build
+# ---- Python kernel and sample-fed RSRS packages ----
+require_local_checkout "$SO_KERNELS_ROOT" "so-kernels checkout" \
+  "Clone so-kernels beside rsrs-exps or set SO_KERNELS_ROOT." "pyproject.toml"
+uv pip install -e "$SO_KERNELS_ROOT" --no-deps
+
+require_local_checkout "$RSRS_ROOT" "RSRS checkout" \
+  "Clone rsrs beside rsrs-exps or set RSRS_ROOT." "python-native/pyproject.toml"
+if [ "$BUILD_RSRS_EXTENSION" = "1" ]; then
+  echo "[setup] Building sample-fed RSRS Python extension"
+  pushd "$RSRS_ROOT/python-native" >/dev/null
+  maturin develop --release
+  popd >/dev/null
 else
-  echo "[setup] Skipping top-level Rust build on startup"
+  echo "[setup] Skipping RSRS Python extension build"
 fi
+uv pip install -e "$WORKSPACE" --no-deps
 
 # If no command was provided (common with some compose setups), default to bash.
 if [ "$#" -eq 0 ]; then

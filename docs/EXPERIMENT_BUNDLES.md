@@ -62,10 +62,10 @@ Print the complete, documented catalog with:
 rsrs-experiment options
 ```
 
-The numbers retain the historical `rsrs_config.py` meanings. Important
-examples are `operator=19` for `BemppClHelmholtzCombined`, `geometry=6` for
-F16, `assembler=1` for ExaFMM, `symmetry=0` for `NoSymm`, and
-`nonsymmetric_combination=1` for `Concat`.
+The documented numbers are resolved into the Python-native case schema before
+execution. For example, `operator=3` selects the complex nonsymmetric BIEGrid,
+`symmetry=0` selects `NoSymm`, and `nonsymmetric_id_combination=1` selects
+`Concat`. Run `rsrs-experiment options` for the complete current catalog.
 
 Ordinary numerical values—tolerances, mesh width, kappa, thread counts, and
 tree depth—remain explicit. `leaf_size=None` preserves the normal automatic
@@ -73,17 +73,17 @@ leaf-size logic.
 
 ## GMRES modes
 
-Set `gmres` to one of:
+Set `diagnostics.gmres.mode` to one of:
 
 - `0`: no GMRES;
 - `1`: unpreconditioned GMRES only;
 - `2`: RSRS-preconditioned GMRES only;
 - `3`: both.
 
-Mode `1` is a genuine baseline-only path: the Rust driver constructs the
-physical operator and right-hand sides, writes `unpreconditioned_gmres.json`
-and its solution-vector sidecar, and exits without building an octree, loading
-samples, or constructing RSRS factors.
+Mode `1` is a genuine baseline-only path: Python constructs the physical
+operator, runs GMRES, stores the complete residual histories in
+`rsrs_report.json`, and exits without loading sample arrays, building an
+octree, or constructing RSRS factors.
 
 By default, if a bundle contains the same physical operator and right-hand
 sides with different RSRS parameters, the first mode-`3` command remains
@@ -126,10 +126,14 @@ A test may be a plain option dictionary:
 ```python
 TESTS = {
     "intermediate": {
-        "h": 0.03,
-        "kappa": 2.6666667,
-        "id_tols": [1e-2, 1e-4],
-        "tol_ext_near": 1e-16,
+        "operator": 5,
+        "operator_parameters": {
+            "grid": "extra_meshes/f16_mesh_width_2.00e-2_495380.msh",
+            "kappa": 2.6666667,
+            "expansion_order": 8,
+        },
+        "sample_cache": "results/sample_cache/intermediate",
+        "rsrs": {"tol_id": 1e-2, "tol_ext_near": 1e-16},
     },
 }
 ```
@@ -139,10 +143,10 @@ of its lists and writes one command per combination:
 
 ```python
 "quasi": {
-    "options": {"h": 0.046, "kappa": 1.73913},
+    "options": {"rsrs": {"tol_id": 1e-2}},
     "sweep": {
-        "id_tols": [[1e-2], [1e-4]],
-        "tol_ext_near": [1e-8, 1e-16],
+        "rsrs.tol_id": [1e-2, 1e-4],
+        "rsrs.tol_ext_near": [1e-8, 1e-16],
     },
 }
 ```
@@ -175,6 +179,6 @@ commands produce `f16_comparison_2026-11-07.sh` or
 with the same name and date. `--date YYYY-MM-DD` can reproduce an earlier
 name, and `--output-dir` selects another destination.
 
-Every generated command contains the four complete JSON blocks expected by
-the existing Rust driver. Therefore the script itself is an exact record of
+Every generated command contains one complete, versioned JSON case consumed by
+`rsrs-experiment run-case`. Therefore the script itself is an exact record of
 what will run and does not depend on later edits to the dictionary file.
