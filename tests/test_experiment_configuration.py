@@ -45,6 +45,27 @@ def test_operator_parameters_replace_unrelated_defaults():
     }
 
 
+def test_sampling_and_target_operators_can_use_different_parameters():
+    case = compile_case(
+        base_case(
+            operator=7,
+            operator_parameters={
+                "sources": [[0.0, 0.0, 0.0]],
+                "targets": [[0.0, 0.0, 0.0]],
+                "expansion_order": 8,
+            },
+            sampling_operator_parameters={
+                "sources": [[0.0, 0.0, 0.0]],
+                "targets": [[0.0, 0.0, 0.0]],
+                "expansion_order": 4,
+            },
+        ),
+        name="mixed-order",
+    )
+    assert case["operator"]["parameters"]["expansion_order"] == 8
+    assert case["sampling_operator"]["parameters"]["expansion_order"] == 4
+
+
 def test_ephemeral_sampling_does_not_require_a_cache_path():
     case = compile_case(
         base_case(

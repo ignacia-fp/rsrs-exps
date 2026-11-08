@@ -38,6 +38,8 @@
   "DEFAULTS": {
     "operator": 3,
     "operator_parameters": {"cells_per_axis": 8},
+    "sampling_operator": null,
+    "sampling_operator_parameters": null,
     "sample_cache": "results/sample_cache/my_case",
     "output": null,
     "sampling": {

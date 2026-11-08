@@ -149,6 +149,9 @@ def test_json_template_generates_and_runs_correct_case(
             '"{points}"', json.dumps(points)
         )
     )
+    sampling_parameters = dict(parameters)
+    if operator == 7:
+        sampling_parameters["expansion_order"] = 3
     cache = tmp_path / "sample_cache"
     output = tmp_path / "result"
     generated = tmp_path / "generated"
@@ -165,6 +168,7 @@ def test_json_template_generates_and_runs_correct_case(
         "DEFAULTS": {
             "operator": operator,
             "operator_parameters": parameters,
+            "sampling_operator_parameters": sampling_parameters,
             "sample_cache": str(cache),
             "output": str(output),
             "sampling": {
@@ -232,6 +236,10 @@ def test_json_template_generates_and_runs_correct_case(
     sampling_report = json.loads((cache / "sampling_report.json").read_text())
     assert report["status"] == "complete"
     assert report["operator"]["operator_type"] in script.read_text()
+    assert report["sampling_operator"] == sampling_report["operator"]
+    if operator == 7:
+        assert report["operator"]["parameters"]["expansion_order"] == 4
+        assert report["sampling_operator"]["parameters"]["expansion_order"] == 3
     assert report["sample_count"] == 160
     worker_directories: dict[int, str] = {}
     for batch in sampling_report["batch_results"]:

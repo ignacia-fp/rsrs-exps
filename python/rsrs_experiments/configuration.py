@@ -78,6 +78,8 @@ CATALOGS: dict[str, dict[int, Choice]] = {
 DEFAULTS: dict[str, Any] = {
     "operator": 0,
     "operator_parameters": {"cells_per_axis": 8},
+    "sampling_operator": None,
+    "sampling_operator_parameters": None,
     "sample_cache": None,
     "output": None,
     "sampling": {
@@ -175,6 +177,11 @@ def compile_case(values: Mapping[str, Any], *, name: str = "case") -> dict[str, 
     # Bempp or KiFMM constructor.
     if "operator_parameters" in values:
         case["operator_parameters"] = dict(values["operator_parameters"])
+    if "sampling_operator_parameters" in values:
+        parameters = values["sampling_operator_parameters"]
+        case["sampling_operator_parameters"] = (
+            None if parameters is None else dict(parameters)
+        )
     operator = case["operator"]
     operator_type = _choice("operator", operator) if not isinstance(operator, Mapping) else None
     operator_spec = (
@@ -182,6 +189,30 @@ def compile_case(values: Mapping[str, Any], *, name: str = "case") -> dict[str, 
         if isinstance(operator, Mapping)
         else {"operator_type": operator_type, "parameters": dict(case["operator_parameters"])}
     )
+    sampling_operator = case["sampling_operator"]
+    sampling_parameters = case["sampling_operator_parameters"]
+    if sampling_operator is None and sampling_parameters is None:
+        sampling_operator_spec = dict(operator_spec)
+    else:
+        selected = case["operator"] if sampling_operator is None else sampling_operator
+        if isinstance(selected, Mapping):
+            if sampling_parameters is not None:
+                raise ValueError(
+                    "sampling_operator_parameters cannot accompany a complete "
+                    "sampling_operator mapping"
+                )
+            sampling_operator_spec = dict(selected)
+        else:
+            sampling_type = _choice("operator", selected)
+            parameters = (
+                dict(case["operator_parameters"])
+                if sampling_parameters is None
+                else dict(sampling_parameters)
+            )
+            sampling_operator_spec = {
+                "operator_type": sampling_type,
+                "parameters": parameters,
+            }
     rsrs = dict(case["rsrs"])
     for key, catalog in (
         ("symmetry", "symmetry"),
@@ -223,6 +254,7 @@ def compile_case(values: Mapping[str, Any], *, name: str = "case") -> dict[str, 
         "schema_version": 1,
         "name": name,
         "operator": operator_spec,
+        "sampling_operator": sampling_operator_spec,
         "sample_cache": case["sample_cache"],
         "output": case["output"] or f"results/experiments/{name}",
         "sampling": sampling,

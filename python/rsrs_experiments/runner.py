@@ -165,20 +165,22 @@ def run_rsrs(
     error_seed: int = 1701,
     points: np.ndarray | Path | None = None,
     gmres_options: Mapping[str, Any] | None = None,
+    operator_spec: Mapping[str, Any] | None = None,
 ) -> RsrsRunResult:
     from bempp_rsrs import InsufficientSamplesError, RsrsOptions, RsrsSession
     from so_kernels import create_operator
 
     cache = cache if isinstance(cache, SampleCache) else SampleCache(Path(cache))
     manifest = cache.manifest
-    operator = None
+    sampling_operator = None
+    target_operator_spec = dict(operator_spec or manifest["operator"])
     if points is None:
         cached_points = cache.path / "points.npy"
         if cached_points.is_file():
             points = np.load(cached_points)
         else:
-            operator = create_operator(manifest["operator"])
-            points = getattr(operator, "points", None)
+            sampling_operator = create_operator(manifest["operator"])
+            points = getattr(sampling_operator, "points", None)
     elif isinstance(points, Path):
         points = np.load(points)
     if points is None:
@@ -194,8 +196,22 @@ def run_rsrs(
     # its MPI datatype state in the same Python process.
     dtype = np.dtype(manifest["dtype"])
     session = RsrsSession(points, options, dtype=dtype)
-    if operator is None:
-        operator = create_operator(manifest["operator"])
+    operator = create_operator(target_operator_spec)
+    expected_shape = (int(manifest["dimension"]), int(manifest["dimension"]))
+    if tuple(operator.shape) != expected_shape:
+        raise ValueError(
+            f"target operator shape {operator.shape} does not match sampled "
+            f"operator shape {expected_shape}"
+        )
+    target_points = getattr(operator, "points", None)
+    if target_points is not None:
+        target_points = np.asarray(target_points)
+        if target_points.shape != np.asarray(points).shape or not np.allclose(
+            target_points, points, rtol=1.0e-12, atol=1.0e-13
+        ):
+            raise ValueError(
+                "target and sampling operators do not use the same ordered geometry"
+            )
     samples = cache.sample_bundle()
     started = time.perf_counter()
     try:
@@ -232,7 +248,8 @@ def run_rsrs(
         "created_utc": datetime.now(timezone.utc).isoformat(),
         "status": "complete",
         "cache": str(cache.path),
-        "operator": manifest["operator"],
+        "operator": target_operator_spec,
+        "sampling_operator": manifest["operator"],
         "dimension": factors.dimension,
         "dtype": str(factors.dtype),
         "sample_count": manifest["sample_count"],
@@ -256,6 +273,7 @@ def run_case(case: Mapping[str, Any]) -> RsrsRunResult | dict[str, Any]:
 
     definition = dict(case)
     operator_spec = dict(definition["operator"])
+    sampling_operator_spec = dict(definition.get("sampling_operator", operator_spec))
     output = Path(definition["output"])
     diagnostics = dict(definition.get("diagnostics", {}))
     gmres_options = dict(diagnostics.pop("gmres", {}))
@@ -302,7 +320,7 @@ def run_case(case: Mapping[str, Any]) -> RsrsRunResult | dict[str, Any]:
         if target > 0:
             sample_operator(
                 ParallelSamplingConfig(
-                    operator=operator_spec,
+                    operator=sampling_operator_spec,
                     sample_count=target,
                     output=cache_path,
                     workers=int(sampling.pop("workers", 1)),
@@ -326,6 +344,7 @@ def run_case(case: Mapping[str, Any]) -> RsrsRunResult | dict[str, Any]:
             error_probes=int(diagnostics.pop("error_probes", 4)),
             error_seed=int(diagnostics.pop("error_seed", 1701)),
             gmres_options=gmres_options,
+            operator_spec=operator_spec,
         )
     finally:
         if temporary_cache is not None:

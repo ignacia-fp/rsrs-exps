@@ -93,6 +93,35 @@ disable this behaviour.
 
 ## Sample targets and optional validation
 
+## Separate sampling and target operators
+
+`operator` and `operator_parameters` describe the target operator used for
+error estimates, GMRES, and the system being preconditioned. By default,
+sampling uses that same operator. To build the RSRS factors from a cheaper
+approximation, provide `sampling_operator_parameters` (and optionally
+`sampling_operator` when the backend itself differs):
+
+```json
+"operator": 5,
+"operator_parameters": {
+  "grid": "mesh.msh",
+  "kappa": 2.0,
+  "expansion_order": 8,
+  "ncrit": 400
+},
+"sampling_operator": null,
+"sampling_operator_parameters": {
+  "grid": "mesh.msh",
+  "kappa": 2.0,
+  "expansion_order": 4,
+  "ncrit": 400
+}
+```
+
+The cache records the sampling operator. The final report records both. The
+runner rejects mismatched dimensions or differently ordered geometry before
+factorization diagnostics are computed.
+
 Set `sampling.save_samples` to `true` to retain a reusable cache. Set it to
 `false` to generate an isolated temporary cache for this factorisation only;
 the samples are removed after errors and solves finish. Ephemeral sampling
