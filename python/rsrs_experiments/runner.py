@@ -878,6 +878,18 @@ def run_case(case: Mapping[str, Any]) -> RsrsRunResult | dict[str, Any]:
     sampling = dict(definition.get("sampling", {}))
     target = int(sampling.pop("target", 0))
     save_samples = bool(sampling.pop("save_samples", True))
+    sampling_workers = int(sampling.pop("workers", 1))
+    sampling_batch_size = int(sampling.pop("batch_size", 10))
+    sampling_seed = int(sampling.pop("seed", 0))
+    sampling_symmetry = str(sampling.pop("symmetry", "auto"))
+    sampling_validation = str(sampling.pop("validation", "none"))
+    sampling_validation_workers = sampling.pop("validation_workers", None)
+    sampling_validation_batch_size = sampling.pop(
+        "validation_batch_size", None
+    )
+    sampling_validation_tolerance = float(
+        sampling.pop("validation_tolerance", 5.0e-4)
+    )
     cache_value = definition.get("sample_cache")
     temporary_cache = None
     if target > 0 and not save_samples:
@@ -898,16 +910,14 @@ def run_case(case: Mapping[str, Any]) -> RsrsRunResult | dict[str, Any]:
                     operator=sampling_operator_spec,
                     sample_count=target,
                     output=cache_path,
-                    workers=int(sampling.pop("workers", 1)),
-                    batch_size=int(sampling.pop("batch_size", 10)),
-                    seed=int(sampling.pop("seed", 0)),
-                    symmetry=str(sampling.pop("symmetry", "auto")),
-                    validation=str(sampling.pop("validation", "none")),
-                    validation_workers=sampling.pop("validation_workers", None),
-                    validation_batch_size=sampling.pop("validation_batch_size", None),
-                    validation_tolerance=float(
-                        sampling.pop("validation_tolerance", 5.0e-4)
-                    ),
+                    workers=sampling_workers,
+                    batch_size=sampling_batch_size,
+                    seed=sampling_seed,
+                    symmetry=sampling_symmetry,
+                    validation=sampling_validation,
+                    validation_workers=sampling_validation_workers,
+                    validation_batch_size=sampling_validation_batch_size,
+                    validation_tolerance=sampling_validation_tolerance,
                     environment=environment,
                 )
             )

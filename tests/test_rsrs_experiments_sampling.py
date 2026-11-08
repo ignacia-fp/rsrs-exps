@@ -7,6 +7,7 @@ from rsrs_experiments import ParallelSamplingConfig, run_rsrs, sample_operator
 from rsrs_experiments.cache import SampleCache
 from rsrs_experiments.runner import _apply as runner_apply
 from rsrs_experiments.runner import _block_spectral_norm, _errors
+from rsrs_experiments import runner
 from rsrs_experiments.sampling import _apply as sampling_apply
 from so_kernels import create_operator
 
@@ -207,6 +208,53 @@ def test_sampling_manifest_records_reproducibility_inputs(tmp_path):
     assert manifest["has_z"] is False
     assert manifest["points_file"] == "points.npy"
     assert np.load(result.cache.path / "points.npy").shape == (25, 3)
+
+
+def test_zero_sampling_target_accepts_dormant_sampling_controls(
+    tmp_path, monkeypatch
+):
+    cache = tmp_path / "existing_samples"
+    observed = {}
+
+    def unexpected_sampling(*args, **kwargs):
+        raise AssertionError("target=0 must not invoke sampling")
+
+    def record_rsrs(cache_path, options, **kwargs):
+        observed["cache"] = cache_path
+        observed["options"] = options
+        return "factorization-result"
+
+    monkeypatch.setattr(runner, "sample_operator", unexpected_sampling)
+    monkeypatch.setattr(runner, "run_rsrs", record_rsrs)
+
+    result = runner.run_case(
+        {
+            "operator": {
+                "operator_type": "biegrid_real_symmetric",
+                "parameters": {"cells_per_axis": 4},
+            },
+            "sample_cache": str(cache),
+            "sampling": {
+                "target": 0,
+                "save_samples": True,
+                "workers": 8,
+                "batch_size": 10,
+                "seed": 17,
+                "symmetry": "symmetric",
+                "validation": "sampled",
+                "validation_workers": 4,
+                "validation_batch_size": 20,
+                "validation_tolerance": 1.0e-6,
+            },
+            "rsrs": {"tol_id": 1.0e-2},
+            "diagnostics": {"gmres": {"mode": "none"}},
+            "output": str(tmp_path / "output"),
+        }
+    )
+
+    assert result == "factorization-result"
+    assert observed["cache"] == cache
+    assert observed["options"] == {"tol_id": 1.0e-2}
 
 
 def test_larger_target_extends_cache_and_smaller_target_never_truncates(tmp_path):
