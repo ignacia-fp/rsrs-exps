@@ -121,6 +121,13 @@ DEFAULTS: dict[str, Any] = {
     "diagnostics": {
         "error_probes": 4,
         "error_seed": 1701,
+        "spectral": {
+            "enabled": True,
+            "iterations": 10,
+            "block_size": 2,
+            "tolerance": 1.0e-3,
+            "seed": 2701,
+        },
         "gmres": {
             "mode": 0,
             "tolerance": 1.0e-7,

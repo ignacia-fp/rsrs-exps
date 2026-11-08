@@ -117,12 +117,80 @@ def _apply(operator: Any, values: np.ndarray) -> np.ndarray:
     return np.asarray(operator @ values)
 
 
+def _adjoint_apply(operator: Any, values: np.ndarray) -> np.ndarray:
+    """Apply the Hermitian adjoint using an explicit algebraic transpose."""
+
+    # Some symmetric matrix-free backends deliberately do not implement a
+    # separate transpose traversal.  For A^T=A, A^*x=conj(A conj(x)).
+    if bool(getattr(operator, "symmetric", False)):
+        return np.conjugate(_apply(operator, np.conjugate(values)))
+    transpose = getattr(operator, "transpose_operator", None)
+    if transpose is not None:
+        return np.conjugate(_apply(transpose, np.conjugate(values)))
+    method = getattr(
+        operator,
+        "transpose_matvec" if values.ndim == 1 else "transpose_matmat",
+        None,
+    )
+    if callable(method):
+        return np.conjugate(np.asarray(method(np.conjugate(values))))
+    linear = operator.aslinearoperator() if hasattr(operator, "aslinearoperator") else None
+    if linear is not None:
+        return np.asarray(linear.rmatvec(values) if values.ndim == 1 else linear.rmatmat(values))
+    raise TypeError("spectral errors require an explicit transpose/adjoint application")
+
+
+def _block_spectral_norm(
+    apply,
+    adjoint,
+    *,
+    dimension: int,
+    dtype: np.dtype,
+    seed: int,
+    iterations: int,
+    block_size: int,
+    tolerance: float,
+) -> tuple[float, dict[str, Any]]:
+    """Estimate a largest singular value through block power iteration."""
+
+    width = min(max(int(block_size), 1), dimension)
+    rng = np.random.default_rng(seed)
+    q = rng.standard_normal((dimension, width)).astype(dtype)
+    if np.issubdtype(dtype, np.complexfloating):
+        q += 1j * rng.standard_normal(q.shape)
+    q, _ = np.linalg.qr(q, mode="reduced")
+    previous = 0.0
+    converged = False
+    completed = 0
+    for completed in range(1, max(int(iterations), 1) + 1):
+        q, _ = np.linalg.qr(np.asarray(adjoint(np.asarray(apply(q)))), mode="reduced")
+        image = np.asarray(apply(q))
+        estimate = float(np.linalg.svd(image, compute_uv=False)[0])
+        if previous > 0.0 and abs(estimate - previous) <= tolerance * estimate:
+            converged = True
+            break
+        previous = estimate
+    return estimate, {
+        "iterations": completed,
+        "block_size": width,
+        "converged": converged,
+        "relative_tolerance": tolerance,
+    }
+
+
 def _relerr(actual: np.ndarray, expected: np.ndarray, order: Any = 2) -> float:
     denominator = max(float(np.linalg.norm(expected, ord=order)), np.finfo(float).tiny)
     return float(np.linalg.norm(actual - expected, ord=order) / denominator)
 
 
-def _errors(operator: Any, factors: Any, *, seed: int, probes: int) -> dict[str, float]:
+def _errors(
+    operator: Any,
+    factors: Any,
+    *,
+    seed: int,
+    probes: int,
+    spectral_options: Mapping[str, Any] | None = None,
+) -> tuple[dict[str, float], dict[str, Any]]:
     dimension = int(operator.shape[0])
     dtype = np.dtype(getattr(operator, "dtype", factors.dtype))
     rng = np.random.default_rng(seed)
@@ -135,25 +203,124 @@ def _errors(operator: Any, factors: Any, *, seed: int, probes: int) -> dict[str,
     true_apply = _apply(operator, test)
     approximate_apply = factors.matmat(test)
     approximate_solution = factors.inverse_matmat(rhs)
+    probe_scale = np.sqrt(max(probes, 1))
     metrics = {
         "probe_apply_relative_fro": _relerr(approximate_apply, true_apply, "fro"),
         "inverse_residual_relative_fro": _relerr(_apply(operator, approximate_solution), rhs, "fro"),
+        "norm_a_fro_estimate": float(np.linalg.norm(true_apply, ord="fro") / probe_scale),
+        "norm_factor_error_fro_estimate": float(
+            np.linalg.norm(approximate_apply - true_apply, ord="fro") / probe_scale
+        ),
+        "inverse_residual_fro_estimate": float(
+            np.linalg.norm(_apply(operator, approximate_solution) - rhs, ord="fro")
+            / probe_scale
+        ),
     }
 
     dense_builder = getattr(operator, "dense", None)
+    estimator_report: dict[str, Any] = {"method": "disabled"}
     if callable(dense_builder) and dimension <= 2048:
         dense = np.asarray(dense_builder())
-        approximate_dense = factors.matmat(np.eye(dimension, dtype=dtype))
+        identity = np.eye(dimension, dtype=dtype)
+        approximate_dense = factors.matmat(identity)
+        approximate_inverse = factors.inverse_matmat(identity)
         exact_solution = np.linalg.solve(dense, rhs)
+        norm_a = float(np.linalg.norm(dense, ord=2))
+        norm_error = float(np.linalg.norm(approximate_dense - dense, ord=2))
+        inverse_residual = float(
+            np.linalg.norm(dense @ approximate_inverse - identity, ord=2)
+        )
+        norm_factor = float(np.linalg.norm(approximate_dense, ord=2))
+        norm_inverse = float(np.linalg.norm(approximate_inverse, ord=2))
         metrics.update(
             {
                 "condition_number_2": float(np.linalg.cond(dense)),
-                "factor_relative_2": _relerr(approximate_dense, dense, 2),
+                "norm_a_2": norm_a,
+                "norm_factor_error_2": norm_error,
+                "norm_apply_2": norm_error,
+                "factor_relative_2": norm_error / max(norm_a, np.finfo(float).tiny),
                 "factor_relative_fro": _relerr(approximate_dense, dense, "fro"),
                 "solve_relative_fro": _relerr(approximate_solution, exact_solution, "fro"),
+                "inverse_residual_2": inverse_residual,
+                "err_solve_2": inverse_residual,
+                "norm_rsrs_2": norm_factor,
+                "norm_rsrs_inverse_2": norm_inverse,
+                "condition_rsrs_estimate_2": norm_factor * norm_inverse,
+                "condition_target_via_rsrs_estimate_2": norm_a * norm_inverse,
             }
         )
-    return metrics
+        estimator_report = {"method": "exact_dense"}
+    else:
+        settings = dict(spectral_options or {})
+        enabled = bool(settings.pop("enabled", True))
+        iterations = int(settings.pop("iterations", 10))
+        block_size = int(settings.pop("block_size", 2))
+        tolerance = float(settings.pop("tolerance", 1.0e-3))
+        spectral_seed = int(settings.pop("seed", seed + 1000))
+        if settings:
+            raise ValueError(f"unknown spectral-error options: {sorted(settings)}")
+        estimator_report = {
+            "method": "block_power_normal_operator" if enabled else "disabled",
+            "configuration": {
+                "iterations": iterations,
+                "block_size": block_size,
+                "tolerance": tolerance,
+                "seed": spectral_seed,
+            },
+            "estimates": {},
+        }
+        if enabled:
+            def estimate(name, forward, adjoint, offset):
+                started = time.perf_counter()
+                value, details = _block_spectral_norm(
+                    forward,
+                    adjoint,
+                    dimension=dimension,
+                    dtype=dtype,
+                    seed=spectral_seed + offset,
+                    iterations=iterations,
+                    block_size=block_size,
+                    tolerance=tolerance,
+                )
+                details["seconds"] = time.perf_counter() - started
+                estimator_report["estimates"][name] = details
+                return value
+
+            factor_apply = lambda x: factors.matmat(x)
+            factor_adjoint = lambda x: factors.apply(x, transpose=True, conjugate=True)
+            inverse_apply = lambda x: factors.inverse_matmat(x)
+            inverse_adjoint = lambda x: factors.apply(
+                x, transpose=True, conjugate=True, inverse=True
+            )
+            operator_apply = lambda x: _apply(operator, x)
+            operator_adjoint = lambda x: _adjoint_apply(operator, x)
+            difference_apply = lambda x: factor_apply(x) - operator_apply(x)
+            difference_adjoint = lambda x: factor_adjoint(x) - operator_adjoint(x)
+            residual_apply = lambda x: operator_apply(inverse_apply(x)) - x
+            residual_adjoint = lambda x: inverse_adjoint(operator_adjoint(x)) - x
+
+            norm_a = estimate("target_operator", operator_apply, operator_adjoint, 1)
+            norm_error = estimate("factor_error", difference_apply, difference_adjoint, 2)
+            inverse_residual = estimate(
+                "inverse_residual", residual_apply, residual_adjoint, 3
+            )
+            norm_factor = estimate("rsrs_operator", factor_apply, factor_adjoint, 4)
+            norm_inverse = estimate("rsrs_inverse", inverse_apply, inverse_adjoint, 5)
+            metrics.update(
+                {
+                    "norm_a_2": norm_a,
+                    "norm_factor_error_2": norm_error,
+                    "norm_apply_2": norm_error,
+                    "factor_relative_2": norm_error / max(norm_a, np.finfo(float).tiny),
+                    "inverse_residual_2": inverse_residual,
+                    "err_solve_2": inverse_residual,
+                    "norm_rsrs_2": norm_factor,
+                    "norm_rsrs_inverse_2": norm_inverse,
+                    "condition_rsrs_estimate_2": norm_factor * norm_inverse,
+                    "condition_target_via_rsrs_estimate_2": norm_a * norm_inverse,
+                }
+            )
+    return metrics, estimator_report
 
 
 def run_rsrs(
@@ -166,6 +333,7 @@ def run_rsrs(
     points: np.ndarray | Path | None = None,
     gmres_options: Mapping[str, Any] | None = None,
     operator_spec: Mapping[str, Any] | None = None,
+    spectral_options: Mapping[str, Any] | None = None,
 ) -> RsrsRunResult:
     from bempp_rsrs import InsufficientSamplesError, RsrsOptions, RsrsSession
     from so_kernels import create_operator
@@ -229,7 +397,13 @@ def run_rsrs(
         raise
     factorization_seconds = time.perf_counter() - started
     error_started = time.perf_counter()
-    errors = _errors(operator, factors, seed=error_seed, probes=error_probes)
+    errors, error_estimation = _errors(
+        operator,
+        factors,
+        seed=error_seed,
+        probes=error_probes,
+        spectral_options=spectral_options,
+    )
     error_seconds = time.perf_counter() - error_started
     gmres_options = dict(gmres_options or {})
     gmres_result = _gmres_report(
@@ -260,6 +434,7 @@ def run_rsrs(
             "error_computation": error_seconds,
         },
         "errors": errors,
+        "error_estimation": error_estimation,
         "gmres": gmres_result,
     }
     output.mkdir(parents=True, exist_ok=True)
@@ -277,6 +452,7 @@ def run_case(case: Mapping[str, Any]) -> RsrsRunResult | dict[str, Any]:
     output = Path(definition["output"])
     diagnostics = dict(definition.get("diagnostics", {}))
     gmres_options = dict(diagnostics.pop("gmres", {}))
+    spectral_options = dict(diagnostics.pop("spectral", {}))
     gmres_mode = str(gmres_options.get("mode", "none"))
     if gmres_mode == "unpreconditioned":
         operator = create_operator(operator_spec)
@@ -345,6 +521,7 @@ def run_case(case: Mapping[str, Any]) -> RsrsRunResult | dict[str, Any]:
             error_seed=int(diagnostics.pop("error_seed", 1701)),
             gmres_options=gmres_options,
             operator_spec=operator_spec,
+            spectral_options=spectral_options,
         )
     finally:
         if temporary_cache is not None:

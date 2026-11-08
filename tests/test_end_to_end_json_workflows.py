@@ -94,6 +94,7 @@ CASES = (
             "refinement_level": 2,
             "function_space_degree": 0,
             "quadrature_degree": 6,
+            "singular_quadrature_degree": 4,
             "local_tree_depth": 1,
             "global_tree_depth": 2,
             "expansion_order": 4,
@@ -241,6 +242,10 @@ def test_json_template_generates_and_runs_correct_case(
         assert report["operator"]["parameters"]["expansion_order"] == 4
         assert report["sampling_operator"]["parameters"]["expansion_order"] == 3
     assert report["sample_count"] == 160
+    assert "condition_rsrs_estimate_2" in report["errors"]
+    assert "condition_target_via_rsrs_estimate_2" in report["errors"]
+    if operator in {6, 7}:
+        assert report["error_estimation"]["method"] == "block_power_normal_operator"
     worker_directories: dict[int, str] = {}
     for batch in sampling_report["batch_results"]:
         if batch["worker_pid"] is not None:

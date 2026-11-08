@@ -91,6 +91,41 @@ sides with different RSRS parameters, the first mode-`3` command remains
 unpreconditioned system is solved once. Set `SHARE_UNPRECONDITIONED=False` to
 disable this behaviour.
 
+## Matrix-free spectral error report
+
+`diagnostics.spectral` controls iterative 2-norm estimates for operators that
+cannot be materialised densely:
+
+```json
+"spectral": {
+  "enabled": true,
+  "iterations": 10,
+  "block_size": 2,
+  "tolerance": 0.001,
+  "seed": 2701
+}
+```
+
+The report includes `norm_a_2`, `norm_factor_error_2` (also recorded under the
+historical name `norm_apply_2`), `factor_relative_2`, `inverse_residual_2`
+(historically `err_solve_2`), `norm_rsrs_2`, `norm_rsrs_inverse_2`, and
+two distinct conditioning estimates:
+
+- `condition_target_via_rsrs_estimate_2 = ||A||_2 ||F^{-1}||_2` estimates the
+  target operator's condition number using the RSRS approximate inverse;
+- `condition_rsrs_estimate_2 = ||F||_2 ||F^{-1}||_2` estimates the condition
+  number of the operator represented by the RSRS factors themselves.
+
+The probe report also retains inexpensive Frobenius-norm estimates. Each
+iterative 2-norm estimate records its iteration count, convergence flag, and
+wall time under `error_estimation`.
+
+The estimator applies block power iteration to the corresponding normal
+operator. `block_size` processes search directions together with
+matrix-matrix products, allowing the FMM backend to exploit internal
+parallelism without duplicating the target operator or native RSRS factors in
+separate processes.
+
 ## Sample targets and optional validation
 
 ## Separate sampling and target operators

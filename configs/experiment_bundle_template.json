@@ -84,6 +84,13 @@
     "diagnostics": {
       "error_probes": 4,
       "error_seed": 1701,
+      "spectral": {
+        "enabled": true,
+        "iterations": 10,
+        "block_size": 2,
+        "tolerance": 0.001,
+        "seed": 2701
+      },
       "gmres": {
         "mode": 3,
         "tolerance": 1e-7,

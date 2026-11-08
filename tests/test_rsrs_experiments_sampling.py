@@ -3,7 +3,24 @@ import json
 import numpy as np
 
 from rsrs_experiments import ParallelSamplingConfig, run_rsrs, sample_operator
+from rsrs_experiments.runner import _block_spectral_norm
 from so_kernels import create_operator
+
+
+def test_block_spectral_norm_matches_dense_singular_value():
+    matrix = np.array([[1.0 + 2.0j, 3.0], [-2.0j, 4.0 - 1.0j]])
+    estimate, report = _block_spectral_norm(
+        lambda values: matrix @ values,
+        lambda values: matrix.conj().T @ values,
+        dimension=2,
+        dtype=np.dtype(np.complex128),
+        seed=3,
+        iterations=20,
+        block_size=2,
+        tolerance=1.0e-12,
+    )
+    np.testing.assert_allclose(estimate, np.linalg.norm(matrix, ord=2), rtol=1.0e-12)
+    assert report["iterations"] >= 1
 
 
 def test_parallel_batches_are_ordered_independent_and_validated(tmp_path):
