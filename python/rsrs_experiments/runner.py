@@ -181,10 +181,14 @@ def _gmres_report(
         variants.append(("unpreconditioned", None))
     if mode in {"preconditioned", "both"}:
         variants.append(("preconditioned", factors.aslinearoperator(inverse=True)))
-    report: dict[str, Any] = {"mode": mode, "tolerance": tolerance, "solves": {}}
-    if factors is not None:
-        direct = []
-        for column in range(rhs_count):
+    report: dict[str, Any] = {
+        "mode": mode,
+        "tolerance": tolerance,
+        "solves": {name: [] for name, _ in variants},
+    }
+    direct = []
+    for column in range(rhs_count):
+        if factors is not None:
             print(
                 f"[gmres][direct-rsrs] rhs={column + 1}/{rhs_count} applying inverse",
                 flush=True,
@@ -210,13 +214,8 @@ def _gmres_report(
                 f"seconds={direct[-1]['seconds']:.3f}",
                 flush=True,
             )
-        report["direct_rsrs_inverse"] = direct
-        report["rel_err_approx_inv"] = [
-            item["final_true_relative_residual"] for item in direct
-        ]
-    for name, preconditioner in variants:
-        solves = []
-        for column in range(rhs_count):
+
+        for name, preconditioner in variants:
             history: list[float] = []
             print(
                 f"[gmres][{name}] rhs={column + 1}/{rhs_count} starting "
@@ -254,7 +253,7 @@ def _gmres_report(
             true_residual = float(
                 np.linalg.norm(_apply(operator, solution) - rhs[:, column]) / denominator
             )
-            solves.append(
+            report["solves"][name].append(
                 {
                     "rhs": column,
                     "info": int(info),
@@ -268,10 +267,14 @@ def _gmres_report(
                 f"[gmres][{name}] rhs={column + 1}/{rhs_count} complete "
                 f"iterations={len(history)} info={int(info)} "
                 f"true_relative_residual={true_residual:.6e} "
-                f"seconds={solves[-1]['seconds']:.3f}",
+                f"seconds={report['solves'][name][-1]['seconds']:.3f}",
                 flush=True,
             )
-        report["solves"][name] = solves
+    if factors is not None:
+        report["direct_rsrs_inverse"] = direct
+        report["rel_err_approx_inv"] = [
+            item["final_true_relative_residual"] for item in direct
+        ]
     return report
 
 
@@ -298,6 +301,35 @@ def _apply(operator: Any, values: np.ndarray) -> np.ndarray:
     if values.ndim == 2 and hasattr(operator, "matmat"):
         return _chunked_matrix_call(operator.matmat, values)
     return _chunked_matrix_call(operator.__matmul__, values)
+
+
+def _progress_apply(
+    operator: Any,
+    values: np.ndarray,
+    *,
+    label: str,
+    batch_size: int = 10,
+) -> np.ndarray:
+    """Apply a block while reporting progress through expensive RHS columns."""
+
+    if values.ndim != 2:
+        return _apply(operator, values)
+    columns = values.shape[1]
+    outputs = []
+    for start in range(0, columns, batch_size):
+        stop = min(start + batch_size, columns)
+        print(
+            f"[errors] operation={label} columns={start + 1}:{stop}/{columns} starting",
+            flush=True,
+        )
+        started = time.perf_counter()
+        outputs.append(_apply(operator, values[:, start:stop]))
+        print(
+            f"[errors] operation={label} columns={start + 1}:{stop}/{columns} "
+            f"complete seconds={time.perf_counter() - started:.3f}",
+            flush=True,
+        )
+    return np.concatenate(outputs, axis=1)
 
 
 def _adjoint_apply(operator: Any, values: np.ndarray) -> np.ndarray:
@@ -373,6 +405,7 @@ def _block_spectral_norm(
     iterations: int,
     block_size: int,
     tolerance: float,
+    progress_label: str | None = None,
 ) -> tuple[float, dict[str, Any]]:
     """Estimate a largest singular value through block power iteration."""
 
@@ -389,6 +422,12 @@ def _block_spectral_norm(
         q, _ = np.linalg.qr(np.asarray(adjoint(np.asarray(apply(q)))), mode="reduced")
         image = np.asarray(apply(q))
         estimate = float(np.linalg.svd(image, compute_uv=False)[0])
+        if progress_label is not None:
+            print(
+                f"[errors][spectral] estimate={progress_label} "
+                f"iteration={completed}/{max(int(iterations), 1)} value={estimate:.6e}",
+                flush=True,
+            )
         if previous > 0.0 and abs(estimate - previous) <= tolerance * estimate:
             converged = True
             break
@@ -404,6 +443,86 @@ def _block_spectral_norm(
 def _relerr(actual: np.ndarray, expected: np.ndarray, order: Any = 2) -> float:
     denominator = max(float(np.linalg.norm(expected, ord=order)), np.finfo(float).tiny)
     return float(np.linalg.norm(actual - expected, ord=order) / denominator)
+
+
+def _diagnostic_cost_estimate(
+    operator: Any,
+    factors: Any,
+    *,
+    seed: int,
+    probes: int,
+    spectral_options: Mapping[str, Any] | None,
+    historical_options: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    """Time representative matvecs and estimate target-operator diagnostic work."""
+
+    dimension = int(operator.shape[0])
+    dtype = np.dtype(getattr(operator, "dtype", factors.dtype))
+    rng = np.random.default_rng(seed + 7919)
+    vector = rng.standard_normal(dimension).astype(dtype)
+    if np.issubdtype(dtype, np.complexfloating):
+        vector += 1j * rng.standard_normal(dimension)
+
+    def timed(label: str, apply) -> float:
+        print(f"[errors][estimate] timing={label} starting", flush=True)
+        started = time.perf_counter()
+        apply(vector)
+        seconds = time.perf_counter() - started
+        print(
+            f"[errors][estimate] timing={label} seconds={seconds:.3f}",
+            flush=True,
+        )
+        return seconds
+
+    forward_seconds = timed("target_forward_matvec", lambda x: _apply(operator, x))
+    adjoint_seconds = timed(
+        "target_adjoint_matvec", lambda x: _adjoint_apply(operator, x)
+    )
+    rsrs_apply_seconds = timed("rsrs_apply", factors.matvec)
+    rsrs_inverse_seconds = timed("rsrs_inverse_apply", factors.inverse_matvec)
+
+    historical = dict(historical_options or {})
+    application_samples = max(int(historical.get("application_samples", 10)), 1)
+    spectral = dict(spectral_options or {})
+    spectral_enabled = bool(spectral.get("enabled", True))
+    iterations = max(int(spectral.get("iterations", 10)), 1) if spectral_enabled else 0
+    block_size = min(
+        max(int(spectral.get("block_size", 2)), 1), dimension, MAX_OPERATOR_COLUMNS
+    )
+
+    # The non-spectral diagnostics use two forward probe applications,
+    # one forward and two transpose historical applications, plus one known
+    # solution application. Each spectral iteration uses six forward and
+    # three adjoint block applications across the three target-dependent
+    # estimates. Early convergence can reduce this upper bound.
+    forward_equivalent = (
+        2 * max(int(probes), 1)
+        + application_samples
+        + 1
+        + 6 * iterations * block_size
+    )
+    adjoint_equivalent = 2 * application_samples + 3 * iterations * block_size
+    target_upper_seconds = (
+        forward_equivalent * forward_seconds
+        + adjoint_equivalent * adjoint_seconds
+    )
+    print(
+        "[errors][estimate] configured target-operator work "
+        f"forward_matvec_equivalents<={forward_equivalent} "
+        f"adjoint_matvec_equivalents<={adjoint_equivalent} "
+        f"target_operator_seconds<={target_upper_seconds:.1f} "
+        "(upper bound; spectral estimates may converge early; excludes RSRS and QR/SVD work)",
+        flush=True,
+    )
+    return {
+        "target_forward_matvec_seconds": forward_seconds,
+        "target_adjoint_matvec_seconds": adjoint_seconds,
+        "rsrs_apply_seconds": rsrs_apply_seconds,
+        "rsrs_inverse_apply_seconds": rsrs_inverse_seconds,
+        "forward_matvec_equivalents_upper_bound": forward_equivalent,
+        "adjoint_matvec_equivalents_upper_bound": adjoint_equivalent,
+        "target_operator_seconds_upper_bound": target_upper_seconds,
+    }
 
 
 def _errors(
@@ -436,19 +555,24 @@ def _errors(
         test += 1j * rng.standard_normal(test.shape)
         rhs += 1j * rng.standard_normal(rhs.shape)
 
-    true_apply = _apply(operator, test)
+    true_apply = _progress_apply(
+        operator, test, label="frobenius_target_apply"
+    )
     approximate_apply = factors.matmat(test)
     approximate_solution = factors.inverse_matmat(rhs)
+    inverse_image = _progress_apply(
+        operator, approximate_solution, label="frobenius_inverse_residual"
+    )
     probe_scale = np.sqrt(max(probes, 1))
     metrics = {
         "probe_apply_relative_fro": _relerr(approximate_apply, true_apply, "fro"),
-        "inverse_residual_relative_fro": _relerr(_apply(operator, approximate_solution), rhs, "fro"),
+        "inverse_residual_relative_fro": _relerr(inverse_image, rhs, "fro"),
         "norm_a_fro_estimate": float(np.linalg.norm(true_apply, ord="fro") / probe_scale),
         "norm_factor_error_fro_estimate": float(
             np.linalg.norm(approximate_apply - true_apply, ord="fro") / probe_scale
         ),
         "inverse_residual_fro_estimate": float(
-            np.linalg.norm(_apply(operator, approximate_solution) - rhs, ord="fro")
+            np.linalg.norm(inverse_image - rhs, ord="fro")
             / probe_scale
         ),
     }
@@ -593,6 +717,7 @@ def _errors(
                     iterations=iterations,
                     block_size=block_size,
                     tolerance=tolerance,
+                    progress_label=name,
                 )
                 details["seconds"] = time.perf_counter() - started
                 step_timings[f"spectral_{name}"] = details["seconds"]
@@ -768,8 +893,43 @@ def run_rsrs(
         f"[experiment] RSRS factorization complete seconds={factorization_seconds:.3f}",
         flush=True,
     )
+    gmres_options = dict(gmres_options or {})
     print(
-        "[experiment] starting error diagnostics "
+        "[experiment] starting early approximate-inverse and GMRES checks "
+        f"rsrs_apply_rayon_threads={options.threads.apply_threads} "
+        f"rsrs_apply_blas_threads={rsrs_apply_blas_threads}",
+        flush=True,
+    )
+    gmres_started = time.perf_counter()
+    gmres_result = _gmres_report(
+        operator,
+        diagnostic_factors,
+        mode=str(gmres_options.pop("mode", "none")),
+        tolerance=float(gmres_options.pop("tolerance", 1.0e-7)),
+        max_iterations=int(gmres_options.pop("max_iterations", 500)),
+        restart=gmres_options.pop("restart", None),
+        rhs_count=int(gmres_options.pop("rhs_count", 1)),
+        seed=int(gmres_options.pop("seed", 1701)),
+        log_every=int(gmres_options.pop("log_every", 1)),
+    )
+    if gmres_options:
+        raise ValueError(f"unknown GMRES options: {sorted(gmres_options)}")
+    gmres_seconds = time.perf_counter() - gmres_started
+    print(
+        f"[experiment] approximate-inverse and GMRES checks complete "
+        f"seconds={gmres_seconds:.3f}",
+        flush=True,
+    )
+    diagnostic_cost_estimate = _diagnostic_cost_estimate(
+        operator,
+        diagnostic_factors,
+        seed=error_seed,
+        probes=error_probes,
+        spectral_options=spectral_options,
+        historical_options=historical_options,
+    )
+    print(
+        "[experiment] starting remaining error diagnostics "
         f"rsrs_apply_rayon_threads={options.threads.apply_threads} "
         f"rsrs_apply_blas_threads={rsrs_apply_blas_threads} "
         f"OMP_NUM_THREADS={os.environ.get('OMP_NUM_THREADS', 'inherited')} "
@@ -796,20 +956,6 @@ def run_rsrs(
         f"[experiment] error diagnostics complete seconds={error_seconds:.3f}",
         flush=True,
     )
-    gmres_options = dict(gmres_options or {})
-    gmres_result = _gmres_report(
-        operator,
-        diagnostic_factors,
-        mode=str(gmres_options.pop("mode", "none")),
-        tolerance=float(gmres_options.pop("tolerance", 1.0e-7)),
-        max_iterations=int(gmres_options.pop("max_iterations", 500)),
-        restart=gmres_options.pop("restart", None),
-        rhs_count=int(gmres_options.pop("rhs_count", 1)),
-        seed=int(gmres_options.pop("seed", 1701)),
-        log_every=int(gmres_options.pop("log_every", 1)),
-    )
-    if gmres_options:
-        raise ValueError(f"unknown GMRES options: {sorted(gmres_options)}")
     report = {
         "created_utc": datetime.now(timezone.utc).isoformat(),
         "status": "complete",
@@ -827,10 +973,12 @@ def run_rsrs(
         "rsrs": factors.report,
         "timings_seconds": {
             "factorization": factorization_seconds,
+            "gmres": gmres_seconds,
             "error_computation": error_seconds,
         },
         "errors": errors,
         "error_estimation": error_estimation,
+        "diagnostic_cost_estimate": diagnostic_cost_estimate,
         "gmres": gmres_result,
     }
     _write_report_files(output, report)
