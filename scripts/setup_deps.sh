@@ -15,6 +15,10 @@ BUILD_RSRS_EXTENSION="${BUILD_RSRS_EXTENSION:-1}"
 EXAFMM_PREFIX="${EXAFMM_PREFIX:-$DEPS_DIR/exafmm-prefix}"
 PYTHON_BIN="${PYTHON_BIN:-}"
 ENABLE_EXAFMM="${ENABLE_EXAFMM:-auto}"
+# Optional directory containing the LP64 BLAS/LAPACK selected when building
+# the RSRS extension.  It must also precede system BLAS at runtime; otherwise
+# a binary built for LP64 may resolve an ABI-incompatible implementation.
+RSRS_BLAS_LIB_DIR="${RSRS_BLAS_LIB_DIR:-}"
 
 if [ "$ENABLE_EXAFMM" = "auto" ]; then
   case "$(uname -s)" in
@@ -46,6 +50,7 @@ echo "[setup] BUILD_RSRS_EXTENSION=$BUILD_RSRS_EXTENSION"
 echo "[setup] Using EXAFMM_PREFIX=$EXAFMM_PREFIX"
 echo "[setup] Using PYTHON_BIN=$PYTHON_BIN"
 echo "[setup] ENABLE_EXAFMM=$ENABLE_EXAFMM"
+echo "[setup] RSRS_BLAS_LIB_DIR=${RSRS_BLAS_LIB_DIR:-system default}"
 
 mkdir -p "$DEPS_DIR"
 cd "$WORKSPACE"
@@ -74,6 +79,18 @@ prepend_path_var() {
 
   export "$var_name"
 }
+
+if [ -n "$RSRS_BLAS_LIB_DIR" ]; then
+  if [ ! -d "$RSRS_BLAS_LIB_DIR" ]; then
+    echo "[setup] ERROR: RSRS_BLAS_LIB_DIR is not a directory: $RSRS_BLAS_LIB_DIR"
+    exit 1
+  fi
+  prepend_path_var LIBRARY_PATH "$RSRS_BLAS_LIB_DIR"
+  case "$(uname -s)" in
+    Darwin) prepend_path_var DYLD_LIBRARY_PATH "$RSRS_BLAS_LIB_DIR" ;;
+    *) prepend_path_var LD_LIBRARY_PATH "$RSRS_BLAS_LIB_DIR" ;;
+  esac
+fi
 
 kifmm_library_name() {
   case "$(uname -s)" in
@@ -176,6 +193,22 @@ write_local_env_file() {
 export PATH="$RSRS_WORKSPACE/.venv/bin${PATH:+:$PATH}"
 export PYTHONPATH="$RSRS_WORKSPACE${PYTHONPATH:+:$PYTHONPATH}"
 EOF
+
+    if [ -n "$RSRS_BLAS_LIB_DIR" ]; then
+      printf 'export RSRS_BLAS_LIB_DIR="%s"\n' "$RSRS_BLAS_LIB_DIR"
+      case "$(uname -s)" in
+        Darwin)
+          cat <<'EOF'
+export DYLD_LIBRARY_PATH="$RSRS_BLAS_LIB_DIR${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
+EOF
+          ;;
+        *)
+          cat <<'EOF'
+export LD_LIBRARY_PATH="$RSRS_BLAS_LIB_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+EOF
+          ;;
+      esac
+    fi
 
     if [ "$ENABLE_EXAFMM" = "1" ]; then
       printf 'export EXAFMM_PREFIX="%s"\n' "$EXAFMM_PREFIX"

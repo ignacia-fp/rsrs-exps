@@ -37,6 +37,14 @@ source .venv/bin/activate
 source .rsrs-env.sh
 ```
 
+On systems with multiple BLAS implementations, select the LP64 BLAS used to
+build RSRS before setup. The generated environment file preserves the same
+runtime search path:
+
+```bash
+RSRS_BLAS_LIB_DIR=/path/to/lp64-openblas/lib bash scripts/setup_local.sh
+```
+
 The Bempp-cl, ExaFMM, and KiFMM revisions used by the existing compatibility
 path remain pinned as submodules under `external/`. Development versions of
 RSRS, Bempp-rs, KiFMM, and `so-kernels` live as sibling repositories.
