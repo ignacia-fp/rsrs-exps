@@ -1,10 +1,12 @@
 from datetime import date
 import json
+from pathlib import Path
 
 import pytest
 
 from rsrs_experiments.configuration import compile_case, render_script, select_tests
 from rsrs_experiments.cli import main
+import rsrs_experiments.runner as runner
 
 
 def base_case(**updates):
@@ -27,6 +29,62 @@ def test_numbered_options_compile_to_python_case():
     assert case["rsrs"]["symmetry"] == "NoSymm"
     assert case["diagnostics"]["gmres"]["mode"] == "both"
     assert case["sampling"]["target"] == 100
+
+
+def test_operator_parameters_replace_unrelated_defaults():
+    case = compile_case(
+        base_case(
+            operator=6,
+            operator_parameters={"refinement_level": 0, "expansion_order": 4},
+        ),
+        name="bempp-rs",
+    )
+    assert case["operator"]["parameters"] == {
+        "refinement_level": 0,
+        "expansion_order": 4,
+    }
+
+
+def test_ephemeral_sampling_does_not_require_a_cache_path():
+    case = compile_case(
+        base_case(
+            sample_cache=None,
+            sampling={"target": 128, "save_samples": False},
+        ),
+        name="ephemeral",
+    )
+    assert case["sample_cache"] is None
+    assert case["sampling"]["save_samples"] is False
+
+
+def test_ephemeral_samples_are_removed_after_the_run(monkeypatch, tmp_path):
+    observed: dict[str, Path] = {}
+    sentinel = object()
+
+    def fake_sample(config):
+        observed["cache"] = Path(config.output)
+        assert observed["cache"].is_dir()
+        (observed["cache"] / "generated").write_text("temporary")
+
+    def fake_run(cache, *_args, **_kwargs):
+        assert Path(cache) == observed["cache"]
+        assert (Path(cache) / "generated").is_file()
+        return sentinel
+
+    monkeypatch.setattr(runner, "sample_operator", fake_sample)
+    monkeypatch.setattr(runner, "run_rsrs", fake_run)
+    result = runner.run_case(
+        compile_case(
+            base_case(
+                sample_cache=None,
+                output=str(tmp_path / "result"),
+                sampling={"target": 128, "save_samples": False},
+            ),
+            name="ephemeral",
+        )
+    )
+    assert result is sentinel
+    assert not observed["cache"].exists()
 
 
 def test_unpreconditioned_case_needs_no_cache_or_sampling():

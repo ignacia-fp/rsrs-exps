@@ -10,7 +10,8 @@ requires-python = ">=3.10"
 dependencies = [
     "numpy>=1.26,<3",
     "scipy>=1.11,<2",
-    "so-kernels>=0.1.0.dev0",
+    "bempp-rsrs @ git+https://github.com/bempp/rsrs.git@python-sample-interface#subdirectory=python-native",
+    "so-kernels[backends] @ git+https://github.com/ignacia-fp/so-kernels.git@main",
 ]
 
 [project.optional-dependencies]
@@ -22,3 +23,6 @@ rsrs-experiment = "rsrs_experiments.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["python/rsrs_experiments"]
+
+[tool.hatch.metadata]
+allow-direct-references = true

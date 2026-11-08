@@ -42,6 +42,7 @@
     "output": null,
     "sampling": {
       "target": 200,
+      "save_samples": true,
       "workers": 4,
       "batch_size": 10,
       "seed": 0,

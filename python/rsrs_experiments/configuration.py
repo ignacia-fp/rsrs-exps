@@ -82,6 +82,7 @@ DEFAULTS: dict[str, Any] = {
     "output": None,
     "sampling": {
         "target": 0,
+        "save_samples": True,
         "workers": 1,
         "batch_size": 10,
         "seed": 0,
@@ -169,6 +170,11 @@ def compile_case(values: Mapping[str, Any], *, name: str = "case") -> dict[str, 
     if unknown:
         raise ValueError(f"unknown case keys: {unknown}")
     case = _deep_merge(DEFAULTS, values)
+    # Operator constructors have unrelated parameter vocabularies.  Replacing
+    # this mapping avoids leaking BIEGrid's default ``cells_per_axis`` into a
+    # Bempp or KiFMM constructor.
+    if "operator_parameters" in values:
+        case["operator_parameters"] = dict(values["operator_parameters"])
     operator = case["operator"]
     operator_type = _choice("operator", operator) if not isinstance(operator, Mapping) else None
     operator_spec = (
@@ -204,8 +210,15 @@ def compile_case(values: Mapping[str, Any], *, name: str = "case") -> dict[str, 
     diagnostics["gmres"] = dict(diagnostics["gmres"])
     diagnostics["gmres"]["mode"] = _choice("gmres", diagnostics["gmres"]["mode"])
     mode = diagnostics["gmres"]["mode"]
-    if mode != "unpreconditioned" and not case["sample_cache"]:
-        raise ValueError("sample_cache is required unless GMRES mode is unpreconditioned")
+    ephemeral_samples = (
+        int(sampling.get("target", 0)) > 0
+        and not bool(sampling.get("save_samples", True))
+    )
+    if mode != "unpreconditioned" and not case["sample_cache"] and not ephemeral_samples:
+        raise ValueError(
+            "sample_cache is required unless GMRES is unpreconditioned or newly "
+            "generated samples are ephemeral"
+        )
     return {
         "schema_version": 1,
         "name": name,

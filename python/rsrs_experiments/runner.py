@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
 from pathlib import Path
+import tempfile
 import time
 from typing import Any, Mapping
 
@@ -170,10 +171,14 @@ def run_rsrs(
 
     cache = cache if isinstance(cache, SampleCache) else SampleCache(Path(cache))
     manifest = cache.manifest
-    operator = create_operator(manifest["operator"])
+    operator = None
     if points is None:
         cached_points = cache.path / "points.npy"
-        points = np.load(cached_points) if cached_points.is_file() else getattr(operator, "points", None)
+        if cached_points.is_file():
+            points = np.load(cached_points)
+        else:
+            operator = create_operator(manifest["operator"])
+            points = getattr(operator, "points", None)
     elif isinstance(points, Path):
         points = np.load(points)
     if points is None:
@@ -183,7 +188,14 @@ def run_rsrs(
         )
     if not isinstance(options, RsrsOptions):
         options = RsrsOptions.from_mapping(dict(options))
-    session = RsrsSession(points, options, dtype=operator.dtype)
+    # Initialise RSRS before a backend operator whenever cached points are
+    # available.  Bempp-rs and RSRS both use MPI internally, and constructing
+    # the operator first can leave the second extension unable to initialise
+    # its MPI datatype state in the same Python process.
+    dtype = np.dtype(manifest["dtype"])
+    session = RsrsSession(points, options, dtype=dtype)
+    if operator is None:
+        operator = create_operator(manifest["operator"])
     samples = cache.sample_bundle()
     started = time.perf_counter()
     try:
@@ -270,32 +282,51 @@ def run_case(case: Mapping[str, Any]) -> RsrsRunResult | dict[str, Any]:
         (output / "rsrs_report.json").write_text(json.dumps(report, indent=2) + "\n")
         return report
 
-    cache_path = Path(definition["sample_cache"])
     sampling = dict(definition.get("sampling", {}))
     target = int(sampling.pop("target", 0))
-    if target > 0:
-        sample_operator(
-            ParallelSamplingConfig(
-                operator=operator_spec,
-                sample_count=target,
-                output=cache_path,
-                workers=int(sampling.pop("workers", 1)),
-                batch_size=int(sampling.pop("batch_size", 10)),
-                seed=int(sampling.pop("seed", 0)),
-                symmetry=str(sampling.pop("symmetry", "auto")),
-                validation=str(sampling.pop("validation", "none")),
-                validation_workers=sampling.pop("validation_workers", None),
-                validation_batch_size=sampling.pop("validation_batch_size", None),
-                validation_tolerance=float(sampling.pop("validation_tolerance", 5.0e-4)),
-            )
+    save_samples = bool(sampling.pop("save_samples", True))
+    cache_value = definition.get("sample_cache")
+    temporary_cache = None
+    if target > 0 and not save_samples:
+        temporary_cache = tempfile.TemporaryDirectory(prefix="rsrs-samples-")
+        cache_path = Path(temporary_cache.name)
+        print(
+            "[experiment] samples are ephemeral and will be removed after this run",
+            flush=True,
         )
-    if sampling:
-        raise ValueError(f"unknown sampling options: {sorted(sampling)}")
-    return run_rsrs(
-        cache_path,
-        definition.get("rsrs", {}),
-        output=output,
-        error_probes=int(diagnostics.pop("error_probes", 4)),
-        error_seed=int(diagnostics.pop("error_seed", 1701)),
-        gmres_options=gmres_options,
-    )
+    elif cache_value:
+        cache_path = Path(cache_value)
+    else:
+        raise ValueError("sample_cache is required when no ephemeral samples are generated")
+    try:
+        if target > 0:
+            sample_operator(
+                ParallelSamplingConfig(
+                    operator=operator_spec,
+                    sample_count=target,
+                    output=cache_path,
+                    workers=int(sampling.pop("workers", 1)),
+                    batch_size=int(sampling.pop("batch_size", 10)),
+                    seed=int(sampling.pop("seed", 0)),
+                    symmetry=str(sampling.pop("symmetry", "auto")),
+                    validation=str(sampling.pop("validation", "none")),
+                    validation_workers=sampling.pop("validation_workers", None),
+                    validation_batch_size=sampling.pop("validation_batch_size", None),
+                    validation_tolerance=float(
+                        sampling.pop("validation_tolerance", 5.0e-4)
+                    ),
+                )
+            )
+        if sampling:
+            raise ValueError(f"unknown sampling options: {sorted(sampling)}")
+        return run_rsrs(
+            cache_path,
+            definition.get("rsrs", {}),
+            output=output,
+            error_probes=int(diagnostics.pop("error_probes", 4)),
+            error_seed=int(diagnostics.pop("error_seed", 1701)),
+            gmres_options=gmres_options,
+        )
+    finally:
+        if temporary_cache is not None:
+            temporary_cache.cleanup()

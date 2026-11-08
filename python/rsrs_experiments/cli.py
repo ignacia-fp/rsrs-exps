@@ -15,8 +15,14 @@ from .sampling import ParallelSamplingConfig, sample_operator
 
 
 def _json(value: str) -> dict:
+    if value.lstrip().startswith(("{", "[")):
+        return json.loads(value)
     path = Path(value)
-    return json.loads(path.read_text()) if path.is_file() else json.loads(value)
+    try:
+        is_file = path.is_file()
+    except OSError:
+        is_file = False
+    return json.loads(path.read_text()) if is_file else json.loads(value)
 
 
 def _sample(args: argparse.Namespace) -> int:

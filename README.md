@@ -79,6 +79,8 @@ rsrs-experiment sample \
 Validation may be disabled, sampled quickly, or applied to every row. Python
 never asks RSRS to sample implicitly: insufficient rows produce a structured
 error so the user can choose whether to extend the cache and rerun.
+In JSON cases, `sampling.save_samples=false` keeps the generated samples only
+for the duration of that experiment; `true` retains the resumable cache.
 
 See [Python experiment pipeline](docs/PYTHON_EXPERIMENT_PIPELINE.md) and
 [Python-first RSRS architecture](docs/PYTHON_RSRS_ARCHITECTURE.md) for the

@@ -6,6 +6,9 @@
    each spawned Python process.
 2. Sampling workers process deterministic Gaussian samples in row batches. The
    default batch size is 10. Operators are built and warmed once per worker.
+   Every worker is constructed in a fresh unique working/temporary directory;
+   this prevents ExaFMM workers from sharing fixed-name runtime files, even if
+   a scheduler later reuses the same process identifier.
 3. Batch files are assembled by global row range into memory-mapped arrays.
 4. Optional validation uses a separate pool of fresh isolated operators. It can
    check the first/middle/last validation batches (`sampled`) or every row

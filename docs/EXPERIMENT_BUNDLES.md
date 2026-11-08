@@ -93,6 +93,11 @@ disable this behaviour.
 
 ## Sample targets and optional validation
 
+Set `sampling.save_samples` to `true` to retain a reusable cache. Set it to
+`false` to generate an isolated temporary cache for this factorisation only;
+the samples are removed after errors and solves finish. Ephemeral sampling
+does not require a `sample_cache` path.
+
 The sampling command treats `--samples` as a target, not as an instruction to
 regenerate everything:
 

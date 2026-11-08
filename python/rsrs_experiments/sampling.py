@@ -93,10 +93,18 @@ def _worker_init(operator_spec: Mapping[str, Any], root: str, environment: Mappi
 
     for key, value in environment.items():
         os.environ[str(key)] = str(value)
-    worker_root = Path(root) / f"worker_{os.getpid()}"
-    worker_root.mkdir(parents=True, exist_ok=True)
+    workers_root = Path(root)
+    workers_root.mkdir(parents=True, exist_ok=True)
+    # Do not rely only on a PID: schedulers and repeated runs may reuse process
+    # identifiers while stale ExaFMM files still exist.  A fresh directory for
+    # every spawned process isolates all fixed-name runtime files as well as
+    # ordinary temporary and cache files.
+    worker_root = Path(
+        tempfile.mkdtemp(prefix=f"worker_{os.getpid()}_", dir=workers_root)
+    )
     os.chdir(worker_root)
-    os.environ["TMPDIR"] = str(worker_root)
+    for variable in ("TMPDIR", "TMP", "TEMP", "XDG_CACHE_HOME", "NUMBA_CACHE_DIR"):
+        os.environ[variable] = str(worker_root)
     tempfile.tempdir = str(worker_root)
     _WORKER_DIRECTORY = worker_root
     _OPERATOR = create_operator(operator_spec)
@@ -339,6 +347,12 @@ def sample_operator(config: ParallelSamplingConfig) -> ParallelSamplingResult:
 
     started = time.perf_counter()
     total_batches = len(tasks) + len(completed)
+    print(
+        f"[sampling] target_rows={effective_sample_count} batch_size={config.batch_size} "
+        f"workers={min(config.workers, max(len(tasks), 1))} "
+        f"new_batches={len(tasks)} resumed_batches={len(completed)}",
+        flush=True,
+    )
     if tasks:
         context = mp.get_context("spawn")
         with cf.ProcessPoolExecutor(
@@ -350,13 +364,30 @@ def sample_operator(config: ParallelSamplingConfig) -> ParallelSamplingResult:
             futures = {executor.submit(_sample_batch, task): task for task in tasks}
             for future in cf.as_completed(futures):
                 completed.append(future.result())
+                elapsed = time.perf_counter() - started
+                generated = sum(
+                    item["count"] for item in completed if not item.get("resumed", False)
+                )
+                remaining = sum(
+                    task["row_stop"] - task["row_start"]
+                    for pending, task in futures.items()
+                    if not pending.done()
+                )
+                rate = generated / elapsed if elapsed > 0.0 else 0.0
+                eta = remaining / rate if rate > 0.0 else 0.0
                 print(
-                    f"[sampling] completed_batches={len(completed)}/{total_batches}",
+                    f"[sampling] completed_batches={len(completed)}/{total_batches} "
+                    f"generated_rows={generated} elapsed={elapsed:.1f}s eta={eta:.1f}s",
                     flush=True,
                 )
     sampling_seconds = time.perf_counter() - started
     completed.sort(key=lambda item: item["row_start"])
+    print("[sampling] assembling row-ordered sample arrays", flush=True)
     cache = assemble_cache(output, completed)
+    print(
+        f"[sampling] assembled rows={effective_sample_count} elapsed={sampling_seconds:.1f}s",
+        flush=True,
+    )
 
     validation_results: list[dict] = []
     validation_seconds = 0.0
@@ -375,6 +406,11 @@ def sample_operator(config: ParallelSamplingConfig) -> ParallelSamplingResult:
             for row_start, row_stop in selected
         ]
         validation_started = time.perf_counter()
+        print(
+            f"[validation] mode={config.validation} batches={len(validation_tasks)} "
+            f"workers={min(validation_workers, len(validation_tasks))}",
+            flush=True,
+        )
         context = mp.get_context("spawn")
         with cf.ProcessPoolExecutor(
             max_workers=min(validation_workers, len(validation_tasks)),
@@ -389,6 +425,11 @@ def sample_operator(config: ParallelSamplingConfig) -> ParallelSamplingResult:
             validation_results = list(executor.map(_validate_batch, validation_tasks))
         validation_seconds = time.perf_counter() - validation_started
         worst = max(item["max_error"] for item in validation_results)
+        print(
+            f"[validation] complete worst_error={worst:.3e} "
+            f"elapsed={validation_seconds:.1f}s",
+            flush=True,
+        )
         if worst > config.validation_tolerance:
             raise RuntimeError(
                 f"sample validation failed: {worst:.3e} > {config.validation_tolerance:.3e}"
