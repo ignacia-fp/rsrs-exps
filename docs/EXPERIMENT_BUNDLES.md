@@ -120,11 +120,25 @@ The probe report also retains inexpensive Frobenius-norm estimates. Each
 iterative 2-norm estimate records its iteration count, convergence flag, and
 wall time under `error_estimation`.
 
+The historical runtime checks are also preserved under their original names:
+`app_err_left`, `app_err_right`, `app_inv_err_left`, `app_inv_err_right`,
+`adjoint_consistency_error`, `adjoint_consistency_error_inv`,
+`self_adjoint_apply_error`, `solve_error_rhs`, `norm_apply_fro`,
+`err_solve_fro`, `norm_a_fro`, `tot_num_samples`, and `residual_size`.
+Their probe counts and deterministic seed are configured with
+`diagnostics.historical_errors`.
+
 The estimator applies block power iteration to the corresponding normal
 operator. `block_size` processes search directions together with
 matrix-matrix products, allowing the FMM backend to exploit internal
 parallelism without duplicating the target operator or native RSRS factors in
 separate processes.
+
+`diagnostics.gmres.rhs_count` may be greater than one. Every right-hand side
+gets an independent GMRES history and true final residual. When RSRS factors
+are available, the report additionally stores the direct approximate-inverse
+residual for every right-hand side under `gmres.direct_rsrs_inverse` and the
+historical `gmres.rel_err_approx_inv` list.
 
 ## Sample targets and optional validation
 

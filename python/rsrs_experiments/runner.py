@@ -72,6 +72,28 @@ def _gmres_report(
     if mode in {"preconditioned", "both"}:
         variants.append(("preconditioned", factors.aslinearoperator(inverse=True)))
     report: dict[str, Any] = {"mode": mode, "tolerance": tolerance, "solves": {}}
+    if factors is not None:
+        direct = []
+        for column in range(rhs_count):
+            started = time.perf_counter()
+            solution = factors.inverse_matvec(rhs[:, column])
+            denominator = max(
+                float(np.linalg.norm(rhs[:, column])), np.finfo(float).tiny
+            )
+            direct.append(
+                {
+                    "rhs": column,
+                    "final_true_relative_residual": float(
+                        np.linalg.norm(_apply(operator, solution) - rhs[:, column])
+                        / denominator
+                    ),
+                    "seconds": time.perf_counter() - started,
+                }
+            )
+        report["direct_rsrs_inverse"] = direct
+        report["rel_err_approx_inv"] = [
+            item["final_true_relative_residual"] for item in direct
+        ]
     for name, preconditioner in variants:
         solves = []
         for column in range(rhs_count):
@@ -140,6 +162,44 @@ def _adjoint_apply(operator: Any, values: np.ndarray) -> np.ndarray:
     raise TypeError("spectral errors require an explicit transpose/adjoint application")
 
 
+def _transpose_apply(operator: Any, values: np.ndarray) -> np.ndarray:
+    """Apply the algebraic transpose without conjugating complex values."""
+
+    if bool(getattr(operator, "symmetric", False)):
+        return _apply(operator, values)
+    transpose = getattr(operator, "transpose_operator", None)
+    if transpose is not None:
+        return _apply(transpose, values)
+    method = getattr(
+        operator,
+        "transpose_matvec" if values.ndim == 1 else "transpose_matmat",
+        None,
+    )
+    if callable(method):
+        return np.asarray(method(values))
+    raise TypeError("historical right-application errors require an algebraic transpose")
+
+
+def _column_max_relative(actual: np.ndarray, expected: np.ndarray) -> float:
+    numerator = np.linalg.norm(actual - expected, axis=0)
+    denominator = np.maximum(np.linalg.norm(expected, axis=0), np.finfo(float).tiny)
+    return float(np.max(numerator / denominator))
+
+
+def _adjoint_consistency(forward, adjoint, probes: np.ndarray) -> float:
+    """Return max |<x,Fy>-<F*x,y>| relative to either inner product."""
+
+    split = probes.shape[1] // 2
+    x = probes[:, :split]
+    y = probes[:, split : 2 * split]
+    fy = np.asarray(forward(y))
+    f_star_x = np.asarray(adjoint(x))
+    lhs = np.sum(np.conjugate(x) * fy, axis=0)
+    rhs = np.sum(np.conjugate(f_star_x) * y, axis=0)
+    denominator = np.maximum(np.maximum(np.abs(lhs), np.abs(rhs)), 1.0e-14)
+    return float(np.max(np.abs(lhs - rhs) / denominator))
+
+
 def _block_spectral_norm(
     apply,
     adjoint,
@@ -190,6 +250,7 @@ def _errors(
     seed: int,
     probes: int,
     spectral_options: Mapping[str, Any] | None = None,
+    historical_options: Mapping[str, Any] | None = None,
 ) -> tuple[dict[str, float], dict[str, Any]]:
     dimension = int(operator.shape[0])
     dtype = np.dtype(getattr(operator, "dtype", factors.dtype))
@@ -216,6 +277,68 @@ def _errors(
             / probe_scale
         ),
     }
+    metrics["norm_a_fro"] = metrics["norm_a_fro_estimate"]
+    metrics["norm_apply_fro"] = metrics["norm_factor_error_fro_estimate"]
+    metrics["err_solve_fro"] = metrics["inverse_residual_fro_estimate"]
+
+    historical = dict(historical_options or {})
+    app_samples = int(historical.pop("application_samples", 10))
+    adjoint_samples = int(historical.pop("adjoint_samples", 8))
+    historical_seed = int(historical.pop("seed", seed + 2000))
+    if historical:
+        raise ValueError(f"unknown historical-diagnostic options: {sorted(historical)}")
+    sample_width = max(app_samples, 1)
+    app_rng = np.random.default_rng(historical_seed)
+    app_test = app_rng.standard_normal((dimension, sample_width)).astype(dtype)
+    if np.issubdtype(dtype, np.complexfloating):
+        app_test += 1j * app_rng.standard_normal(app_test.shape)
+    target_forward = _apply(operator, app_test)
+    factor_forward = factors.matmat(app_test)
+    target_transpose = _transpose_apply(operator, app_test)
+    factor_transpose = factors.apply(app_test, transpose=True)
+    metrics.update(
+        {
+            "app_err_left": _column_max_relative(factor_forward, target_forward),
+            "app_err_right": _column_max_relative(factor_transpose, target_transpose),
+            "app_inv_err_left": _column_max_relative(
+                factors.inverse_matmat(target_forward), app_test
+            ),
+            "app_inv_err_right": _column_max_relative(
+                _transpose_apply(operator, factors.apply(app_test, transpose=True, inverse=True)),
+                app_test,
+            ),
+        }
+    )
+
+    adjoint_width = max(adjoint_samples, 1)
+    adjoint_rng = np.random.default_rng(historical_seed + 1)
+    adjoint_test = adjoint_rng.standard_normal((dimension, 2 * adjoint_width)).astype(dtype)
+    if np.issubdtype(dtype, np.complexfloating):
+        adjoint_test += 1j * adjoint_rng.standard_normal(adjoint_test.shape)
+    factor_adjoint = lambda x: factors.apply(x, transpose=True, conjugate=True)
+    inverse_adjoint = lambda x: factors.apply(
+        x, transpose=True, conjugate=True, inverse=True
+    )
+    metrics["adjoint_consistency_error"] = _adjoint_consistency(
+        factors.matmat, factor_adjoint, adjoint_test
+    )
+    metrics["adjoint_consistency_error_inv"] = _adjoint_consistency(
+        factors.inverse_matmat, inverse_adjoint, adjoint_test
+    )
+    self_test = adjoint_test[:, :adjoint_width]
+    self_forward = factors.matmat(self_test)
+    metrics["self_adjoint_apply_error"] = _column_max_relative(
+        factor_adjoint(self_test), self_forward
+    )
+
+    # Match the old sampled solve check: draw a known real-valued solution,
+    # form b=A x, then compare F^{-1}b with x.
+    solve_rng = np.random.default_rng(historical_seed + 2)
+    known_solution = solve_rng.standard_normal(dimension).astype(dtype)
+    known_rhs = _apply(operator, known_solution)
+    metrics["solve_error_rhs"] = _relerr(
+        factors.inverse_matvec(known_rhs), known_solution
+    )
 
     dense_builder = getattr(operator, "dense", None)
     estimator_report: dict[str, Any] = {"method": "disabled"}
@@ -320,6 +443,8 @@ def _errors(
                     "condition_target_via_rsrs_estimate_2": norm_a * norm_inverse,
                 }
             )
+    if "condition_rsrs_estimate_2" in metrics:
+        metrics["cond_rsrs_estimate"] = metrics["condition_rsrs_estimate_2"]
     return metrics, estimator_report
 
 
@@ -334,6 +459,7 @@ def run_rsrs(
     gmres_options: Mapping[str, Any] | None = None,
     operator_spec: Mapping[str, Any] | None = None,
     spectral_options: Mapping[str, Any] | None = None,
+    historical_options: Mapping[str, Any] | None = None,
 ) -> RsrsRunResult:
     from bempp_rsrs import InsufficientSamplesError, RsrsOptions, RsrsSession
     from so_kernels import create_operator
@@ -403,7 +529,10 @@ def run_rsrs(
         seed=error_seed,
         probes=error_probes,
         spectral_options=spectral_options,
+        historical_options=historical_options,
     )
+    errors["tot_num_samples"] = int(manifest["sample_count"])
+    errors["residual_size"] = int(factors.report.get("residual_size", 0))
     error_seconds = time.perf_counter() - error_started
     gmres_options = dict(gmres_options or {})
     gmres_result = _gmres_report(
@@ -453,6 +582,7 @@ def run_case(case: Mapping[str, Any]) -> RsrsRunResult | dict[str, Any]:
     diagnostics = dict(definition.get("diagnostics", {}))
     gmres_options = dict(diagnostics.pop("gmres", {}))
     spectral_options = dict(diagnostics.pop("spectral", {}))
+    historical_options = dict(diagnostics.pop("historical_errors", {}))
     gmres_mode = str(gmres_options.get("mode", "none"))
     if gmres_mode == "unpreconditioned":
         operator = create_operator(operator_spec)
@@ -522,6 +652,7 @@ def run_case(case: Mapping[str, Any]) -> RsrsRunResult | dict[str, Any]:
             gmres_options=gmres_options,
             operator_spec=operator_spec,
             spectral_options=spectral_options,
+            historical_options=historical_options,
         )
     finally:
         if temporary_cache is not None:

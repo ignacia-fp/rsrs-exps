@@ -3,7 +3,7 @@ import json
 import numpy as np
 
 from rsrs_experiments import ParallelSamplingConfig, run_rsrs, sample_operator
-from rsrs_experiments.runner import _block_spectral_norm
+from rsrs_experiments.runner import _block_spectral_norm, _errors
 from so_kernels import create_operator
 
 
@@ -21,6 +21,64 @@ def test_block_spectral_norm_matches_dense_singular_value():
     )
     np.testing.assert_allclose(estimate, np.linalg.norm(matrix, ord=2), rtol=1.0e-12)
     assert report["iterations"] >= 1
+
+
+def test_historical_complex_diagnostics_cover_adjoint_and_inverse_routes():
+    matrix = np.array([[2.0 + 1.0j, -0.5j], [1.5 - 0.25j, 3.0 - 2.0j]])
+
+    class Operator:
+        shape = matrix.shape
+        dtype = matrix.dtype
+        symmetric = False
+
+        def matvec(self, values):
+            return matrix @ values
+
+        def matmat(self, values):
+            return matrix @ values
+
+        def transpose_matvec(self, values):
+            return matrix.T @ values
+
+        def transpose_matmat(self, values):
+            return matrix.T @ values
+
+        def dense(self):
+            return matrix
+
+    class Factors:
+        dtype = matrix.dtype
+
+        def apply(self, values, *, transpose=False, conjugate=False, inverse=False):
+            selected = np.linalg.inv(matrix) if inverse else matrix
+            if transpose:
+                selected = selected.T
+            if conjugate:
+                return np.conjugate(selected @ np.conjugate(values))
+            return selected @ values
+
+        def matmat(self, values):
+            return matrix @ values
+
+        def inverse_matvec(self, values):
+            return np.linalg.solve(matrix, values)
+
+        def inverse_matmat(self, values):
+            return np.linalg.solve(matrix, values)
+
+    errors, report = _errors(Operator(), Factors(), seed=9, probes=4)
+    for name in (
+        "app_err_left",
+        "app_err_right",
+        "app_inv_err_left",
+        "app_inv_err_right",
+        "adjoint_consistency_error",
+        "adjoint_consistency_error_inv",
+        "solve_error_rhs",
+    ):
+        assert errors[name] < 1.0e-12
+    assert errors["self_adjoint_apply_error"] > 1.0e-3
+    assert report["method"] == "exact_dense"
 
 
 def test_parallel_batches_are_ordered_independent_and_validated(tmp_path):
@@ -172,6 +230,20 @@ def test_sample_cache_runs_rsrs_and_extracts_errors(tmp_path):
     assert result.report["status"] == "complete"
     assert result.report["errors"]["factor_relative_2"] < 1e-2
     assert result.report["errors"]["inverse_residual_relative_fro"] < 1e-2
+    for name in (
+        "app_err_left",
+        "app_err_right",
+        "app_inv_err_left",
+        "app_inv_err_right",
+        "adjoint_consistency_error",
+        "adjoint_consistency_error_inv",
+        "self_adjoint_apply_error",
+        "solve_error_rhs",
+        "cond_rsrs_estimate",
+        "tot_num_samples",
+        "residual_size",
+    ):
+        assert name in result.report["errors"]
     assert result.report["rsrs"]["ranks"]
     assert result.report["rsrs"]["active_samples"] > 0
     assert set(result.report["gmres"]["solves"]) == {
@@ -183,4 +255,6 @@ def test_sample_cache_runs_rsrs_and_extracts_errors(tmp_path):
         for solves in result.report["gmres"]["solves"].values()
         for solve in solves
     )
+    assert len(result.report["gmres"]["direct_rsrs_inverse"]) == 2
+    assert len(result.report["gmres"]["rel_err_approx_inv"]) == 2
     assert (tmp_path / "rsrs_result" / "rsrs_report.json").is_file()

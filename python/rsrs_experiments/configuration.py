@@ -128,6 +128,11 @@ DEFAULTS: dict[str, Any] = {
             "tolerance": 1.0e-3,
             "seed": 2701,
         },
+        "historical_errors": {
+            "application_samples": 10,
+            "adjoint_samples": 8,
+            "seed": 3701,
+        },
         "gmres": {
             "mode": 0,
             "tolerance": 1.0e-7,
