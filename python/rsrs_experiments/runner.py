@@ -467,13 +467,19 @@ def run_rsrs(
     cache = cache if isinstance(cache, SampleCache) else SampleCache(Path(cache))
     manifest = cache.manifest
     sampling_operator = None
-    target_operator_spec = dict(operator_spec or manifest["operator"])
+    cached_operator_spec = manifest.get("operator")
+    if operator_spec is None and cached_operator_spec is None:
+        raise ValueError(
+            "legacy sample caches do not identify their physical operator; "
+            "provide operator/operator_parameters in the experiment JSON"
+        )
+    target_operator_spec = dict(operator_spec or cached_operator_spec)
     if points is None:
         cached_points = cache.path / "points.npy"
         if cached_points.is_file():
             points = np.load(cached_points)
         else:
-            sampling_operator = create_operator(manifest["operator"])
+            sampling_operator = create_operator(target_operator_spec)
             points = getattr(sampling_operator, "points", None)
     elif isinstance(points, Path):
         points = np.load(points)
@@ -490,7 +496,7 @@ def run_rsrs(
     # its MPI datatype state in the same Python process.
     dtype = np.dtype(manifest["dtype"])
     session = RsrsSession(points, options, dtype=dtype)
-    operator = create_operator(target_operator_spec)
+    operator = sampling_operator or create_operator(target_operator_spec)
     expected_shape = (int(manifest["dimension"]), int(manifest["dimension"]))
     if tuple(operator.shape) != expected_shape:
         raise ValueError(
@@ -552,7 +558,7 @@ def run_rsrs(
         "status": "complete",
         "cache": str(cache.path),
         "operator": target_operator_spec,
-        "sampling_operator": manifest["operator"],
+        "sampling_operator": cached_operator_spec or target_operator_spec,
         "dimension": factors.dimension,
         "dtype": str(factors.dtype),
         "sample_count": manifest["sample_count"],

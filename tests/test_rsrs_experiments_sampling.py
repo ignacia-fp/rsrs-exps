@@ -1,8 +1,10 @@
 import json
 
 import numpy as np
+import pytest
 
 from rsrs_experiments import ParallelSamplingConfig, run_rsrs, sample_operator
+from rsrs_experiments.cache import SampleCache
 from rsrs_experiments.runner import _block_spectral_norm, _errors
 from so_kernels import create_operator
 
@@ -79,6 +81,36 @@ def test_historical_complex_diagnostics_cover_adjoint_and_inverse_routes():
         assert errors[name] < 1.0e-12
     assert errors["self_adjoint_apply_error"] > 1.0e-3
     assert report["method"] == "exact_dense"
+
+
+def test_legacy_multipart_hdf5_cache_is_detected_and_loaded_read_only(tmp_path):
+    h5py = pytest.importorskip("h5py")
+    sampling = tmp_path / "legacy" / "sampling"
+    sampling.mkdir(parents=True)
+    rows, dimension = 3, 5
+    matrices = {
+        name: (
+            np.arange(rows * dimension).reshape(rows, dimension)
+            + offset
+            + 1j * (offset + 0.5)
+        ).astype(np.complex128)
+        for offset, name in enumerate(("y_test", "y_sketch", "z_test", "z_sketch"))
+    }
+    for name, matrix in matrices.items():
+        for part, columns in enumerate((slice(0, 2), slice(2, 5))):
+            values = matrix[:, columns].T.reshape(-1)
+            with h5py.File(sampling / f"{name}_file.{part:05d}.h5", "w") as file:
+                file.attrs["shape"] = (rows, dimension)
+                file.create_dataset("real", data=values.real)
+                file.create_dataset("imag", data=values.imag)
+
+    cache = SampleCache(tmp_path / "legacy")
+    assert cache.manifest["format"] == "legacy_multipart_hdf5"
+    assert cache.manifest["sample_count"] == rows
+    bundle = cache.sample_bundle()
+    for name, expected in matrices.items():
+        np.testing.assert_array_equal(getattr(bundle, name), expected)
+    assert not (cache.path / "manifest.json").exists()
 
 
 def test_parallel_batches_are_ordered_independent_and_validated(tmp_path):

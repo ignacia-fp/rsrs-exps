@@ -16,6 +16,7 @@ dependencies = [
 
 [project.optional-dependencies]
 plot = ["matplotlib>=3.8,<4"]
+legacy-cache = ["h5py>=3.10,<4"]
 dev = ["pytest>=8,<10"]
 
 [project.scripts]
