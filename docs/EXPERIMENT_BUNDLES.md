@@ -111,14 +111,13 @@ approximation, provide `sampling_operator_parameters` (and optionally
 },
 "sampling_operator": null,
 "sampling_operator_parameters": {
-  "grid": "mesh.msh",
-  "kappa": 2.0,
-  "expansion_order": 4,
-  "ncrit": 400
+  "expansion_order": 4
 }
 ```
 
-The cache records the sampling operator. The final report records both. The
+When `sampling_operator` is null, these parameters override the corresponding
+target parameters and all other values—including the grid and kappa—are
+inherited. The cache records the resolved sampling operator. The final report records both. The
 runner rejects mismatched dimensions or differently ordered geometry before
 factorization diagnostics are computed.
 

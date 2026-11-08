@@ -55,8 +55,6 @@ def test_sampling_and_target_operators_can_use_different_parameters():
                 "expansion_order": 8,
             },
             sampling_operator_parameters={
-                "sources": [[0.0, 0.0, 0.0]],
-                "targets": [[0.0, 0.0, 0.0]],
                 "expansion_order": 4,
             },
         ),
@@ -64,6 +62,7 @@ def test_sampling_and_target_operators_can_use_different_parameters():
     )
     assert case["operator"]["parameters"]["expansion_order"] == 8
     assert case["sampling_operator"]["parameters"]["expansion_order"] == 4
+    assert case["sampling_operator"]["parameters"]["sources"] == [[0.0, 0.0, 0.0]]
 
 
 def test_ephemeral_sampling_does_not_require_a_cache_path():

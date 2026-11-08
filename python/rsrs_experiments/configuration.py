@@ -191,10 +191,16 @@ def compile_case(values: Mapping[str, Any], *, name: str = "case") -> dict[str, 
     )
     sampling_operator = case["sampling_operator"]
     sampling_parameters = case["sampling_operator_parameters"]
-    if sampling_operator is None and sampling_parameters is None:
-        sampling_operator_spec = dict(operator_spec)
+    if sampling_operator is None:
+        sampling_operator_spec = {
+            "operator_type": operator_spec["operator_type"],
+            "parameters": {
+                **dict(operator_spec.get("parameters", {})),
+                **({} if sampling_parameters is None else dict(sampling_parameters)),
+            },
+        }
     else:
-        selected = case["operator"] if sampling_operator is None else sampling_operator
+        selected = sampling_operator
         if isinstance(selected, Mapping):
             if sampling_parameters is not None:
                 raise ValueError(
@@ -204,11 +210,9 @@ def compile_case(values: Mapping[str, Any], *, name: str = "case") -> dict[str, 
             sampling_operator_spec = dict(selected)
         else:
             sampling_type = _choice("operator", selected)
-            parameters = (
-                dict(case["operator_parameters"])
-                if sampling_parameters is None
-                else dict(sampling_parameters)
-            )
+            parameters = dict(case["operator_parameters"])
+            if sampling_parameters is not None:
+                parameters.update(sampling_parameters)
             sampling_operator_spec = {
                 "operator_type": sampling_type,
                 "parameters": parameters,
