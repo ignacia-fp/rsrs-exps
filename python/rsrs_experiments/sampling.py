@@ -20,6 +20,7 @@ from .cache import SampleCache, assemble_cache
 
 
 ValidationMode = Literal["none", "sampled", "all"]
+MAX_OPERATOR_COLUMNS = 30
 
 
 @dataclass(frozen=True)
@@ -61,7 +62,15 @@ _WARMED_Z = False
 
 
 def _apply(operator: Any, vectors: np.ndarray) -> np.ndarray:
-    if hasattr(operator, "matmat"):
+    if vectors.ndim == 2 and vectors.shape[1] > MAX_OPERATOR_COLUMNS:
+        result = np.concatenate(
+            [
+                _apply(operator, vectors[:, start : start + MAX_OPERATOR_COLUMNS])
+                for start in range(0, vectors.shape[1], MAX_OPERATOR_COLUMNS)
+            ],
+            axis=1,
+        )
+    elif hasattr(operator, "matmat"):
         result = np.asarray(operator.matmat(vectors))
     else:
         result = np.asarray(operator @ vectors)

@@ -5,8 +5,26 @@ import pytest
 
 from rsrs_experiments import ParallelSamplingConfig, run_rsrs, sample_operator
 from rsrs_experiments.cache import SampleCache
+from rsrs_experiments.runner import _apply as runner_apply
 from rsrs_experiments.runner import _block_spectral_norm, _errors
+from rsrs_experiments.sampling import _apply as sampling_apply
 from so_kernels import create_operator
+
+
+@pytest.mark.parametrize("apply", [runner_apply, sampling_apply])
+def test_operator_matrix_calls_are_limited_to_thirty_columns(apply):
+    class RecordingOperator:
+        def __init__(self):
+            self.widths = []
+
+        def matmat(self, values):
+            self.widths.append(values.shape[1])
+            return 2.0 * values
+
+    operator = RecordingOperator()
+    values = np.arange(4 * 71, dtype=float).reshape(4, 71)
+    np.testing.assert_array_equal(apply(operator, values), 2.0 * values)
+    assert operator.widths == [30, 30, 11]
 
 
 def test_block_spectral_norm_matches_dense_singular_value():
@@ -290,3 +308,6 @@ def test_sample_cache_runs_rsrs_and_extracts_errors(tmp_path):
     assert len(result.report["gmres"]["direct_rsrs_inverse"]) == 2
     assert len(result.report["gmres"]["rel_err_approx_inv"]) == 2
     assert (tmp_path / "rsrs_result" / "rsrs_report.json").is_file()
+    assert (tmp_path / "rsrs_result" / "errors_report.json").is_file()
+    assert (tmp_path / "rsrs_result" / "factorization_report.json").is_file()
+    assert (tmp_path / "rsrs_result" / "solves_report.json").is_file()

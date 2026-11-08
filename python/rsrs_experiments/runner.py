@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
+import os
 from pathlib import Path
 import tempfile
 import time
@@ -12,6 +13,7 @@ from typing import Any, Mapping
 
 import numpy as np
 from scipy.sparse.linalg import LinearOperator, gmres
+from threadpoolctl import threadpool_limits
 
 from .cache import SampleCache
 from .sampling import ParallelSamplingConfig, sample_operator
@@ -21,6 +23,107 @@ from .sampling import ParallelSamplingConfig, sample_operator
 class RsrsRunResult:
     factors: Any
     report: dict[str, Any]
+
+
+class _SingleBlasRsrsFactors:
+    """Keep BLAS serial inside Rayon-parallel RSRS factor applications."""
+
+    def __init__(self, factors: Any, *, blas_threads: int = 1):
+        self._factors = factors
+        self._blas_threads = int(blas_threads)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._factors, name)
+
+    def apply(self, values, **options):
+        with threadpool_limits(limits=self._blas_threads, user_api="blas"):
+            return self._factors.apply(values, **options)
+
+    def matvec(self, values):
+        return self.apply(values)
+
+    def matmat(self, values):
+        return self.apply(values)
+
+    def inverse_matvec(self, values):
+        return self.apply(values, inverse=True)
+
+    def inverse_matmat(self, values):
+        return self.apply(values, inverse=True)
+
+    def aslinearoperator(self, *, inverse: bool = False) -> LinearOperator:
+        dimension = int(self.dimension)
+        dtype = np.dtype(self.dtype)
+        return LinearOperator(
+            (dimension, dimension),
+            dtype=dtype,
+            matvec=lambda values: self.apply(values, inverse=inverse),
+            matmat=lambda values: self.apply(values, inverse=inverse),
+            rmatvec=lambda values: self.apply(
+                values, transpose=True, conjugate=True, inverse=inverse
+            ),
+            rmatmat=lambda values: self.apply(
+                values, transpose=True, conjugate=True, inverse=inverse
+            ),
+        )
+
+
+def _write_report_files(output: Path, report: Mapping[str, Any]) -> None:
+    """Write the combined report plus focused error and solve reports."""
+
+    output.mkdir(parents=True, exist_ok=True)
+    (output / "rsrs_report.json").write_text(json.dumps(report, indent=2) + "\n")
+    common = {
+        key: report[key]
+        for key in (
+            "created_utc",
+            "status",
+            "cache",
+            "operator",
+            "sampling_operator",
+            "dimension",
+            "dtype",
+            "sample_count",
+            "configuration",
+            "execution",
+        )
+        if key in report
+    }
+    if "errors" in report:
+        error_report = {
+            **common,
+            "errors": report["errors"],
+            "error_estimation": report.get("error_estimation", {}),
+            "error_computation_seconds": report.get("timings_seconds", {}).get(
+                "error_computation"
+            ),
+        }
+        (output / "errors_report.json").write_text(
+            json.dumps(error_report, indent=2) + "\n"
+        )
+        print(f"[report] errors={output / 'errors_report.json'}", flush=True)
+    if "rsrs" in report:
+        factorization_report = {
+            **common,
+            "factorization_seconds": report.get("timings_seconds", {}).get(
+                "factorization"
+            ),
+            "rsrs": report["rsrs"],
+        }
+        (output / "factorization_report.json").write_text(
+            json.dumps(factorization_report, indent=2) + "\n"
+        )
+        print(
+            f"[report] factorization={output / 'factorization_report.json'}",
+            flush=True,
+        )
+    if "gmres" in report:
+        solves_report = {**common, "gmres": report["gmres"]}
+        (output / "solves_report.json").write_text(
+            json.dumps(solves_report, indent=2) + "\n"
+        )
+        print(f"[report] solves={output / 'solves_report.json'}", flush=True)
+    print(f"[report] combined={output / 'rsrs_report.json'}", flush=True)
 
 
 def _linear_operator(operator: Any) -> LinearOperator:
@@ -57,11 +160,14 @@ def _gmres_report(
     restart: int | None,
     rhs_count: int,
     seed: int,
+    log_every: int = 1,
 ) -> dict[str, Any]:
     if mode == "none":
         return {"mode": mode, "solves": {}}
     if mode not in {"unpreconditioned", "preconditioned", "both"}:
         raise ValueError(f"unknown GMRES mode {mode!r}")
+    if log_every < 0:
+        raise ValueError("GMRES log_every must be nonnegative")
     if mode in {"preconditioned", "both"} and factors is None:
         raise ValueError("preconditioned GMRES requires RSRS factors")
     matrix = _linear_operator(operator)
@@ -75,6 +181,10 @@ def _gmres_report(
     if factors is not None:
         direct = []
         for column in range(rhs_count):
+            print(
+                f"[gmres][direct-rsrs] rhs={column + 1}/{rhs_count} applying inverse",
+                flush=True,
+            )
             started = time.perf_counter()
             solution = factors.inverse_matvec(rhs[:, column])
             denominator = max(
@@ -90,6 +200,12 @@ def _gmres_report(
                     "seconds": time.perf_counter() - started,
                 }
             )
+            print(
+                f"[gmres][direct-rsrs] rhs={column + 1}/{rhs_count} "
+                f"true_relative_residual={direct[-1]['final_true_relative_residual']:.6e} "
+                f"seconds={direct[-1]['seconds']:.3f}",
+                flush=True,
+            )
         report["direct_rsrs_inverse"] = direct
         report["rel_err_approx_inv"] = [
             item["final_true_relative_residual"] for item in direct
@@ -98,6 +214,23 @@ def _gmres_report(
         solves = []
         for column in range(rhs_count):
             history: list[float] = []
+            print(
+                f"[gmres][{name}] rhs={column + 1}/{rhs_count} starting "
+                f"rtol={tolerance:.3e} max_iterations={max_iterations} restart={restart}",
+                flush=True,
+            )
+
+            def record_residual(value: float) -> None:
+                residual = float(value)
+                history.append(residual)
+                iteration = len(history)
+                if log_every and (iteration == 1 or iteration % log_every == 0):
+                    print(
+                        f"[gmres][{name}] rhs={column + 1}/{rhs_count} "
+                        f"iteration={iteration} callback_residual={residual:.6e}",
+                        flush=True,
+                    )
+
             started = time.perf_counter()
             solution, info = gmres(
                 matrix,
@@ -107,7 +240,7 @@ def _gmres_report(
                 atol=0.0,
                 restart=restart,
                 maxiter=max_iterations,
-                callback=lambda value: history.append(float(value)),
+                callback=record_residual,
                 # ``legacy`` reports the preconditioned residual norm while
                 # interpreting maxiter as inner iterations, matching the
                 # historical RSRS experiment driver and its 500-iteration cap.
@@ -127,16 +260,40 @@ def _gmres_report(
                     "seconds": time.perf_counter() - started,
                 }
             )
+            print(
+                f"[gmres][{name}] rhs={column + 1}/{rhs_count} complete "
+                f"iterations={len(history)} info={int(info)} "
+                f"true_relative_residual={true_residual:.6e} "
+                f"seconds={solves[-1]['seconds']:.3f}",
+                flush=True,
+            )
         report["solves"][name] = solves
     return report
+
+
+MAX_OPERATOR_COLUMNS = 30
+
+
+def _chunked_matrix_call(method, values: np.ndarray) -> np.ndarray:
+    """Apply a matrix method without giving a backend more than 30 RHS."""
+
+    if values.ndim != 2 or values.shape[1] <= MAX_OPERATOR_COLUMNS:
+        return np.asarray(method(values))
+    return np.concatenate(
+        [
+            np.asarray(method(values[:, start : start + MAX_OPERATOR_COLUMNS]))
+            for start in range(0, values.shape[1], MAX_OPERATOR_COLUMNS)
+        ],
+        axis=1,
+    )
 
 
 def _apply(operator: Any, values: np.ndarray) -> np.ndarray:
     if values.ndim == 1 and hasattr(operator, "matvec"):
         return np.asarray(operator.matvec(values))
     if values.ndim == 2 and hasattr(operator, "matmat"):
-        return np.asarray(operator.matmat(values))
-    return np.asarray(operator @ values)
+        return _chunked_matrix_call(operator.matmat, values)
+    return _chunked_matrix_call(operator.__matmul__, values)
 
 
 def _adjoint_apply(operator: Any, values: np.ndarray) -> np.ndarray:
@@ -155,10 +312,12 @@ def _adjoint_apply(operator: Any, values: np.ndarray) -> np.ndarray:
         None,
     )
     if callable(method):
-        return np.conjugate(np.asarray(method(np.conjugate(values))))
+        return np.conjugate(_chunked_matrix_call(method, np.conjugate(values)))
     linear = operator.aslinearoperator() if hasattr(operator, "aslinearoperator") else None
     if linear is not None:
-        return np.asarray(linear.rmatvec(values) if values.ndim == 1 else linear.rmatmat(values))
+        if values.ndim == 1:
+            return np.asarray(linear.rmatvec(values))
+        return _chunked_matrix_call(linear.rmatmat, values)
     raise TypeError("spectral errors require an explicit transpose/adjoint application")
 
 
@@ -176,7 +335,7 @@ def _transpose_apply(operator: Any, values: np.ndarray) -> np.ndarray:
         None,
     )
     if callable(method):
-        return np.asarray(method(values))
+        return _chunked_matrix_call(method, values)
     raise TypeError("historical right-application errors require an algebraic transpose")
 
 
@@ -213,7 +372,7 @@ def _block_spectral_norm(
 ) -> tuple[float, dict[str, Any]]:
     """Estimate a largest singular value through block power iteration."""
 
-    width = min(max(int(block_size), 1), dimension)
+    width = min(max(int(block_size), 1), dimension, MAX_OPERATOR_COLUMNS)
     rng = np.random.default_rng(seed)
     q = rng.standard_normal((dimension, width)).astype(dtype)
     if np.issubdtype(dtype, np.complexfloating):
@@ -254,6 +413,18 @@ def _errors(
 ) -> tuple[dict[str, float], dict[str, Any]]:
     dimension = int(operator.shape[0])
     dtype = np.dtype(getattr(operator, "dtype", factors.dtype))
+    step_timings: dict[str, float] = {}
+
+    def begin_step(name: str) -> float:
+        print(f"[errors] step={name} starting", flush=True)
+        return time.perf_counter()
+
+    def end_step(name: str, started: float) -> None:
+        seconds = time.perf_counter() - started
+        step_timings[name] = seconds
+        print(f"[errors] step={name} complete seconds={seconds:.3f}", flush=True)
+
+    probe_started = begin_step("frobenius_probes")
     rng = np.random.default_rng(seed)
     test = rng.standard_normal((dimension, probes)).astype(dtype)
     rhs = rng.standard_normal((dimension, probes)).astype(dtype)
@@ -280,7 +451,9 @@ def _errors(
     metrics["norm_a_fro"] = metrics["norm_a_fro_estimate"]
     metrics["norm_apply_fro"] = metrics["norm_factor_error_fro_estimate"]
     metrics["err_solve_fro"] = metrics["inverse_residual_fro_estimate"]
+    end_step("frobenius_probes", probe_started)
 
+    application_started = begin_step("historical_application_errors")
     historical = dict(historical_options or {})
     app_samples = int(historical.pop("application_samples", 10))
     adjoint_samples = int(historical.pop("adjoint_samples", 8))
@@ -309,7 +482,9 @@ def _errors(
             ),
         }
     )
+    end_step("historical_application_errors", application_started)
 
+    adjoint_started = begin_step("adjoint_consistency")
     adjoint_width = max(adjoint_samples, 1)
     adjoint_rng = np.random.default_rng(historical_seed + 1)
     adjoint_test = adjoint_rng.standard_normal((dimension, 2 * adjoint_width)).astype(dtype)
@@ -330,19 +505,23 @@ def _errors(
     metrics["self_adjoint_apply_error"] = _column_max_relative(
         factor_adjoint(self_test), self_forward
     )
+    end_step("adjoint_consistency", adjoint_started)
 
     # Match the old sampled solve check: draw a known real-valued solution,
     # form b=A x, then compare F^{-1}b with x.
+    solve_started = begin_step("known_solution_check")
     solve_rng = np.random.default_rng(historical_seed + 2)
     known_solution = solve_rng.standard_normal(dimension).astype(dtype)
     known_rhs = _apply(operator, known_solution)
     metrics["solve_error_rhs"] = _relerr(
         factors.inverse_matvec(known_rhs), known_solution
     )
+    end_step("known_solution_check", solve_started)
 
     dense_builder = getattr(operator, "dense", None)
     estimator_report: dict[str, Any] = {"method": "disabled"}
     if callable(dense_builder) and dimension <= 2048:
+        dense_started = begin_step("exact_dense_spectral_errors")
         dense = np.asarray(dense_builder())
         identity = np.eye(dimension, dtype=dtype)
         approximate_dense = factors.matmat(identity)
@@ -373,6 +552,7 @@ def _errors(
             }
         )
         estimator_report = {"method": "exact_dense"}
+        end_step("exact_dense_spectral_errors", dense_started)
     else:
         settings = dict(spectral_options or {})
         enabled = bool(settings.pop("enabled", True))
@@ -394,6 +574,11 @@ def _errors(
         }
         if enabled:
             def estimate(name, forward, adjoint, offset):
+                print(
+                    f"[errors][spectral] estimate={name} starting "
+                    f"iterations={iterations} block_size={min(block_size, MAX_OPERATOR_COLUMNS)}",
+                    flush=True,
+                )
                 started = time.perf_counter()
                 value, details = _block_spectral_norm(
                     forward,
@@ -406,7 +591,14 @@ def _errors(
                     tolerance=tolerance,
                 )
                 details["seconds"] = time.perf_counter() - started
+                step_timings[f"spectral_{name}"] = details["seconds"]
                 estimator_report["estimates"][name] = details
+                print(
+                    f"[errors][spectral] estimate={name} complete value={value:.6e} "
+                    f"iterations={details['iterations']} converged={details['converged']} "
+                    f"seconds={details['seconds']:.3f}",
+                    flush=True,
+                )
                 return value
 
             factor_apply = lambda x: factors.matmat(x)
@@ -445,6 +637,7 @@ def _errors(
             )
     if "condition_rsrs_estimate_2" in metrics:
         metrics["cond_rsrs_estimate"] = metrics["condition_rsrs_estimate_2"]
+    estimator_report["step_timings_seconds"] = step_timings
     return metrics, estimator_report
 
 
@@ -460,6 +653,7 @@ def run_rsrs(
     operator_spec: Mapping[str, Any] | None = None,
     spectral_options: Mapping[str, Any] | None = None,
     historical_options: Mapping[str, Any] | None = None,
+    execution_options: Mapping[str, Any] | None = None,
 ) -> RsrsRunResult:
     from bempp_rsrs import InsufficientSamplesError, RsrsOptions, RsrsSession
     from so_kernels import create_operator
@@ -512,11 +706,42 @@ def run_rsrs(
             raise ValueError(
                 "target and sampling operators do not use the same ordered geometry"
             )
+    print(
+        f"[experiment] loading samples cache={cache.path} "
+        f"count={manifest['sample_count']}",
+        flush=True,
+    )
     samples = cache.sample_bundle()
+    execution = dict(execution_options or {})
+    factorization_blas_threads = int(
+        execution.pop("factorization_blas_threads", 1)
+    )
+    rsrs_apply_blas_threads = int(execution.pop("rsrs_apply_blas_threads", 1))
+    if factorization_blas_threads < 1 or rsrs_apply_blas_threads < 1:
+        raise ValueError("RSRS BLAS thread counts must be positive")
+    if execution:
+        raise ValueError(f"unknown execution options: {sorted(execution)}")
+    print(
+        "[experiment] starting RSRS factorization "
+        f"rayon_threads={options.threads.factorization_threads} "
+        f"blas_threads={factorization_blas_threads}",
+        flush=True,
+    )
     started = time.perf_counter()
     try:
-        factors = session.factorize(samples)
+        # RSRS owns its Rayon pool through ``factorization_threads``. Limit
+        # BLAS/OpenMP libraries only for this section, then restore their
+        # process settings before target-operator errors and GMRES begin.
+        with threadpool_limits(
+            limits=factorization_blas_threads, user_api="blas"
+        ):
+            factors = session.factorize(samples)
     except InsufficientSamplesError as error:
+        print(
+            "[experiment] RSRS stopped: insufficient samples "
+            f"request={vars(error.request)}",
+            flush=True,
+        )
         report = {
             "created_utc": datetime.now(timezone.utc).isoformat(),
             "status": "insufficient_samples",
@@ -528,10 +753,26 @@ def run_rsrs(
         (output / "rsrs_report.json").write_text(json.dumps(report, indent=2) + "\n")
         raise
     factorization_seconds = time.perf_counter() - started
+    diagnostic_factors = _SingleBlasRsrsFactors(
+        factors, blas_threads=rsrs_apply_blas_threads
+    )
+    print(
+        f"[experiment] RSRS factorization complete seconds={factorization_seconds:.3f}",
+        flush=True,
+    )
+    print(
+        "[experiment] starting error diagnostics "
+        f"rsrs_apply_rayon_threads={options.threads.apply_threads} "
+        f"rsrs_apply_blas_threads={rsrs_apply_blas_threads} "
+        f"OMP_NUM_THREADS={os.environ.get('OMP_NUM_THREADS', 'inherited')} "
+        f"OPENBLAS_NUM_THREADS={os.environ.get('OPENBLAS_NUM_THREADS', 'inherited')} "
+        f"MKL_NUM_THREADS={os.environ.get('MKL_NUM_THREADS', 'inherited')}",
+        flush=True,
+    )
     error_started = time.perf_counter()
     errors, error_estimation = _errors(
         operator,
-        factors,
+        diagnostic_factors,
         seed=error_seed,
         probes=error_probes,
         spectral_options=spectral_options,
@@ -540,16 +781,24 @@ def run_rsrs(
     errors["tot_num_samples"] = int(manifest["sample_count"])
     errors["residual_size"] = int(factors.report.get("residual_size", 0))
     error_seconds = time.perf_counter() - error_started
+    for name, value in errors.items():
+        if isinstance(value, (int, float, np.integer, np.floating)):
+            print(f"[errors][result] {name}={value:.6e}", flush=True)
+    print(
+        f"[experiment] error diagnostics complete seconds={error_seconds:.3f}",
+        flush=True,
+    )
     gmres_options = dict(gmres_options or {})
     gmres_result = _gmres_report(
         operator,
-        factors,
+        diagnostic_factors,
         mode=str(gmres_options.pop("mode", "none")),
         tolerance=float(gmres_options.pop("tolerance", 1.0e-7)),
         max_iterations=int(gmres_options.pop("max_iterations", 500)),
         restart=gmres_options.pop("restart", None),
         rhs_count=int(gmres_options.pop("rhs_count", 1)),
         seed=int(gmres_options.pop("seed", 1701)),
+        log_every=int(gmres_options.pop("log_every", 1)),
     )
     if gmres_options:
         raise ValueError(f"unknown GMRES options: {sorted(gmres_options)}")
@@ -563,6 +812,10 @@ def run_rsrs(
         "dtype": str(factors.dtype),
         "sample_count": manifest["sample_count"],
         "configuration": options.to_mapping(),
+        "execution": {
+            "factorization_blas_threads": factorization_blas_threads,
+            "rsrs_apply_blas_threads": rsrs_apply_blas_threads,
+        },
         "rsrs": factors.report,
         "timings_seconds": {
             "factorization": factorization_seconds,
@@ -572,9 +825,8 @@ def run_rsrs(
         "error_estimation": error_estimation,
         "gmres": gmres_result,
     }
-    output.mkdir(parents=True, exist_ok=True)
-    (output / "rsrs_report.json").write_text(json.dumps(report, indent=2) + "\n")
-    return RsrsRunResult(factors, report)
+    _write_report_files(output, report)
+    return RsrsRunResult(diagnostic_factors, report)
 
 
 def run_case(case: Mapping[str, Any]) -> RsrsRunResult | dict[str, Any]:
@@ -582,6 +834,9 @@ def run_case(case: Mapping[str, Any]) -> RsrsRunResult | dict[str, Any]:
     from so_kernels import create_operator
 
     definition = dict(case)
+    environment = {
+        str(key): str(value) for key, value in dict(definition.get("environment", {})).items()
+    }
     operator_spec = dict(definition["operator"])
     sampling_operator_spec = dict(definition.get("sampling_operator", operator_spec))
     output = Path(definition["output"])
@@ -601,6 +856,7 @@ def run_case(case: Mapping[str, Any]) -> RsrsRunResult | dict[str, Any]:
             restart=gmres_options.get("restart"),
             rhs_count=int(gmres_options.get("rhs_count", 1)),
             seed=int(gmres_options.get("seed", 1701)),
+            log_every=int(gmres_options.get("log_every", 1)),
         )
         report = {
             "created_utc": datetime.now(timezone.utc).isoformat(),
@@ -608,8 +864,7 @@ def run_case(case: Mapping[str, Any]) -> RsrsRunResult | dict[str, Any]:
             "operator": operator_spec,
             "gmres": gmres_result,
         }
-        output.mkdir(parents=True, exist_ok=True)
-        (output / "rsrs_report.json").write_text(json.dumps(report, indent=2) + "\n")
+        _write_report_files(output, report)
         return report
 
     sampling = dict(definition.get("sampling", {}))
@@ -645,6 +900,7 @@ def run_case(case: Mapping[str, Any]) -> RsrsRunResult | dict[str, Any]:
                     validation_tolerance=float(
                         sampling.pop("validation_tolerance", 5.0e-4)
                     ),
+                    environment=environment,
                 )
             )
         if sampling:
@@ -659,6 +915,7 @@ def run_case(case: Mapping[str, Any]) -> RsrsRunResult | dict[str, Any]:
             operator_spec=operator_spec,
             spectral_options=spectral_options,
             historical_options=historical_options,
+            execution_options=definition.get("execution", {}),
         )
     finally:
         if temporary_cache is not None:

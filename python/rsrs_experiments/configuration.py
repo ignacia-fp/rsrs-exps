@@ -76,6 +76,18 @@ CATALOGS: dict[str, dict[int, Choice]] = {
 
 
 DEFAULTS: dict[str, Any] = {
+    # These values are applied before Python starts, so BLAS and OpenMP-backed
+    # kernels see them during library initialisation. ``None`` preserves the
+    # surrounding shell or scheduler setting.
+    "environment": {
+        "OPENBLAS_NUM_THREADS": None,
+        "MKL_NUM_THREADS": None,
+        "OMP_NUM_THREADS": None,
+    },
+    "execution": {
+        "factorization_blas_threads": 1,
+        "rsrs_apply_blas_threads": 1,
+    },
     "operator": 0,
     "operator_parameters": {"cells_per_axis": 8},
     "sampling_operator": None,
@@ -140,6 +152,7 @@ DEFAULTS: dict[str, Any] = {
             "restart": None,
             "rhs_count": 1,
             "seed": 1701,
+            "log_every": 1,
         },
     },
 }
@@ -276,6 +289,12 @@ def compile_case(values: Mapping[str, Any], *, name: str = "case") -> dict[str, 
         "sampling": sampling,
         "rsrs": rsrs,
         "diagnostics": diagnostics,
+        "environment": {
+            str(key): value
+            for key, value in dict(case["environment"]).items()
+            if value is not None
+        },
+        "execution": dict(case["execution"]),
     }
 
 
@@ -353,7 +372,7 @@ def render_script(
             for key, value in definition.get("SLURM", {}).items()
             if value is not None
         )
-    lines += ["", "set -euo pipefail", "", "export OPENBLAS_NUM_THREADS=1", "export MKL_NUM_THREADS=1", "export OMP_NUM_THREADS=1", ""]
+    lines += ["", "set -euo pipefail", ""]
     baseline_operators: set[str] = set()
     share_baseline = bool(definition.get("SHARE_UNPRECONDITIONED", True))
     for test_name, options in tests:
@@ -368,7 +387,16 @@ def render_script(
                 gmres["mode"] = "preconditioned"
             else:
                 baseline_operators.add(identity)
-        command = f"{executable} {shlex.quote(json.dumps(case, separators=(',', ':')))}"
+        environment = " ".join(
+            f"{key}={shlex.quote(str(value))}"
+            for key, value in case.get("environment", {}).items()
+        )
+        command = (
+            f"env {environment} {executable} "
+            f"{shlex.quote(json.dumps(case, separators=(',', ':')))}"
+            if environment
+            else f"{executable} {shlex.quote(json.dumps(case, separators=(',', ':')))}"
+        )
         lines.extend((f"echo {shlex.quote('Starting ' + test_name)}", command, ""))
     output_dir.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines))

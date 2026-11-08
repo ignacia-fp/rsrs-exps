@@ -10,6 +10,7 @@ requires-python = ">=3.10"
 dependencies = [
     "numpy>=1.26,<3",
     "scipy>=1.11,<2",
+    "threadpoolctl>=3.5,<4",
     "bempp-rsrs @ git+https://github.com/bempp/rsrs.git@python-sample-interface#subdirectory=python-native",
     "so-kernels[backends] @ git+https://github.com/ignacia-fp/so-kernels.git@main",
 ]

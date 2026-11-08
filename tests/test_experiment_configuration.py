@@ -31,6 +31,43 @@ def test_numbered_options_compile_to_python_case():
     assert case["sampling"]["target"] == 100
 
 
+def test_native_thread_environment_is_preserved_in_case():
+    case = compile_case(
+        base_case(
+            environment={
+                "OPENBLAS_NUM_THREADS": 8,
+                "MKL_NUM_THREADS": 8,
+                "OMP_NUM_THREADS": 4,
+            }
+        )
+    )
+    assert case["environment"] == {
+        "OPENBLAS_NUM_THREADS": 8,
+        "MKL_NUM_THREADS": 8,
+        "OMP_NUM_THREADS": 4,
+    }
+
+
+def test_rendered_script_applies_native_threads_before_python_starts(tmp_path):
+    definition = {
+        "DEFAULTS": base_case(
+            environment={"OPENBLAS_NUM_THREADS": 6, "OMP_NUM_THREADS": 3}
+        ),
+        "TESTS": {"threaded": {}},
+        "BUNDLES": {"all": ["threaded"]},
+    }
+    path = render_script(
+        definition,
+        "all",
+        output_dir=tmp_path,
+        script_name="threaded",
+        creation_date=date(2026, 11, 8),
+    )
+    text = path.read_text()
+    assert "env OPENBLAS_NUM_THREADS=6 OMP_NUM_THREADS=3 rsrs-experiment" in text
+    assert "export OPENBLAS_NUM_THREADS=1" not in text
+
+
 def test_operator_parameters_replace_unrelated_defaults():
     case = compile_case(
         base_case(

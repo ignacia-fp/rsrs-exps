@@ -66,3 +66,26 @@ rsrs-experiment plot-errors \
   --report results/biegrid_factorisation/rsrs_report.json \
   --output results/biegrid_factorisation/errors.png
 ```
+
+Each completed experiment writes focused `factorization_report.json`,
+`errors_report.json`, and `solves_report.json` files. The factorization report
+contains the RSRS ranks, box statistics, intrinsic per-stage timings, sample
+consumption, effort, and memory statistics. The backward-compatible combined
+`rsrs_report.json` is retained for plotting and existing analysis scripts.
+
+## Thread ownership
+
+The JSON case has two independent controls:
+
+- `rsrs.factorization_threads` selects the size of RSRS's private Rayon pool;
+- `environment.OPENBLAS_NUM_THREADS`, `MKL_NUM_THREADS`, and `OMP_NUM_THREADS`
+  are applied before Python starts and control native linear algebra and
+  OpenMP-backed sampling/target operators.
+
+`execution.factorization_blas_threads` limits BLAS inside the Rayon-parallel
+factorization, and `execution.rsrs_apply_blas_threads` does the same inside
+RSRS factor and inverse applications (both default to one). Outside those
+scoped RSRS calls, Python target operators retain their requested native thread
+settings. Sampling uses process workers, so reserve approximately
+`sampling.workers` times the per-worker native thread count and avoid exceeding
+the CPUs allocated by the scheduler.
