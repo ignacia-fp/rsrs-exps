@@ -140,8 +140,12 @@ def _linear_operator(operator: Any) -> LinearOperator:
 def _right_hand_sides(operator: Any, *, count: int, seed: int) -> np.ndarray:
     provider = getattr(operator, "right_hand_sides", None)
     if callable(provider):
-        values = np.asarray(provider(count=count))
-        return values.reshape(operator.shape[0], count)
+        try:
+            values = np.asarray(provider(count=count))
+        except (AttributeError, NotImplementedError):
+            pass
+        else:
+            return values.reshape(operator.shape[0], count)
     dtype = np.dtype(operator.dtype)
     rng = np.random.default_rng(seed)
     values = rng.standard_normal((operator.shape[0], count)).astype(dtype)
@@ -651,6 +655,7 @@ def run_rsrs(
     points: np.ndarray | Path | None = None,
     gmres_options: Mapping[str, Any] | None = None,
     operator_spec: Mapping[str, Any] | None = None,
+    sampling_operator_spec: Mapping[str, Any] | None = None,
     spectral_options: Mapping[str, Any] | None = None,
     historical_options: Mapping[str, Any] | None = None,
     execution_options: Mapping[str, Any] | None = None,
@@ -668,6 +673,9 @@ def run_rsrs(
             "provide operator/operator_parameters in the experiment JSON"
         )
     target_operator_spec = dict(operator_spec or cached_operator_spec)
+    reported_sampling_operator_spec = dict(
+        sampling_operator_spec or cached_operator_spec or target_operator_spec
+    )
     if points is None:
         cached_points = cache.path / "points.npy"
         if cached_points.is_file():
@@ -807,7 +815,7 @@ def run_rsrs(
         "status": "complete",
         "cache": str(cache.path),
         "operator": target_operator_spec,
-        "sampling_operator": cached_operator_spec or target_operator_spec,
+        "sampling_operator": reported_sampling_operator_spec,
         "dimension": factors.dimension,
         "dtype": str(factors.dtype),
         "sample_count": manifest["sample_count"],
@@ -913,6 +921,7 @@ def run_case(case: Mapping[str, Any]) -> RsrsRunResult | dict[str, Any]:
             error_seed=int(diagnostics.pop("error_seed", 1701)),
             gmres_options=gmres_options,
             operator_spec=operator_spec,
+            sampling_operator_spec=sampling_operator_spec,
             spectral_options=spectral_options,
             historical_options=historical_options,
             execution_options=definition.get("execution", {}),
